@@ -37,6 +37,23 @@ app.get('/', (req, res) => {
 // Utility helpers
 const uid = () => Math.random().toString(36).substr(2, 9);
 
+// DEBUG ENDPOINT
+app.get('/api/db-check', async (req, res) => {
+  try {
+    const client = await pool.connect();
+    const result = await client.query('SELECT NOW()');
+    client.release();
+    res.json({ status: 'ok', time: result.rows[0], env: process.env.NODE_ENV });
+  } catch (err) {
+    console.error("DB Check Failed:", err);
+    res.status(500).json({ 
+      status: 'error', 
+      message: err.message,
+      code: err.code
+    });
+  }
+});
+
 // Simple auth middleware
 function auth(requiredRoles) {
   return (req, res, next) => {
@@ -235,8 +252,12 @@ app.get('/api/bootstrap', async (req, res) => {
       client.release();
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to bootstrap data' });
+    console.error("Bootstrap Error:", err);
+    res.status(500).json({ 
+      error: 'Failed to bootstrap data', 
+      message: err.message,
+      stack: process.env.NODE_ENV === 'production' ? 'hidden' : err.stack 
+    });
   }
 });
 
