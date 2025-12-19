@@ -5,7 +5,7 @@ const jwt = require('jsonwebtoken');
 const { pool } = require('./db.cjs');
 const multer = require('multer');
 const { createClient } = require('@supabase/supabase-js');
-require('dotenv').config();
+// require('dotenv').config(); // Handled in db.cjs or Vercel Env
 
 const app = express();
 const PORT = process.env.PORT || 4000;
