@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { KanbanStatus, UserRole, Project, Task, User, ProjectPriority, AppSettings } from '../types';
+import { KanbanStatus, UserRole, Project, Task, User, ProjectPriority, AppSettings, SystemLog, SystemActionType } from '../types';
 import { KANBAN_COLUMNS } from '../constants';
 import { 
   Plus, CheckCircle, Clock, EyeOff, UserPlus, 
-  History as HistoryIcon, Edit2, CheckCircle2, LayoutGrid
+  History as HistoryIcon, Edit2, CheckCircle2, LayoutGrid, X, Circle
 } from 'lucide-react';
 import { sendTelegramNotification, escapeHTML } from '../utils';
 import { useToast } from './Toast';
+import { useAppStore } from '../context/StoreContext';
 
 interface KanbanProps {
   projects: Project[];
@@ -22,10 +23,12 @@ interface KanbanProps {
 
 const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings, onAddProject, onUpdateProject, toast, onCelebrate }) => {
   const router = useRouter(); 
+  const { logs } = useAppStore(); // Access logs from store
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
+  const [historyProject, setHistoryProject] = useState<Project | null>(null); // State for history modal
 
   const [activeTab, setActiveTab] = useState<'priority' | 'deadline' | 'search'>('priority');
   const [searchQuery, setSearchQuery] = useState('');
@@ -236,10 +239,27 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
                     key={project.id}
                     draggable
                     onDragStart={(e) => onDragStart(e, project.id)}
-                    onClick={() => setSelectedProject(project)}
                     className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200 cursor-grab active:cursor-grabbing hover:border-blue-500 hover:shadow-xl transition-all group relative overflow-hidden"
                   >
-                    <div className="flex justify-between items-start mb-4">
+                    {/* Action Buttons (Top Right) */}
+                    <div className="absolute top-4 right-4 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                       <button 
+                          onClick={(e) => { e.stopPropagation(); setHistoryProject(project); }} 
+                          className="p-2 rounded-xl text-slate-400 hover:bg-blue-50 hover:text-blue-600 transition"
+                          title="Lihat Riwayat & Log Aktivitas"
+                       >
+                          <HistoryIcon size={16} />
+                       </button>
+                       <button 
+                          onClick={(e) => { e.stopPropagation(); setSelectedProject(project); }} 
+                          className="p-2 rounded-xl text-slate-400 hover:bg-amber-50 hover:text-amber-600 transition"
+                          title="Edit & Detail Proyek"
+                       >
+                          <Edit2 size={16} />
+                       </button>
+                    </div>
+
+                    <div className="flex justify-between items-start mb-4 pr-16">
                       <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-lg ${
                         project.priority === 'High' ? 'bg-rose-500 text-white shadow-lg shadow-rose-100' : 
                         project.priority === 'Medium' ? 'bg-amber-500 text-white shadow-lg shadow-amber-100' : 'bg-blue-500 text-white shadow-lg shadow-blue-100'
@@ -281,9 +301,89 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
           onClose={() => setSelectedProject(null)} onEditProject={() => { setEditingProject(selectedProject); setSelectedProject(null); }}
           onUpdate={(p: Project) => { onUpdateProject(p); setSelectedProject(p); }} onMoveStatus={handleMoveStatus} toast={toast} />
       )}
+      
+      {historyProject && (
+        <ProjectLogModal 
+          project={historyProject} 
+          logs={logs} 
+          onClose={() => setHistoryProject(null)} 
+        />
+      )}
     </div>
   );
 };
+
+// --- MODAL COMPONENTS ---
+
+interface ProjectLogModalProps {
+  project: Project;
+  logs: SystemLog[];
+  onClose: () => void;
+}
+
+const ProjectLogModal: React.FC<ProjectLogModalProps> = ({ project, logs, onClose }) => {
+  // Filter logs only for this project
+  const projectLogs = useMemo(() => {
+    return logs.filter(log => log.target === project.id).sort((a, b) => b.timestamp - a.timestamp);
+  }, [logs, project.id]);
+
+  const translateAction = (type: string) => {
+    switch(type) {
+      case SystemActionType.PROJECT_CREATE: return '✨ Proyek dibuat';
+      case SystemActionType.PROJECT_UPDATE: return '📝 Detail diperbarui';
+      case SystemActionType.PROJECT_MOVE_STATUS: return '🔄 Status berubah';
+      case SystemActionType.PROJECT_TASK_COMPLETE: return '✅ Tugas selesai';
+      case SystemActionType.PROJECT_COMMENT: return '💬 Komentar baru';
+      default: return type.replace(/_/g, ' ');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+      <div className="bg-white rounded-[2rem] w-full max-w-md overflow-hidden flex flex-col shadow-2xl">
+        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+          <div>
+            <h4 className="font-black text-slate-800 text-lg flex items-center gap-2">
+              <HistoryIcon size={18} className="text-blue-500" />
+              RIWAYAT PROYEK
+            </h4>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">{project.title}</p>
+          </div>
+          <button onClick={onClose} className="p-2 bg-white rounded-xl hover:bg-rose-50 text-slate-400 hover:text-rose-500 transition shadow-sm"><X size={18}/></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-0 custom-scrollbar max-h-[60vh]">
+          {projectLogs.length > 0 ? (
+            <div className="divide-y divide-slate-50">
+              {projectLogs.map(log => (
+                <div key={log.id} className="p-5 hover:bg-slate-50 transition-colors flex gap-4">
+                  <div className="flex flex-col items-center gap-1">
+                     <Circle size={10} className="text-blue-300 fill-blue-300" />
+                     <div className="w-0.5 h-full bg-slate-100 rounded-full"></div>
+                  </div>
+                  <div className="flex-1 space-y-1 pb-2">
+                     <div className="flex justify-between items-start">
+                        <span className="text-[10px] font-black uppercase text-blue-600 bg-blue-50 px-2 py-0.5 rounded-lg tracking-wider">
+                           {translateAction(log.actionType)}
+                        </span>
+                        <span className="text-[9px] text-slate-300 font-bold">{new Date(log.timestamp).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', hour:'2-digit', minute:'2-digit' })}</span>
+                     </div>
+                     <p className="text-xs font-medium text-slate-600 leading-relaxed">{log.details}</p>
+                     <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Oleh: {log.actorName}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-10 text-center text-slate-400 flex flex-col items-center gap-2">
+               <HistoryIcon size={32} className="opacity-20" />
+               <p className="text-xs font-bold">Belum ada riwayat aktivitas tercatat.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface ProjectModalProps {
   users: User[];
