@@ -20,19 +20,23 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   useEffect(() => {
     if (!store.loaded) return; 
     
-    // Redirect if not logged in
+    // Redirect if not logged in and not on login page
     if (!store.currentUser) {
-      router.replace('/login');
+      // Don't redirect if we are already on login page to avoid loops
+      if (pathname !== '/login') {
+          router.replace('/login');
+      }
       return;
     }
 
     // Redirect if role mismatch
     const userRoleSlug = store.currentUser.role.toLowerCase();
+    // Only redirect if roleParam exists AND it doesn't match currentUser role
     if (roleParam && roleParam !== userRoleSlug) {
       router.replace(`/${userRoleSlug}/kanban`);
     }
 
-  }, [store.loaded, store.currentUser, roleParam, router]);
+  }, [store.loaded, store.currentUser, roleParam, router, pathname]);
 
   if (!store.loaded) {
     return (

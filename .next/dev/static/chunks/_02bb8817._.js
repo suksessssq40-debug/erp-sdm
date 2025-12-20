@@ -445,13 +445,17 @@ function ClientShell({ children }) {
     (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useEffect"])({
         "ClientShell.useEffect": ()=>{
             if (!store.loaded) return;
-            // Redirect if not logged in
+            // Redirect if not logged in and not on login page
             if (!store.currentUser) {
-                router.replace('/login');
+                // Don't redirect if we are already on login page to avoid loops
+                if (pathname !== '/login') {
+                    router.replace('/login');
+                }
                 return;
             }
             // Redirect if role mismatch
             const userRoleSlug = store.currentUser.role.toLowerCase();
+            // Only redirect if roleParam exists AND it doesn't match currentUser role
             if (roleParam && roleParam !== userRoleSlug) {
                 router.replace(`/${userRoleSlug}/kanban`);
             }
@@ -460,7 +464,8 @@ function ClientShell({ children }) {
         store.loaded,
         store.currentUser,
         roleParam,
-        router
+        router,
+        pathname
     ]);
     if (!store.loaded) {
         return /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -470,12 +475,12 @@ function ClientShell({ children }) {
                 children: "Memuat data sistem..."
             }, void 0, false, {
                 fileName: "[project]/src/components/ClientShell.tsx",
-                lineNumber: 40,
+                lineNumber: 44,
                 columnNumber: 9
             }, this)
         }, void 0, false, {
             fileName: "[project]/src/components/ClientShell.tsx",
-            lineNumber: 39,
+            lineNumber: 43,
             columnNumber: 7
         }, this);
     }
@@ -503,7 +508,7 @@ function ClientShell({ children }) {
             children: children
         }, void 0, false, {
             fileName: "[project]/src/components/ClientShell.tsx",
-            lineNumber: 60,
+            lineNumber: 64,
             columnNumber: 7
         }, this)
     }, void 0, false);
