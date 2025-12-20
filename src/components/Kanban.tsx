@@ -1,10 +1,10 @@
-
 import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { KanbanStatus, UserRole, Project, Task, User, ProjectPriority, AppSettings } from '../types';
 import { KANBAN_COLUMNS } from '../constants';
 import { 
   Plus, CheckCircle, Clock, EyeOff, UserPlus, 
-  History as HistoryIcon, Edit2, CheckCircle2
+  History as HistoryIcon, Edit2, CheckCircle2, LayoutGrid
 } from 'lucide-react';
 import { sendTelegramNotification, escapeHTML } from '../utils';
 import { useToast } from './Toast';
@@ -21,10 +21,56 @@ interface KanbanProps {
 }
 
 const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings, onAddProject, onUpdateProject, toast, onCelebrate }) => {
+  const router = useRouter(); 
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
+
+  const [activeTab, setActiveTab] = useState<'priority' | 'deadline' | 'search'>('priority');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Project[]>([]);
+
+  // Filter visible projects first (Role based)
+  const baseProjects = projects.filter(p => {
+    if (p.isManagementOnly) {
+      return [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(currentUser.role);
+    }
+    return true;
+  });
+
+  // Handle Search Autocomplete
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setSearchQuery(val);
+    if (val.length >= 3) {
+      const matches = baseProjects.filter(p => p.title.toLowerCase().includes(val.toLowerCase()));
+      setSearchResults(matches);
+    } else {
+      setSearchResults([]);
+    }
+  };
+
+  const getProcessedProjects = () => {
+    let processed = [...baseProjects];
+
+    // 1. FILTERING
+    if (activeTab === 'search' && searchQuery.length >= 3) {
+      processed = processed.filter(p => p.title.toLowerCase().includes(searchQuery.toLowerCase()));
+    }
+
+    // 2. SORTING
+    if (activeTab === 'priority') {
+      const weight = { 'High': 3, 'Medium': 2, 'Low': 1 };
+      processed.sort((a, b) => weight[b.priority] - weight[a.priority]);
+    } else if (activeTab === 'deadline') {
+      processed.sort((a, b) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime());
+    }
+
+    return processed;
+  };
+
+  const finalProjects = getProcessedProjects();
 
   // Helper function to send notifications consistently
   const notifyTelegram = (title: string, content: string, project: Project) => {
@@ -98,23 +144,73 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
     setDraggedProjectId(null);
   };
 
-  const visibleProjects = projects.filter(p => {
-    if (p.isManagementOnly) {
-      return [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(currentUser.role);
-    }
-    return true;
-  });
-
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h3 className="text-xl font-bold text-slate-800">Papan Proyek SDM</h3>
-          <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">DRAG & DROP UNTUK UPDATE STATUS</p>
+      <div className="space-y-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h3 className="text-xl font-bold text-slate-800">Papan Proyek SDM</h3>
+            <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">DRAG & DROP UNTUK UPDATE STATUS</p>
+          </div>
+          <div className="flex gap-3 w-full md:w-auto">
+             <button onClick={() => router.push(`/${currentUser.role.toLowerCase()}/projects`)} className="bg-slate-100 text-slate-600 px-5 py-3 rounded-2xl flex items-center justify-center space-x-2 hover:bg-slate-200 transition flex-1 md:flex-none">
+               <LayoutGrid size={20} /> <span className="font-black text-xs uppercase tracking-widest">DETAIL VIEW</span>
+             </button>
+             <button onClick={() => setShowAddModal(true)} className="bg-blue-600 text-white px-5 py-3 rounded-2xl flex items-center justify-center space-x-2 hover:bg-blue-700 transition shadow-xl shadow-blue-200 flex-1 md:flex-none">
+               <Plus size={20} /> <span className="font-black text-xs uppercase tracking-widest">PROYEK BARU</span>
+             </button>
+          </div>
         </div>
-        <button onClick={() => setShowAddModal(true)} className="bg-blue-600 text-white px-5 py-3 rounded-2xl flex items-center justify-center space-x-2 hover:bg-blue-700 transition shadow-xl shadow-blue-200">
-          <Plus size={20} /> <span className="font-black text-xs uppercase tracking-widest">PROYEK BARU</span>
-        </button>
+
+        {/* Navigation Tabs */}
+        <div className="flex flex-col md:flex-row gap-4 items-start md:items-center">
+           <div className="flex p-1 bg-slate-100 rounded-2xl w-full md:w-auto">
+              {(['priority', 'deadline', 'search'] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`flex-1 md:flex-none px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                    activeTab === tab 
+                      ? 'bg-white text-blue-600 shadow-md transform scale-105' 
+                      : 'text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+           </div>
+           
+           {/* Search Input Area */}
+           {activeTab === 'search' && (
+             <div className="relative w-full md:w-96 animate-in slide-in-from-left duration-300">
+               <input 
+                 className="w-full p-3 pl-10 bg-white border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition"
+                 placeholder="Ketik minimal 3 huruf..."
+                 value={searchQuery}
+                 onChange={handleSearchChange}
+               />
+               <div className="absolute left-3 top-3 text-slate-400">
+                  <EyeOff size={16} className="rotate-180" /> 
+               </div>
+               
+               {/* Autocomplete Dropdown */}
+               {searchResults.length > 0 && searchQuery.length >= 3 && (
+                 <div className="absolute top-12 left-0 right-0 bg-white border border-slate-100 shadow-2xl rounded-2xl p-2 z-50 max-h-60 overflow-y-auto custom-scrollbar">
+                    {searchResults.map(p => (
+                      <div 
+                        key={p.id} 
+                        onClick={() => { setSearchQuery(p.title); setSearchResults([]); }}
+                        className="p-3 hover:bg-blue-50 rounded-xl cursor-pointer"
+                      >
+                         <p className="text-xs font-black text-slate-800">{p.title}</p>
+                         <p className="text-[9px] text-slate-400 uppercase tracking-widest mt-1">Status: {p.status}</p>
+                      </div>
+                    ))}
+                 </div>
+               )}
+             </div>
+           )}
+        </div>
       </div>
 
       <div className="flex overflow-x-auto pb-6 gap-4 md:gap-6 snap-x custom-scrollbar min-h-[70vh]">
@@ -128,12 +224,12 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
             <div className={`px-5 py-3 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] ${col.color} flex justify-between items-center shadow-sm`}>
               <span>{col.label}</span>
               <span className="bg-white/40 px-2.5 py-1 rounded-lg">
-                {visibleProjects.filter(p => p.status === col.id).length}
+                {finalProjects.filter(p => p.status === col.id).length}
               </span>
             </div>
             
             <div className="flex-1 overflow-y-auto space-y-4 pr-1 custom-scrollbar min-h-[400px]">
-              {visibleProjects
+              {finalProjects
                 .filter(p => p.status === col.id)
                 .map(project => (
                   <div 
@@ -160,8 +256,11 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
                           </div>
                         ))}
                       </div>
-                      <div className="text-[9px] font-black text-rose-500 bg-rose-50 px-2 py-1 rounded-lg flex items-center">
-                        <Clock size={10} className="mr-1" /> {new Date(project.deadline).toLocaleDateString('id-ID', {day: 'numeric', month: 'short'})}
+                      <div className={`text-[9px] font-black px-2 py-1 rounded-lg flex items-center ${
+                        new Date(project.deadline) < new Date() && project.status !== KanbanStatus.DONE ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-slate-50 text-slate-400'
+                      }`}>
+                        <Clock size={10} className="mr-1" /> 
+                        {new Date(project.deadline) < new Date() && project.status !== KanbanStatus.DONE ? 'OVERDUE' : new Date(project.deadline).toLocaleDateString('id-ID', {day: 'numeric', month: 'short'})}
                       </div>
                     </div>
                   </div>
@@ -259,18 +358,18 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ users, currentUser, initial
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4">
       <div className="bg-white rounded-[3rem] w-full max-w-2xl overflow-hidden flex flex-col shadow-2xl border border-white/20 animate-in zoom-in duration-300">
-        <div className="p-8 border-b border-slate-100 flex justify-between items-center">
-          <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tight">{initialData ? 'Update Proyek' : 'Konfigurasi Proyek Baru'}</h3>
+        <div className="p-6 md:p-8 border-b border-slate-100 flex justify-between items-center">
+          <h3 className="text-xl md:text-2xl font-black text-slate-800 uppercase tracking-tight">{initialData ? 'Update Proyek' : 'Konfigurasi Proyek Baru'}</h3>
           <button onClick={onClose} className="p-3 bg-slate-100 rounded-2xl hover:bg-rose-500 hover:text-white transition">✕</button>
         </div>
-        <div className="p-8 space-y-8 overflow-y-auto max-h-[70vh] custom-scrollbar">
+        <div className="p-6 md:p-8 space-y-8 overflow-y-auto max-h-[70vh] custom-scrollbar">
           <div className="space-y-4">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Judul Proyek</label>
-            <input className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-2xl outline-none font-black text-xl transition" 
+            <input className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-2xl outline-none font-black text-lg md:text-xl transition" 
               value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} placeholder="Nama Proyek..." />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <button onClick={() => setFormData({...formData, isManagementOnly: false})} className={`py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest border-2 transition-all ${!formData.isManagementOnly ? 'bg-blue-600 border-blue-600 text-white shadow-lg' : 'bg-slate-50 border-transparent text-slate-400'}`}>SEMUA TIM</button>
             <button onClick={() => setFormData({...formData, isManagementOnly: true})} className={`py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest border-2 transition-all ${formData.isManagementOnly ? 'bg-slate-900 border-slate-900 text-white shadow-lg' : 'bg-slate-50 border-transparent text-slate-400'}`}>MANAGEMENT ONLY</button>
           </div>
@@ -302,7 +401,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ users, currentUser, initial
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-4">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Prioritas</label>
               <select className="w-full p-4 bg-slate-50 rounded-2xl font-black text-xs uppercase outline-none focus:border-blue-600 border-2 border-transparent transition" value={formData.priority} onChange={e => setFormData({...formData, priority: e.target.value as ProjectPriority})}>
@@ -355,7 +454,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ users, currentUser, initial
             </div>
           </div>
         </div>
-        <div className="p-8 bg-slate-50 flex gap-4">
+        <div className="p-6 md:p-8 bg-slate-50 flex gap-4">
           <button onClick={onClose} className="flex-1 py-4 text-slate-500 font-black uppercase tracking-widest hover:bg-slate-100 rounded-2xl text-[10px] transition">BATAL</button>
           <button onClick={handleSave} className="flex-1 bg-slate-900 text-white py-4 rounded-[1.5rem] font-black uppercase tracking-widest text-[10px] shadow-xl shadow-slate-200 hover:bg-blue-600 transition">SIMPAN PROYEK</button>
         </div>
