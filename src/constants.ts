@@ -9,8 +9,8 @@ export const KANBAN_COLUMNS = [
   { id: KanbanStatus.DONE, label: 'Done', color: 'bg-emerald-100 text-emerald-700' },
 ];
 
-export const INITIAL_OFFICE_LOCATION = { lat: -6.200000, lng: 106.816666 }; // Jakarta Default
-export const OFFICE_RADIUS_METERS = 100; // Increased from 10 to 100 for better reliability in browsers
+export const INITIAL_OFFICE_LOCATION = { lat: -7.826390, lng: 111.987060 }; // Jakarta Default
+export const OFFICE_RADIUS_METERS = 10; // Increased from 10 to 100 for better reliability in browsers
 
 export const ROLE_LABELS: Record<UserRole, string> = {
   [UserRole.OWNER]: 'Owner',
