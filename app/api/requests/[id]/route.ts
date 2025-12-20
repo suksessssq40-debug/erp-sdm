@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { authorize } from '@/lib/auth';
 
-export async function PUT(request: Request, { params }: { params: { id: string } }) {
+export async function PUT(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     await authorize(['OWNER', 'MANAGER']); // Only management can update status/edit requests generally
     const id = params.id;

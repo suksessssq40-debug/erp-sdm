@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { authorize } from '@/lib/auth';
 
-export async function PUT(request: Request, { params }: { params: { userId: string } }) {
+export async function PUT(request: Request, props: { params: Promise<{ userId: string }> }) {
+  const params = await props.params;
   try {
     await authorize(['OWNER', 'FINANCE']);
     const userId = params.userId;
