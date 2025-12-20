@@ -26,7 +26,17 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const todayStr = new Date().toDateString();
+  const [currentDate, setCurrentDate] = useState(new Date());
+
+  // AUTO-REFRESH DATE LOGIC (Fixes "Stale State" issue when tab is left open overnight)
+  useEffect(() => {
+    const timer = setInterval(() => {
+        setCurrentDate(new Date());
+    }, 60000); // Check every minute
+    return () => clearInterval(timer);
+  }, []);
+
+  const todayStr = currentDate.toDateString();
   const myAttendanceToday = attendanceLog.find(a => a.userId === currentUser.id && a.date === todayStr);
 
   const handleStartCheckIn = () => {
@@ -157,7 +167,7 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
              const record: Attendance = {
                id: Math.random().toString(36).substr(2, 9),
                userId: currentUser.id,
-               date: todayStr,
+               date: todayStr, // Uses the fresh auto-refreshed date
                timeIn: new Date().toLocaleTimeString('id-ID'),
                isLate,
                lateReason: isLate ? lateReason : undefined,
@@ -193,15 +203,35 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
     }
   };
 
+  // Clock Formatter
+  const timeString = currentDate.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+  const dateString = currentDate.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
       <div className="lg:col-span-2 space-y-6">
         <div className="bg-white p-10 rounded-[3rem] shadow-xl border border-slate-100 flex flex-col items-center justify-center text-center space-y-8 min-h-[500px] relative overflow-hidden">
           {stage === 'IDLE' && (
             <>
-              <div className="w-24 h-24 bg-blue-100 rounded-[2rem] flex items-center justify-center text-blue-600 shadow-lg shadow-blue-50 mb-2 animate-in fade-in zoom-in duration-500">
-                <Clock size={48} />
+              <div className="flex flex-col items-center animate-in fade-in zoom-in duration-500">
+                <div className="bg-slate-50 border border-slate-100 px-6 py-3 rounded-2xl flex items-center gap-4 mb-6 shadow-sm">
+                    <div className="text-right">
+                        <p className="text-2xl font-black text-slate-800 leading-none tracking-tight">{timeString}</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{dateString}</p>
+                    </div>
+                    <div className="h-8 w-[1px] bg-slate-200"></div>
+                    <div className="flex items-center gap-2">
+                         <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold uppercase text-xs">
+                             {currentUser.name.charAt(0)}
+                         </div>
+                    </div>
+                </div>
+
+                <div className="w-24 h-24 bg-blue-100 rounded-[2rem] flex items-center justify-center text-blue-600 shadow-lg shadow-blue-50 mb-2">
+                   <Clock size={48} />
+                </div>
               </div>
+
               <div className="space-y-2">
                 <h3 className="text-3xl font-black text-slate-800 tracking-tight">Portal Absensi SDM</h3>
                 <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Silahkan lakukan absensi masuk atau pulang harian</p>
