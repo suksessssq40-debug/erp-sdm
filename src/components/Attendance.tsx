@@ -207,6 +207,16 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
                 <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Silahkan lakukan absensi masuk atau pulang harian</p>
               </div>
 
+              {/* REPORT BUTTON CTA for Owner/Finance */}
+              {(currentUser.role === UserRole.OWNER || currentUser.role === UserRole.FINANCE) && (
+                 <button 
+                  onClick={() => window.location.href = `/${currentUser.role.toLowerCase()}/attendance/report`} // Use soft navigation ideally, but window location works here for route change
+                  className="absolute top-8 right-8 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl flex items-center space-x-2 text-[10px] font-black uppercase tracking-widest hover:border-blue-500 hover:text-blue-600 transition shadow-sm"
+                 >
+                    <History size={14} /> <span>LAPORAN DETAIL</span>
+                 </button>
+              )}
+
               {!myAttendanceToday ? (
                 <button 
                   onClick={handleStartCheckIn}
