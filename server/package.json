@@ -2,10 +2,10 @@
   "name": "sdm-erp-backend",
   "version": "1.0.0",
   "private": true,
-  "main": "index.js",
+  "main": "index.cjs",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
+    "start": "node index.cjs",
+    "dev": "nodemon index.cjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

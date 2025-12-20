@@ -294,7 +294,9 @@ app.post('/api/login', async (req, res) => {
     }
 
     // Device Lock
-    if (u.device_id && deviceId && u.device_id !== deviceId) {
+    // Device Lock (Only applies to STAFF to prevent attendance fraud)
+    // Owner, Manager, Finance are exempt from device locking
+    if (u.role === 'STAFF' && u.device_id && deviceId && u.device_id !== deviceId) {
        console.log(`Security Alert: User ${u.name} mismatch device`);
        return res.status(403).json({ error: 'DEVICE_LOCKED_MISMATCH', message: 'Locked to another device.' });
     }
