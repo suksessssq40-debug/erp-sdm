@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '../context/StoreContext';
 import { ChatRoom, ChatMessage, User } from '../types';
-import { Send, Plus, Users, Hash, MessageSquare, Image as ImageIcon, MoreVertical, X, Search, FileText, Reply, Paperclip, Download, ExternalLink } from 'lucide-react';
+import { Send, Plus, Users, Hash, MessageSquare, Image as ImageIcon, MoreVertical, X, Search, FileText, Reply, Paperclip, Download, ExternalLink, ArrowLeft } from 'lucide-react';
 import { useToast } from './Toast';
 
 export default function ChatModule() {
@@ -148,20 +148,16 @@ export default function ChatModule() {
   };
 
   const renderContentWithMentions = (text: string) => {
-    // Regex for @Username. Assuming simple usernames without spaces or special logic
-    // We can also try to match exact usernames from store.users if needed
     const regex = /(@\w+)/g;
     return text.split(regex).map((part, i) => {
       if (part.startsWith('@')) {
-        // Highlight logic
         return <span key={i} className="text-blue-500 font-bold bg-blue-50 px-1 rounded cursor-pointer hover:underline">{part}</span>;
       }
       return part;
     });
   };
 
-  // ... (Room management functions same as before) 
-  const handleCreateRoom = async () => { /* ... */ 
+  const handleCreateRoom = async () => { 
     if (!newRoomName) return;
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE || ''}/api/chat/rooms`, {
@@ -176,7 +172,7 @@ export default function ChatModule() {
     } catch (e) { toast.error('Failed to create room'); }
   };
 
-  const handleAddMember = async () => { /* ... */ 
+  const handleAddMember = async () => { 
     if (!activeRoomId || selectedMembers.length === 0) return;
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE || ''}/api/chat/rooms/members`, {
@@ -198,38 +194,48 @@ export default function ChatModule() {
   const formatTime = (ts: number) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   return (
-    <div className="flex h-[calc(100vh-120px)] bg-white rounded-[2rem] shadow-xl border border-slate-100 overflow-hidden font-sans">
+    <div className="flex h-[80vh] md:h-[calc(100vh-140px)] bg-white rounded-[1rem] md:rounded-[2rem] shadow-xl border border-slate-100 overflow-hidden font-sans relative">
       
-      {/* SIDEBAR (Use previous logic) */}
-      <div className="w-80 bg-slate-50 border-r border-slate-100 flex flex-col hidden md:flex">
-         <div className="p-6 border-b border-slate-100">
-          <div className="flex items-center justify-between mb-6">
+      {/* SIDEBAR */}
+      <div className={`
+        w-full md:w-80 bg-slate-50 border-r border-slate-100 flex-col
+        ${activeRoomId ? 'hidden md:flex' : 'flex'} 
+      `}>
+         <div className="p-4 md:p-6 border-b border-slate-100 flex-shrink-0">
+          <div className="flex items-center justify-between mb-4 md:mb-6">
             <h2 className="text-xl font-black text-slate-800 tracking-tight">Channels</h2>
-            <button onClick={() => setIsCreatingRoom(true)} className="p-2 bg-slate-200 rounded-full hover:bg-slate-300 transition">
+            <button onClick={() => setIsCreatingRoom(true)} className="p-3 bg-slate-200 rounded-full hover:bg-slate-300 transition active:scale-95">
               <Plus size={18} className="text-slate-700"/>
             </button>
           </div>
           <div className="relative">
              <Search size={14} className="absolute left-3 top-3 text-slate-400" />
-             <input className="w-full bg-white pl-9 pr-4 py-2 rounded-xl text-xs font-bold border-none shadow-sm focus:ring-2 focus:ring-blue-100" placeholder="Search..." />
+             <input className="w-full bg-white pl-9 pr-4 py-3 rounded-xl text-xs font-bold border-none shadow-sm focus:ring-2 focus:ring-blue-100" placeholder="Search..." />
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2">
+        
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-2 md:p-4 space-y-2">
            {rooms.map(room => (
-             <button key={room.id} onClick={() => setActiveRoomId(room.id)} className={`w-full text-left p-4 rounded-2xl transition-all duration-200 group flex items-start space-x-3 ${activeRoomId === room.id ? 'bg-white shadow-lg shadow-blue-100 ring-1 ring-slate-100' : 'hover:bg-white hover:shadow-sm'}`}>
-                <div className={`p-2 rounded-lg ${activeRoomId === room.id ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-500 group-hover:bg-blue-100 group-hover:text-blue-600'}`}>
-                   {room.type === 'GROUP' ? <Hash size={18} /> : <Users size={18} />}
+             <button 
+               key={room.id}
+               onClick={() => setActiveRoomId(room.id)}
+               className={`w-full text-left p-4 rounded-2xl transition-all duration-200 group flex items-start space-x-3 
+                 ${activeRoomId === room.id ? 'bg-white shadow-lg shadow-blue-100 ring-1 ring-slate-100' : 'hover:bg-white/60 active:bg-white'}
+               `}
+             >
+                <div className={`p-3 rounded-xl flex-shrink-0 ${activeRoomId === room.id ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-500 group-hover:bg-blue-100 group-hover:text-blue-600'}`}>
+                   {room.type === 'GROUP' ? <Hash size={20} /> : <Users size={20} />}
                 </div>
                 <div className="flex-1 min-w-0">
-                   <div className="flex justify-between items-baseline">
-                      <h4 className={`text-sm font-bold truncate ${activeRoomId === room.id ? 'text-slate-900' : 'text-slate-600'}`}>{room.name}</h4>
-                      {room.lastMessage && <span className="text-[10px] text-slate-400 font-medium">{formatTime(Number(room.lastMessage.timestamp))}</span>}
+                   <div className="flex justify-between items-baseline mb-1">
+                      <h4 className={`text-sm font-bold truncate ${activeRoomId === room.id ? 'text-slate-900' : 'text-slate-700'}`}>{room.name}</h4>
+                      {room.lastMessage && <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap ml-2">{formatTime(Number(room.lastMessage.timestamp))}</span>}
                    </div>
                    {room.lastMessage ? (
-                      <p className="text-xs text-slate-400 truncate mt-1">
-                        <span className="font-bold text-slate-500">{room.lastMessage.senderName}:</span> {room.lastMessage.content}
+                      <p className={`text-xs truncate ${activeRoomId === room.id ? 'text-slate-500' : 'text-slate-400'}`}>
+                        <span className="font-bold">{room.lastMessage.senderName}:</span> {room.lastMessage.content}
                       </p>
-                   ) : <p className="text-[10px] text-slate-300 italic mt-1">No messages yet</p>}
+                   ) : <p className="text-[10px] text-slate-300 italic">No messages yet</p>}
                 </div>
              </button>
            ))}
@@ -237,29 +243,40 @@ export default function ChatModule() {
       </div>
 
       {/* MAIN CHAT AREA */}
-      <div className="flex-1 flex flex-col bg-white">
+      <div className={`
+        flex-1 flex-col bg-white h-full relative
+        ${!activeRoomId ? 'hidden md:flex' : 'flex'}
+      `}>
         {activeRoom ? (
           <>
             {/* HEADER */}
-            <div className="h-20 border-b border-slate-50 px-8 flex items-center justify-between sticky top-0 bg-white/80 backdrop-blur-md z-10">
-               <div className="flex items-center space-x-4">
-                  <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center">
+            <div className="h-16 md:h-20 border-b border-slate-50 px-4 md:px-8 flex items-center justify-between sticky top-0 bg-white/90 backdrop-blur-md z-30 shadow-sm md:shadow-none">
+               <div className="flex items-center space-x-3 md:space-x-4 overflow-hidden">
+                  {/* Back Button for Mobile */}
+                  <button 
+                    onClick={() => setActiveRoomId(null)}
+                    className="md:hidden p-2 -ml-2 text-slate-500 hover:bg-slate-50 rounded-full"
+                  >
+                    <ArrowLeft size={24} />
+                  </button>
+
+                  <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex-shrink-0 flex items-center justify-center">
                      <Hash size={20} />
                   </div>
-                  <div>
-                    <h3 className="text-lg font-black text-slate-800">{activeRoom.name}</h3>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{activeRoom.memberIds?.length || 0} MEMBERS</p>
+                  <div className="min-w-0">
+                    <h3 className="text-base md:text-lg font-black text-slate-800 truncate">{activeRoom.name}</h3>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">{activeRoom.memberIds?.length || 0} MEMBERS</p>
                   </div>
                </div>
-               <div className="flex items-center space-x-2">
-                  <button onClick={() => setIsAddingMember(true)} className="flex items-center space-x-2 px-4 py-2 bg-slate-50 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition">
-                     <Users size={14} /> <span className="hidden md:inline">Add People</span>
+               <div className="flex items-center space-x-2 flex-shrink-0">
+                  <button onClick={() => setIsAddingMember(true)} className="flex items-center space-x-2 p-2 md:px-4 md:py-2 bg-slate-50 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition">
+                     <Users size={16} /> <span className="hidden md:inline">Add People</span>
                   </button>
                </div>
             </div>
 
             {/* MESSAGES LIST */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 space-y-6">
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 space-y-6 bg-slate-50/30">
                {messages.map((msg, idx) => {
                  const isMe = msg.senderId === store.currentUser?.id;
                  const showHeader = idx === 0 || messages[idx-1].senderId !== msg.senderId || (msg.createdAt - messages[idx-1].createdAt > 300000); 
@@ -280,20 +297,20 @@ export default function ChatModule() {
                          )}
                          
                          {/* Reply Bubble */}
-                         <div className="relative group/msg">
+                         <div className="relative group/msg max-w-full">
                             {/* Reply Action Button */}
                             <button 
                                 onClick={() => setReplyingTo(msg)}
-                                className={`absolute top-2 ${isMe ? '-left-8' : '-right-8'} p-1.5 rounded-full bg-slate-100 text-slate-400 opacity-0 group-hover/msg:opacity-100 hover:bg-blue-100 hover:text-blue-600 transition scale-75 shadow-sm`}
+                                className={`absolute top-2 ${isMe ? '-left-10' : '-right-10'} p-2 rounded-full bg-slate-200 text-slate-500 opacity-0 group-hover/msg:opacity-100 hover:bg-blue-100 hover:text-blue-600 transition shadow-sm md:flex hidden`}
                                 title="Reply"
                             >
-                                <Reply size={14} />
+                                <Reply size={16} />
                             </button>
 
-                            <div className={`relative px-5 py-3 rounded-[1.5rem] text-sm font-medium leading-relaxed shadow-sm
+                            <div className={`relative px-4 py-3 md:px-5 md:py-3 rounded-2xl text-sm font-medium leading-relaxed shadow-sm break-words
                                 ${isMe 
                                   ? 'bg-slate-900 text-white rounded-br-none' 
-                                  : 'bg-slate-50 text-slate-600 rounded-bl-none border border-slate-100'
+                                  : 'bg-white text-slate-600 rounded-bl-none border border-slate-100'
                                 }`}
                             >
                                 {/* Quoted Reply Content */}
@@ -310,12 +327,12 @@ export default function ChatModule() {
                                       {(() => {
                                          const url = msg.attachmentUrl || '';
                                          const ext = url.split('.').pop()?.toLowerCase();
-                                         const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext || '') || url.includes('image'); // Fallback check
+                                         const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext || '') || url.includes('image'); 
                                          
                                          if (isImage) {
                                             return (
                                               <div className="relative group/img cursor-pointer" onClick={() => window.open(url, '_blank')}>
-                                                <img src={url} className="max-w-xs max-h-60 object-cover rounded-xl border border-slate-200" alt="Attachment" />
+                                                <img src={url} className="w-full max-w-[200px] md:max-w-xs max-h-60 object-cover rounded-xl border border-slate-200" alt="Attachment" />
                                                 <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/10 transition rounded-xl flex items-center justify-center opacity-0 group-hover/img:opacity-100">
                                                    <ExternalLink className="text-white drop-shadow-md" size={24}/>
                                                 </div>
@@ -323,28 +340,23 @@ export default function ChatModule() {
                                             );
                                          }
                                          
-                                         // Generic File Card
-                                         // Extract filename from URL (usually ends with path)
-                                         // Supabase URL: .../filename.pdf?token...
                                          let fileName = 'Attachment';
                                          try {
                                             const path = new URL(url).pathname;
                                             fileName = path.split('/').pop() || 'File';
-                                            // Handle potential UUID prefix if we want to clean it, but keeping it ensures uniqueness visibly
-                                            // Actually, let's keep it raw or we can parse if it's strictly format
                                          } catch(e) {}
 
                                          return (
-                                            <div className="flex items-center space-x-3 bg-white/50 p-3 rounded-xl border border-slate-200/50 hover:bg-white transition cursor-pointer group/file" onClick={() => window.open(url, '_blank')}>
+                                            <div className="flex items-center space-x-3 bg-white/50 p-2 md:p-3 rounded-xl border border-slate-200/50 hover:bg-white transition cursor-pointer group/file" onClick={() => window.open(url, '_blank')}>
                                                <div className="p-2 bg-slate-200 rounded-lg text-slate-500">
-                                                  <FileText size={24} />
+                                                  <FileText size={20} />
                                                </div>
                                                <div className="flex-1 min-w-0">
-                                                  <p className="text-xs font-bold text-slate-700 truncate max-w-[150px]">{fileName}</p>
-                                                  <p className="text-[10px] text-slate-400 font-bold uppercase">{ext?.toUpperCase() || 'FILE'}</p>
+                                                  <p className="text-xs font-bold text-slate-700 truncate max-w-[120px]">{fileName}</p>
+                                                  <p className="text-[9px] text-slate-400 font-bold uppercase">{ext?.toUpperCase() || 'FILE'}</p>
                                                </div>
                                                <div className="p-2 text-slate-400 group-hover/file:text-blue-600 transition">
-                                                  <Download size={18} />
+                                                  <Download size={16} />
                                                </div>
                                             </div>
                                          );
@@ -367,33 +379,32 @@ export default function ChatModule() {
             </div>
 
             {/* INPUT AREA */}
-            <div className="p-4 md:p-6 bg-white border-t border-slate-50 z-20 relative">
+            <div className="p-3 md:p-6 bg-white border-t border-slate-50 z-20 relative shadow-[0_-5px_15px_-5px_rgba(0,0,0,0.05)]">
                {/* Replying Status Bar */}
                {replyingTo && (
-                  <div className="absolute -top-12 left-6 right-6 h-12 bg-slate-50 border border-slate-200 border-b-0 rounded-t-xl flex items-center justify-between px-4 animate-in slide-in-from-bottom-2 fade-in duration-200 shadow-sm">
+                  <div className="absolute -top-12 left-2 right-2 md:left-6 md:right-6 h-12 bg-slate-50 border border-slate-200 border-b-0 rounded-t-xl flex items-center justify-between px-4 animate-in slide-in-from-bottom-2 fade-in duration-200 shadow-sm">
                       <div className="flex items-center gap-2 overflow-hidden">
                           <Reply size={14} className="text-blue-500 shrink-0" />
                           <div className="flex flex-col">
                               <span className="text-[10px] font-black text-blue-500 uppercase">Replying to {replyingTo.senderName}</span>
-                              <span className="text-xs text-slate-500 truncate max-w-xs line-clamp-1">{replyingTo.content}</span>
+                              <span className="text-xs text-slate-500 truncate max-w-[200px] line-clamp-1">{replyingTo.content}</span>
                           </div>
                       </div>
-                      <button onClick={() => setReplyingTo(null)} className="p-1 hover:bg-rose-100 hover:text-rose-500 rounded-full transition">
+                      <button onClick={() => setReplyingTo(null)} className="p-2 hover:bg-rose-100 hover:text-rose-500 rounded-full transition">
                           <X size={16} />
                       </button>
                   </div>
                )}
 
-               <div className={`flex items-center space-x-3 bg-slate-50 p-2 rounded-[2rem] border border-slate-100 shadow-sm focus-within:ring-2 ring-blue-100 transition ${replyingTo ? 'rounded-t-none' : ''}`}>
-                  <button onClick={() => fileInputRef.current?.click()} className="p-3 bg-white rounded-full text-slate-400 hover:text-blue-500 shadow-sm transition">
+               <div className={`flex items-center space-x-2 bg-slate-50 p-2 rounded-[1.5rem] border border-slate-100 shadow-sm focus-within:ring-2 ring-blue-100 transition ${replyingTo ? 'rounded-t-none' : ''}`}>
+                  <button onClick={() => fileInputRef.current?.click()} className="p-2 md:p-3 bg-white rounded-full text-slate-400 hover:text-blue-500 shadow-sm transition active:scale-90">
                      <Paperclip size={20} />
                   </button>
-                  {/* FIX: Remove accept restriction to allow all files */}
                   <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
                   
                   <input 
-                    className="flex-1 bg-transparent border-none outline-none text-sm font-medium text-slate-700 placeholder:text-slate-400 px-2"
-                    placeholder={`Message #${activeRoom.name}...`}
+                    className="flex-1 bg-transparent border-none outline-none text-sm font-medium text-slate-700 placeholder:text-slate-400 px-2 min-w-0"
+                    placeholder={`Message...`}
                     value={inputText}
                     onChange={e => setInputText(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
@@ -402,7 +413,7 @@ export default function ChatModule() {
                   <button 
                     onClick={handleSendMessage}
                     disabled={!inputText.trim()}
-                    className="p-3 bg-slate-900 text-white rounded-full hover:bg-blue-600 disabled:opacity-50 disabled:hover:bg-slate-900 shadow-lg transition transform active:scale-95"
+                    className="p-2 md:p-3 bg-slate-900 text-white rounded-full hover:bg-blue-600 disabled:opacity-50 disabled:hover:bg-slate-900 shadow-lg transition transform active:scale-95 flex-shrink-0"
                   >
                      <Send size={18} />
                   </button>
@@ -410,7 +421,7 @@ export default function ChatModule() {
             </div>
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-slate-300">
+          <div className="hidden md:flex flex-1 flex-col items-center justify-center text-slate-300">
              <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mb-6">
                 <MessageSquare size={40} />
              </div>
@@ -419,14 +430,13 @@ export default function ChatModule() {
         )}
       </div>
 
-      {/* CREATE ROOM & ADD MEMBER MODALS (Keep existing logic) */}
+      {/* MODALS */}
       {isCreatingRoom && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-           {/* ... existing modal code ... */}
-           <div className="bg-white rounded-[2rem] w-full max-w-md p-8 shadow-2xl animate-in zoom-in duration-200">
-              <h3 className="text-xl font-black text-slate-800 mb-6">New Channel</h3>
-              <div className="space-y-4">
-                 <div>
+         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-[2rem] w-full max-w-md p-6 md:p-8 shadow-2xl animate-in zoom-in duration-200">
+               <h3 className="text-xl font-black text-slate-800 mb-6">New Channel</h3>
+               <div className="space-y-4">
+                  <div>
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Channel Name</label>
                     <input 
                       value={newRoomName}
@@ -434,59 +444,57 @@ export default function ChatModule() {
                       className="w-full mt-2 p-4 bg-slate-50 rounded-xl font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-100"
                       placeholder="e.g. #marketing"
                     />
-                 </div>
-                 <div>
-                   <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest block mb-2">Initial Members</label>
-                   <div className="max-h-40 overflow-y-auto custom-scrollbar space-y-2 border border-slate-100 rounded-xl p-2">
-                      {store.users.map(u => (
-                         <div key={u.id} onClick={() => toggleMemberSelection(u.id)} className={`flex items-center p-2 rounded-lg cursor-pointer ${selectedMembers.includes(u.id) ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
-                            <div className={`w-4 h-4 rounded border flex items-center justify-center mr-3 ${selectedMembers.includes(u.id) ? 'bg-blue-500 border-blue-500' : 'border-slate-300'}`}>
-                               {selectedMembers.includes(u.id) && <div className="w-2 h-2 bg-white rounded-full"/>}
-                            </div>
-                            <span className="text-xs font-bold text-slate-700">{u.name}</span>
-                         </div>
-                      ))}
-                   </div>
-                 </div>
-                 <div className="flex gap-4 pt-4">
-                    <button onClick={() => setIsCreatingRoom(false)} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl transition">Cancel</button>
-                    <button onClick={handleCreateRoom} className="flex-1 py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-blue-600 transition">Create</button>
-                 </div>
-              </div>
-           </div>
-        </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest block mb-2">Initial Members</label>
+                    <div className="max-h-40 overflow-y-auto custom-scrollbar space-y-2 border border-slate-100 rounded-xl p-2">
+                       {store.users.map(u => (
+                          <div key={u.id} onClick={() => toggleMemberSelection(u.id)} className={`flex items-center p-2 rounded-lg cursor-pointer ${selectedMembers.includes(u.id) ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
+                             <div className={`w-4 h-4 rounded border flex items-center justify-center mr-3 ${selectedMembers.includes(u.id) ? 'bg-blue-500 border-blue-500' : 'border-slate-300'}`}>
+                                {selectedMembers.includes(u.id) && <div className="w-2 h-2 bg-white rounded-full"/>}
+                             </div>
+                             <span className="text-xs font-bold text-slate-700">{u.name}</span>
+                          </div>
+                       ))}
+                    </div>
+                  </div>
+                  <div className="flex gap-4 pt-4">
+                     <button onClick={() => setIsCreatingRoom(false)} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl transition">Cancel</button>
+                     <button onClick={handleCreateRoom} className="flex-1 py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-blue-600 transition">Create</button>
+                  </div>
+               </div>
+            </div>
+         </div>
       )}
 
       {isAddingMember && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-           {/* ... existing modal code ... */}
-           <div className="bg-white rounded-[2rem] w-full max-w-md p-8 shadow-2xl animate-in zoom-in duration-200">
-              <h3 className="text-xl font-black text-slate-800 mb-6">Add People</h3>
-              <div className="space-y-4">
-                 <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-2 border border-slate-100 rounded-xl p-2">
-                    {store.users
-                      .filter(u => !(activeRoom?.memberIds || []).includes(u.id)) 
-                      .map(u => (
-                       <div key={u.id} onClick={() => toggleMemberSelection(u.id)} className={`flex items-center p-2 rounded-lg cursor-pointer ${selectedMembers.includes(u.id) ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
-                          <div className={`w-4 h-4 rounded border flex items-center justify-center mr-3 ${selectedMembers.includes(u.id) ? 'bg-blue-500 border-blue-500' : 'border-slate-300'}`}>
-                             {selectedMembers.includes(u.id) && <div className="w-2 h-2 bg-white rounded-full"/>}
-                          </div>
-                          <span className="text-xs font-bold text-slate-700">{u.name}</span>
-                       </div>
-                    ))}
+           <div className="bg-white rounded-[2rem] w-full max-w-md p-6 md:p-8 shadow-2xl animate-in zoom-in duration-200">
+               <h3 className="text-xl font-black text-slate-800 mb-6">Add People</h3>
+               <div className="space-y-4">
+                  <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-2 border border-slate-100 rounded-xl p-2">
+                     {store.users
+                       .filter(u => !(activeRoom?.memberIds || []).includes(u.id))
+                       .map(u => (
+                        <div key={u.id} onClick={() => toggleMemberSelection(u.id)} className={`flex items-center p-2 rounded-lg cursor-pointer ${selectedMembers.includes(u.id) ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
+                           <div className={`w-4 h-4 rounded border flex items-center justify-center mr-3 ${selectedMembers.includes(u.id) ? 'bg-blue-500 border-blue-500' : 'border-slate-300'}`}>
+                              {selectedMembers.includes(u.id) && <div className="w-2 h-2 bg-white rounded-full"/>}
+                           </div>
+                           <span className="text-xs font-bold text-slate-700">{u.name}</span>
+                        </div>
+                     ))}
                     {store.users.filter(u => !(activeRoom?.memberIds || []).includes(u.id)).length === 0 && (
                        <p className="text-center text-xs text-slate-400 py-4">All users are already in this channel.</p>
                     )}
-                 </div>
-                 <div className="flex gap-4 pt-4">
-                    <button onClick={() => { setIsAddingMember(false); setSelectedMembers([]); }} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl transition">Cancel</button>
-                    <button onClick={handleAddMember} disabled={selectedMembers.length === 0} className="flex-1 py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-blue-600 transition disabled:opacity-50">Add Selected</button>
-                 </div>
-              </div>
+                  </div>
+                  <div className="flex gap-4 pt-4">
+                     <button onClick={() => { setIsAddingMember(false); setSelectedMembers([]); }} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl transition">Cancel</button>
+                     <button onClick={handleAddMember} disabled={selectedMembers.length === 0} className="flex-1 py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-blue-600 transition disabled:opacity-50">Add Selected</button>
+                  </div>
+               </div>
            </div>
         </div>
       )}
-
     </div>
   );
 }
