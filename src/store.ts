@@ -251,6 +251,48 @@ export const useStore = () => {
       addLog(SystemActionType.USER_CREATE, `Created new user: ${created.name}`, created.id);
     } catch (e) {
       console.error(e);
+      throw e;
+    }
+  };
+
+  const updateUser = async (user: User) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/users/${user.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify(user)
+      });
+      if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || 'Failed to update user');
+      }
+      const updated: User = await res.json();
+      setState(prev => ({
+        ...prev,
+        users: prev.users.map(u => u.id === updated.id ? updated : u)
+      }));
+      addLog(SystemActionType.USER_UPDATE, `Updated user info: ${updated.name}`, updated.id);
+    } catch (e) {
+      console.error(e);
+      throw e;
+    }
+  };
+
+  const deleteUser = async (userId: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/users/${userId}`, {
+        method: 'DELETE',
+        headers: { ...authHeaders }
+      });
+      if (!res.ok) throw new Error('Failed to delete user');
+      setState(prev => ({
+        ...prev,
+        users: prev.users.filter(u => u.id !== userId)
+      }));
+      addLog(SystemActionType.USER_DELETE, `Deleted user ID: ${userId}`, userId);
+    } catch (e) {
+      console.error(e);
+      throw e;
     }
   };
   
@@ -480,6 +522,8 @@ export const useStore = () => {
     login,
     logout,
     addUser,
+    updateUser,
+    deleteUser,
     updateSettings,
     addProject,
     updateProject,

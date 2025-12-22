@@ -427,8 +427,21 @@ const PayrollModule: React.FC<PayrollProps> = ({
                   <span className="text-base font-black">{formatCurrency(previewData.record.netSalary)}</span>
                 </div>
               </div>
-              <button onClick={() => handleSendSingle(previewData.user, previewData.record)} disabled={isProcessing} className="w-full bg-slate-900 text-white py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-2xl hover:bg-blue-600 transition flex items-center justify-center gap-3">
-                 <Send size={18} /> {previewData.record.isSent ? "KIRIM ULANG SLIP" : "KIRIM SLIP VIA TELEGRAM"}
+              <button 
+                  onClick={() => handleSendSingle(previewData.user, previewData.record)} 
+                  disabled={isProcessing} 
+                  className={`w-full py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-2xl transition flex items-center justify-center gap-3 ${isProcessing ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-slate-900 text-white hover:bg-blue-600'}`}
+              >
+                  {isProcessing ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full animate-spin"></div>
+                      SEDANG MENGIRIM...
+                    </>
+                  ) : (
+                    <>
+                      <Send size={18} /> {previewData.record.isSent ? "KIRIM ULANG SLIP" : "KIRIM SLIP VIA TELEGRAM"}
+                    </>
+                  )}
               </button>
             </div>
           </div>

@@ -13,6 +13,8 @@ export default function UsersPage() {
        users={store.users} 
        currentUser={store.currentUser} 
        onAddUser={store.addUser} 
+       onUpdateUser={store.updateUser}
+       onDeleteUser={store.deleteUser}
        onResetDevice={store.resetDevice} 
        toast={toast} 
     />
