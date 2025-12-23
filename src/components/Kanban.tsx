@@ -635,6 +635,24 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, curre
     onUpdate({ ...project, tasks: updated });
     
     setTaskComments(prev => ({ ...prev, [taskId]: '' }));
+
+    // Notify Telegram Comment
+    const targetChatId = project.isManagementOnly ? settings.telegramOwnerChatId : settings.telegramGroupId;
+    let finalChatId = targetChatId;
+    if (finalChatId) {
+        if (finalChatId.includes('_')) {
+            const parts = finalChatId.split('_');
+            if (!parts[0].startsWith('-')) finalChatId = `-100${parts[0]}_${parts[1]}`;
+        } else if (!finalChatId.startsWith('-') && /^\d+$/.test(finalChatId)) {
+            finalChatId = `-100${finalChatId}`;
+        }
+    }
+    const msg = `💬 <b>Komentar Tugas Baru</b>\n\n` +
+                `Proyek: <b>${escapeHTML(project.title)}</b>\n` +
+                `Tugas: <b>${escapeHTML(project.tasks[idx].title)}</b>\n` +
+                `User: <b>${escapeHTML(currentUser.name)}</b>\n` +
+                `Pesan: "${escapeHTML(text)}"`;
+    sendTelegramNotification(settings.telegramBotToken, finalChatId, msg);
   };
 
   const finishTask = (idx: number) => {
@@ -715,16 +733,34 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, curre
                                         if(val && val !== task.title) {
                                            // Save Title Edit
                                            const updated = [...project.tasks];
+                                           const oldTitle = updated[idx].title;
                                            updated[idx].title = val;
                                            updated[idx].history.push({ 
                                              id: Math.random().toString(36).substr(2, 9), 
                                              userId: currentUser.id, 
                                              userName: currentUser.name, 
-                                             action: `Edit Judul: "${task.title}" -> "${val}"`, 
+                                             action: `Edit Judul: "${oldTitle}" -> "${val}"`, 
                                              timestamp: Date.now() 
                                            });
                                            onUpdate({ ...project, tasks: updated });
                                            toast.success('Judul tugas diperbarui');
+
+                                           // Notify Telegram
+                                           const targetChatId = project.isManagementOnly ? settings.telegramOwnerChatId : settings.telegramGroupId;
+                                           let finalChatId = targetChatId;
+                                            if (finalChatId) {
+                                                if (finalChatId.includes('_')) {
+                                                    const parts = finalChatId.split('_');
+                                                    if (!parts[0].startsWith('-')) finalChatId = `-100${parts[0]}_${parts[1]}`;
+                                                } else if (!finalChatId.startsWith('-') && /^\d+$/.test(finalChatId)) {
+                                                    finalChatId = `-100${finalChatId}`;
+                                                }
+                                            }
+                                           const msg = `🛠️ <b>Update Tugas</b>\n\n` +
+                                                       `Proyek: <b>${escapeHTML(project.title)}</b>\n` +
+                                                       `Tugas: <s>${escapeHTML(oldTitle)}</s> ➔ <b>${escapeHTML(val)}</b>\n` +
+                                                       `Oleh: <b>${escapeHTML(currentUser.name)}</b>`;
+                                           sendTelegramNotification(settings.telegramBotToken, finalChatId, msg);
                                         }
                                         setShowEditTask(null);
                                       } else if (e.key === 'Escape') {
@@ -741,23 +777,45 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, curre
                                             onClick={() => {
                                                const updated = [...project.tasks];
                                                const currentPICS = updated[idx].assignedTo;
+                                               let actionType = '';
+                                               
                                                if (currentPICS.includes(u.id)) {
                                                   updated[idx].assignedTo = currentPICS.filter(id => id !== u.id);
+                                                  actionType = 'removed';
                                                } else {
                                                   updated[idx].assignedTo = [...currentPICS, u.id];
+                                                  actionType = 'added';
                                                }
                                                
                                                // Log changes
-                                               const action = currentPICS.includes(u.id) ? `Hapus PIC: ${u.name}` : `Tambah PIC: ${u.name}`;
+                                               const logAction = actionType === 'removed' ? `Hapus PIC: ${u.name}` : `Tambah PIC: ${u.name}`;
                                                updated[idx].history.push({ 
                                                  id: Math.random().toString(36).substr(2, 9), 
                                                  userId: currentUser.id, 
                                                  userName: currentUser.name, 
-                                                 action: action, 
+                                                 action: logAction, 
                                                  timestamp: Date.now() 
                                                });
                                                
                                                onUpdate({ ...project, tasks: updated });
+
+                                               // Notify Telegram
+                                                const targetChatId = project.isManagementOnly ? settings.telegramOwnerChatId : settings.telegramGroupId;
+                                                let finalChatId = targetChatId;
+                                                if (finalChatId) {
+                                                    if (finalChatId.includes('_')) {
+                                                        const parts = finalChatId.split('_');
+                                                        if (!parts[0].startsWith('-')) finalChatId = `-100${parts[0]}_${parts[1]}`;
+                                                    } else if (!finalChatId.startsWith('-') && /^\d+$/.test(finalChatId)) {
+                                                        finalChatId = `-100${finalChatId}`;
+                                                    }
+                                                }
+                                                const msg = `👥 <b>Update Tim Tugas</b>\n\n` +
+                                                            `Proyek: <b>${escapeHTML(project.title)}</b>\n` +
+                                                            `Tugas: <b>${escapeHTML(task.title)}</b>\n` +
+                                                            `Action: ${actionType === 'added' ? '✅ Menambahkan' : '❌ Menghapus'} <b>${escapeHTML(u.name)}</b>\n` +
+                                                            `Oleh: <b>${escapeHTML(currentUser.name)}</b>`;
+                                                sendTelegramNotification(settings.telegramBotToken, finalChatId, msg);
                                             }}
                                             className={`px-3 py-1 rounded-full text-[9px] font-black uppercase transition border ${
                                               task.assignedTo.includes(u.id) 
