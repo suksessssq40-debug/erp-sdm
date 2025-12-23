@@ -317,7 +317,17 @@ export default function AttendanceReportPage() {
                                      <div className="p-5 rounded-[2rem] bg-indigo-50 border border-indigo-100">
                                          <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-indigo-400">TOTAL DURASI</p>
                                          <p className="text-lg font-black text-indigo-600">
-                                             9j 0m {/* Placeholder duration logic could be enhanced */}
+                                             {(() => {
+                                                 if (!selectedRecord.timeOut) return '-';
+                                                 const [startH, startM] = selectedRecord.timeIn.split(':').map(Number);
+                                                 const [endH, endM] = selectedRecord.timeOut.split(':').map(Number);
+                                                 const startMinutes = startH * 60 + startM;
+                                                 const endMinutes = endH * 60 + endM;
+                                                 const diff = endMinutes - startMinutes;
+                                                 const hours = Math.floor(diff / 60);
+                                                 const mins = diff % 60;
+                                                 return `${hours}j ${mins}m`;
+                                             })()}
                                          </p>
                                      </div>
                                  </div>
