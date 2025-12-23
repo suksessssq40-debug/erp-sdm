@@ -72,47 +72,60 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     // For simplicity: We trust the body BUT if user is NOT management, ignore Role changes to be safe.
     
     // Construct Query
-    let fields = ['name = $1', 'username = $2', 'telegram_username = $3'];
-    let values = [name, username, telegramUsername];
-    let counter = 4;
+    // Construct Query Dynamically to support Partial Updates
+    const updateFields: string[] = [];
+    const values: any[] = [];
+    let counter = 1;
 
-    // Only Management can update Role & Telegram ID (System ID)
-    // But for now, let's allow all updates IF authorized, assuming frontend protects it.
-    // Better: If Self-Update Only, maybe don't allow changing Role?
-    // Let's stick to updating all passed fields for now, as the main issue was Forbidden.
-    
-    if (role) {
-        fields.push(`role = $${counter++}`);
+    if (name !== undefined) {
+      updateFields.push(`name = $${counter++}`);
+      values.push(name);
+    }
+    if (username !== undefined) {
+      updateFields.push(`username = $${counter++}`);
+      values.push(username);
+    }
+    if (telegramUsername !== undefined) {
+      updateFields.push(`telegram_username = $${counter++}`);
+      values.push(telegramUsername);
+    }
+
+    if (role && isManagement) { // Only Management can change role
+        updateFields.push(`role = $${counter++}`);
         values.push(role);
     }
     
-    if (telegramId) {
-        fields.push(`telegram_id = $${counter++}`);
+    if (telegramId && isManagement) { // Only Management can change system IDs
+        updateFields.push(`telegram_id = $${counter++}`);
         values.push(telegramId);
     }
 
     if (avatarUrl !== undefined) {
-        fields.push(`avatar_url = $${counter++}`);
+        updateFields.push(`avatar_url = $${counter++}`);
         values.push(avatarUrl);
     }
 
     if (jobTitle !== undefined) {
-        fields.push(`job_title = $${counter++}`);
+        updateFields.push(`job_title = $${counter++}`);
         values.push(jobTitle);
     }
 
     if (bio !== undefined) {
-        fields.push(`bio = $${counter++}`);
+        updateFields.push(`bio = $${counter++}`);
         values.push(bio);
     }
 
     if (password && password.length >= 6) {
       const hash = await bcrypt.hash(password, 10);
-      fields.push(`password_hash = $${counter++}`);
+      updateFields.push(`password_hash = $${counter++}`);
       values.push(hash);
     }
 
-    const query = `UPDATE users SET ${fields.join(', ')} WHERE id = $${counter} RETURNING *`;
+    if (updateFields.length === 0) {
+       return NextResponse.json({ message: 'No changes detected' });
+    }
+
+    const query = `UPDATE users SET ${updateFields.join(', ')} WHERE id = $${counter} RETURNING *`;
     values.push(id);
 
     const res = await pool.query(query, values);
