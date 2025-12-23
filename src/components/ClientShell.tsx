@@ -1,11 +1,11 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import { useParams, useRouter, usePathname, redirect } from 'next/navigation';
+import { useParams, useRouter, usePathname } from 'next/navigation';
 import Layout from './Layout';
 import { useAppStore } from '../context/StoreContext';
 import { useToast } from './Toast';
-import { UserRole } from '../types';
+import { UserRole, RequestStatus } from '../types';
 import { ReviewerWidget } from './ReviewerWidget';
 
 export default function ClientShell({ children }: { children: React.ReactNode }) {
@@ -18,7 +18,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   // Params role
   const roleParam = params?.role as string;
 
-  // Unread Chat Badge Logic (Moved to Top to fix Hook Error)
+  // Unread Chat Badge Logic
   const [unreadCount, setUnreadCount] = React.useState(0);
   
   useEffect(() => {
@@ -46,7 +46,6 @@ export default function ClientShell({ children }: { children: React.ReactNode })
     
     // Redirect if not logged in and not on login page
     if (!store.currentUser) {
-      // Don't redirect if we are already on login page to avoid loops
       if (pathname !== '/login') {
           router.replace('/login');
       }
@@ -55,7 +54,6 @@ export default function ClientShell({ children }: { children: React.ReactNode })
 
     // Redirect if role mismatch
     const userRoleSlug = store.currentUser.role.toLowerCase();
-    // Only redirect if roleParam exists AND it doesn't match currentUser role
     if (roleParam && roleParam !== userRoleSlug) {
       router.replace(`/${userRoleSlug}/kanban`);
     }
@@ -76,12 +74,14 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   const pathParts = pathname.split('/');
   const tabSlug = pathParts[2] || 'kanban';
   const activeTab = tabSlug; 
-  // Simplified logic, assuming tabSlug matches expected 'kanban', 'dashboard', etc.
 
   const handleTabChange = (tab: string) => {
     const userRoleSlug = store.currentUser!.role.toLowerCase();
     router.push(`/${userRoleSlug}/${tab}`);
   };
+
+  // Pending Requests Badge for Management
+  const pendingRequests = store.requests.filter(r => r.status === RequestStatus.PENDING).length;
 
   return (
     <>
@@ -97,6 +97,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
         userName={store.currentUser.name}
         userAvatar={store.currentUser.avatarUrl}
         unreadChatCount={unreadCount}
+        pendingRequestCount={pendingRequests}
       >
         {children}
       </Layout>

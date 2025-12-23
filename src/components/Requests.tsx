@@ -1,5 +1,5 @@
  
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, LeaveRequest, RequestType, RequestStatus, UserRole } from '../types';
 import { FileText, Plus, Check, X, Clock, AlertCircle, ImageIcon, UploadCloud, History, CheckCircle2, Eye } from 'lucide-react';
 import { useToast } from './Toast';
@@ -24,6 +24,16 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
     startDate: new Date().toISOString().split('T')[0],
     endDate: new Date().toISOString().split('T')[0]
   });
+  const [actionNote, setActionNote] = useState('');
+
+  // Reset note when modal opens
+  useEffect(() => {
+     if (selectedRequest) {
+        setActionNote(selectedRequest.actionNote || ''); 
+     } else {
+        setActionNote('');
+     }
+  }, [selectedRequest]);
 
   // PERMISSION LOGIC
   const isManagement = [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(currentUser.role);
@@ -88,12 +98,19 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
 
   const handleAction = async (req: LeaveRequest, status: RequestStatus) => {
     if (!isManagement) return;
+
+    if (status === RequestStatus.REJECTED && !actionNote.trim()) {
+        toast.warning("Mohon sertakan alasan penolakan pada catatan.");
+        return;
+    }
+
     try {
       await onUpdateRequest({
         ...req,
         status,
         approverId: currentUser.id,
         approverName: currentUser.name,
+        actionNote: actionNote,
         actionAt: Date.now()
       });
       toast.success(`Permohonan ${status === RequestStatus.APPROVED ? 'DISETUJUI' : 'DITOLAK'}`);
@@ -294,30 +311,48 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                            <p className="text-xs font-bold">Menunggu persetujuan dari Manajemen.</p>
                       </div>
                   ) : (
-                      <div className={`p-4 rounded-xl flex items-start gap-3 ${selectedRequest.status === RequestStatus.APPROVED ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'}`}>
-                           {selectedRequest.status === RequestStatus.APPROVED ? <CheckCircle2 size={18} className="mt-0.5 text-emerald-600"/> : <AlertCircle size={18} className="mt-0.5 text-rose-600"/>}
-                           <div>
-                              <p className="text-xs font-black uppercase tracking-wide">
-                                 {selectedRequest.status === RequestStatus.APPROVED ? 'DISETUJUI OLEH' : 'DITOLAK OLEH'}: 
-                                 <span className="ml-1 inline-flex items-center gap-1">
-                                    {selectedRequest.approverId && users.find(u => u.id === selectedRequest.approverId)?.avatarUrl && (
-                                        <img src={users.find(u => u.id === selectedRequest.approverId)?.avatarUrl} className="w-4 h-4 rounded-full object-cover border border-white" />
-                                    )}
-                                    {users.find(u => u.id === selectedRequest.approverId)?.name || selectedRequest.approverName || 'Manajemen'}
-                                 </span>
-                              </p>
-                              <p className="text-[10px] opacity-70 font-bold mt-1">
-                                 Pada: {selectedRequest.actionAt ? new Date(selectedRequest.actionAt).toLocaleString('id-ID') : '-'}
-                              </p>
+                      <div className={`p-4 rounded-xl flex flex-col gap-2 ${selectedRequest.status === RequestStatus.APPROVED ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'}`}>
+                           <div className="flex items-start gap-3">
+                               {selectedRequest.status === RequestStatus.APPROVED ? <CheckCircle2 size={18} className="mt-0.5 text-emerald-600"/> : <AlertCircle size={18} className="mt-0.5 text-rose-600"/>}
+                               <div>
+                                  <p className="text-xs font-black uppercase tracking-wide">
+                                     {selectedRequest.status === RequestStatus.APPROVED ? 'DISETUJUI OLEH' : 'DITOLAK OLEH'}: 
+                                     <span className="ml-1 inline-flex items-center gap-1">
+                                        {selectedRequest.approverId && users.find(u => u.id === selectedRequest.approverId)?.avatarUrl && (
+                                            <img src={users.find(u => u.id === selectedRequest.approverId)?.avatarUrl} className="w-4 h-4 rounded-full object-cover border border-white" />
+                                        )}
+                                        {users.find(u => u.id === selectedRequest.approverId)?.name || selectedRequest.approverName || 'Manajemen'}
+                                     </span>
+                                  </p>
+                                  <p className="text-[10px] opacity-70 font-bold mt-1">
+                                     Pada: {selectedRequest.actionAt ? new Date(selectedRequest.actionAt).toLocaleString('id-ID') : '-'}
+                                  </p>
+                               </div>
                            </div>
+                           {selectedRequest.actionNote && (
+                               <div className="ml-8 mt-1 p-3 bg-white/60 rounded-lg border border-black/5 text-xs italic">
+                                   "{selectedRequest.actionNote}"
+                               </div>
+                           )}
                       </div>
                   )}
 
                   {/* ACTION BUTTONS FOR MANAGEMENT */}
                   {isManagement && selectedRequest.status === RequestStatus.PENDING && (
-                      <div className="flex gap-4 mt-6">
-                           <button onClick={() => handleAction(selectedRequest, RequestStatus.REJECTED)} className="flex-1 py-4 bg-white border-2 border-slate-100 text-slate-400 font-black uppercase tracking-widest rounded-xl hover:border-rose-100 hover:bg-rose-50 hover:text-rose-600 transition text-[10px]">TOLAK</button>
-                           <button onClick={() => handleAction(selectedRequest, RequestStatus.APPROVED)} className="flex-1 py-4 bg-emerald-600 text-white font-black uppercase tracking-widest rounded-xl hover:bg-emerald-700 shadow-lg shadow-emerald-200 transition text-[10px]">SETUJUI PERMOHONAN</button>
+                      <div className="mt-6 space-y-4">
+                           <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Catatan Approval (Wajib jika Ditolak)</label>
+                                <textarea 
+                                    className="w-full p-4 bg-slate-50 rounded-xl font-medium text-xs outline-none border border-slate-100 focus:border-blue-200 transition resize-none h-24" 
+                                    placeholder="Tuliskan alasan penolakan atau catatan tambahan..."
+                                    value={actionNote}
+                                    onChange={e => setActionNote(e.target.value)}
+                                />
+                           </div>
+                           <div className="flex gap-4">
+                               <button onClick={() => handleAction(selectedRequest, RequestStatus.REJECTED)} className="flex-1 py-4 bg-white border-2 border-slate-100 text-slate-400 font-black uppercase tracking-widest rounded-xl hover:border-rose-100 hover:bg-rose-50 hover:text-rose-600 transition text-[10px]">TOLAK</button>
+                               <button onClick={() => handleAction(selectedRequest, RequestStatus.APPROVED)} className="flex-1 py-4 bg-emerald-600 text-white font-black uppercase tracking-widest rounded-xl hover:bg-emerald-700 shadow-lg shadow-emerald-200 transition text-[10px]">SETUJUI PERMOHONAN</button>
+                           </div>
                       </div>
                   )}
               </div>

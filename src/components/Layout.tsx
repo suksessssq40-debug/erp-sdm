@@ -27,9 +27,10 @@ interface LayoutProps {
   userName: string;
   unreadChatCount?: number;
   userAvatar?: string;
+  pendingRequestCount?: number;
 }
 
-const Layout: React.FC<LayoutProps> = ({ children, userRole, activeTab, onTabChange, onLogout, userName, userAvatar, unreadChatCount = 0 }) => {
+const Layout: React.FC<LayoutProps> = ({ children, userRole, activeTab, onTabChange, onLogout, userName, userAvatar, unreadChatCount = 0, pendingRequestCount = 0 }) => {
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
   
   const navItems = [
@@ -47,6 +48,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, activeTab, onTabCha
   ];
 
   const visibleNav = navItems.filter(item => item.roles.includes(userRole));
+  const isManagement = [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(userRole);
   
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
 
@@ -95,6 +97,11 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, activeTab, onTabCha
               {item.id === 'chat' && unreadChatCount > 0 && (
                 <span className="bg-rose-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse shadow-rose-500/50 shadow-md">
                    {unreadChatCount}
+                </span>
+              )}
+              {item.id === 'requests' && pendingRequestCount > 0 && isManagement && (
+                <span className="bg-amber-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse shadow-amber-500/50 shadow-md">
+                   {pendingRequestCount}
                 </span>
               )}
             </button>
