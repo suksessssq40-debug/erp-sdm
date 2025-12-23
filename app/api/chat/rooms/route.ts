@@ -7,6 +7,58 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
   try {
     const user = await authorize();
+    // 1. AUTO-MIGRATION & LAZY INIT
+    // Ensure tables exist before checking content. This fixes "Missing Table" error on Vercel/New Configs.
+    await pool.query('BEGIN');
+    try {
+        await pool.query(`
+          CREATE TABLE IF NOT EXISTS chat_rooms (
+            id VARCHAR(50) PRIMARY KEY,
+            name VARCHAR(100),
+            type VARCHAR(20),
+            created_by VARCHAR(50),
+            created_at BIGINT
+          );
+          CREATE TABLE IF NOT EXISTS chat_members (
+            room_id VARCHAR(50),
+            user_id VARCHAR(50),
+            joined_at BIGINT,
+            PRIMARY KEY (room_id, user_id)
+          );
+          CREATE TABLE IF NOT EXISTS chat_messages (
+            id VARCHAR(50) PRIMARY KEY,
+            room_id VARCHAR(50),
+            sender_id VARCHAR(50),
+            content TEXT,
+            attachment_url TEXT,
+            reply_to_id VARCHAR(50),
+            created_at BIGINT
+          );
+        `);
+
+        // Check General Room
+        const checkGeneral = await pool.query("SELECT 1 FROM chat_rooms WHERE id = 'general'");
+        if (checkGeneral.rows.length === 0) {
+           console.log("Initializing Default General Room...");
+           await pool.query(
+            "INSERT INTO chat_rooms (id, name, type, created_by, created_at) VALUES ($1, $2, $3, $4, $5)",
+            ['general', 'General Forum', 'GROUP', 'system', Date.now()]
+           );
+           // Auto-enroll all current users
+           const allUsers = await pool.query("SELECT id FROM users");
+           for (const u of allUsers.rows) {
+             await pool.query(
+               "INSERT INTO chat_members (room_id, user_id, joined_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+               ['general', u.id, Date.now()]
+             );
+           }
+        }
+        await pool.query('COMMIT');
+    } catch (e) {
+        await pool.query('ROLLBACK');
+        console.error("Auto-migration failed:", e);
+    }
+
     // Get rooms where user is member
     const res = await pool.query(`
       SELECT r.*, 
