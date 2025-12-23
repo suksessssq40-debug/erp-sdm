@@ -102,6 +102,11 @@ export interface LeaveRequest {
   attachmentUrl?: string; 
   status: RequestStatus;
   createdAt: number;
+  // Audit Fields
+  approverId?: string;
+  approverName?: string;
+  actionNote?: string;
+  actionAt?: number;
 }
 
 export interface Attendance {
