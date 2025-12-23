@@ -323,10 +323,16 @@ export default function AttendanceReportPage() {
                                                  
                                                  if (!tIn || !tOut || tOut === '-') return '-';
                                                  
-                                                 // Helper to parse "HH:mm" safely
+                                                 // Helper to parse "HH:mm" or "HH.mm" (Indonesian locale) safely
                                                  const parseMinutes = (timeStr: string) => {
-                                                     // Remove any non-digit/non-colon chars
-                                                     const clean = timeStr.toString().replace(/[^\d:]/g, '');
+                                                     if (!timeStr) return null;
+                                                     // 1. Normalize separators: replace dots with colons (common in id-ID locale e.g. 08.30)
+                                                     const normalized = timeStr.toString().replace(/\./g, ':');
+                                                     
+                                                     // 2. Remove non-digit/non-colon chars
+                                                     const clean = normalized.replace(/[^\d:]/g, '');
+                                                     
+                                                     // 3. Split by colon
                                                      const parts = clean.split(':');
                                                      if (parts.length < 2) return null;
                                                      
@@ -343,7 +349,7 @@ export default function AttendanceReportPage() {
                                                  if (startTotal === null || endTotal === null) return '-';
 
                                                  let diff = endTotal - startTotal;
-                                                 if (diff < 0) diff += 24 * 60; // Handle over-midnight shift simply if needed
+                                                 if (diff < 0) diff += 24 * 60; 
 
                                                  const hours = Math.floor(diff / 60);
                                                  const mins = diff % 60;
