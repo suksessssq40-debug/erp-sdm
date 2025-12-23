@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '../context/StoreContext';
 import { ChatRoom, ChatMessage, User } from '../types';
-import { Send, Plus, Users, Hash, MessageSquare, Image as ImageIcon, MoreVertical, X, Search, FileText, Reply, Paperclip, Download, ExternalLink, ArrowLeft } from 'lucide-react';
+import { Send, Plus, Users, Hash, MessageSquare, Image as ImageIcon, MoreVertical, X, Search, FileText, Reply, Paperclip, Download, ExternalLink, ArrowLeft, Trash2 } from 'lucide-react';
 import { useToast } from './Toast';
 
 export default function ChatModule() {
@@ -9,6 +9,7 @@ export default function ChatModule() {
   const toast = useToast();
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
+  const activeRoom = rooms.find(r => r.id === activeRoomId);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [isCreatingRoom, setIsCreatingRoom] = useState(false);
@@ -21,11 +22,21 @@ export default function ChatModule() {
   const [newRoomName, setNewRoomName] = useState('');
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   
+  // Mention State
+  const [mentionSearch, setMentionSearch] = useState<string | null>(null);
+  const mentionCandidates = mentionSearch !== null 
+    ? store.users.filter(u => 
+        (activeRoom?.memberIds?.includes(u.id)) && 
+        (u.name.toLowerCase().includes(mentionSearch.toLowerCase()) || 
+         u.username.toLowerCase().includes(mentionSearch.toLowerCase()))
+      ).slice(0, 5)
+    : [];
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastFetchRef = useRef<number>(0);
 
-  const activeRoom = rooms.find(r => r.id === activeRoomId);
+
 
   // 1. Poll Rooms
   useEffect(() => {
@@ -167,6 +178,62 @@ export default function ChatModule() {
     }
   };
 
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setInputText(val);
+
+    // Mention Detection
+    const lastAt = val.lastIndexOf('@');
+    if (lastAt !== -1) {
+       // Check if the cursor is near the @ (simple heuristic: if @ is within last 20 chars)
+       // A robust editor like SlateJS is better, but this is simple text input.
+       // We assume the user is typing a name after the last @
+       const query = val.slice(lastAt + 1);
+       if (query.length < 20 && !query.includes(' ')) { // Simple restriction: no spaces for now to avoid false positives? 
+          // Actually names have spaces. Let's allow spaces but limit length
+          setMentionSearch(query);
+          return;
+       } 
+       // If query has spaces, maybe we still support it if it matches a name?
+       // For now, strict 'no space' or 'space allowed'? 
+       // Let's allow spaces if it matches a user prefix. 
+       if (query.length < 20) {
+           setMentionSearch(query);
+           return;
+       }
+    }
+    setMentionSearch(null);
+  };
+
+  const insertMention = (username: string) => {
+      if (mentionSearch === null) return;
+      const lastAt = inputText.lastIndexOf('@');
+      const newValue = inputText.slice(0, lastAt) + `@${username} ` + inputText.slice(lastAt + mentionSearch.length + 1);
+      setInputText(newValue);
+      setMentionSearch(null);
+  };
+
+  const handleDeleteRoom = async () => {
+    if (!activeRoomId || activeRoomId === 'general') return;
+    if (!confirm('Are you sure you want to delete this channel? ALL messages will be lost for EVERYONE.')) return;
+    
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE || ''}/api/chat/rooms?id=${activeRoomId}`, {
+         method: 'DELETE',
+         headers: { 'Authorization': `Bearer ${store.authToken}` }
+      });
+      if (res.ok) {
+         toast.success('Channel deleted');
+         setActiveRoomId(null);
+         fetchRooms();
+      } else {
+         toast.error('Failed to delete');
+      }
+    } catch(e) {
+      toast.error('Error deleting channel');
+    }
+  };
+
   const renderContentWithMentions = (text: string) => {
     const regex = /(@\w+)/g;
     return text.split(regex).map((part, i) => {
@@ -289,6 +356,11 @@ export default function ChatModule() {
                   </div>
                </div>
                <div className="flex items-center space-x-2 flex-shrink-0">
+                  {activeRoomId !== 'general' && (
+                    <button onClick={handleDeleteRoom} className="p-2 text-rose-400 hover:bg-rose-50 hover:text-rose-600 rounded-xl transition" title="Delete Channel">
+                        <Trash2 size={20} />
+                    </button>
+                  )}
                   <button onClick={() => setIsAddingMember(true)} className="flex items-center space-x-2 p-2 md:px-4 md:py-2 bg-slate-50 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition">
                      <Users size={16} /> <span className="hidden md:inline">Add People</span>
                   </button>
@@ -422,11 +494,33 @@ export default function ChatModule() {
                   </button>
                   <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
                   
+                  {/* Mention Popup */}
+                  {mentionSearch !== null && mentionCandidates.length > 0 && (
+                      <div className="absolute bottom-full left-4 mb-2 bg-white rounded-xl shadow-2xl border border-slate-100 p-2 w-64 animate-in slide-in-from-bottom-2 z-50">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 mb-2">Mention User</p>
+                          {mentionCandidates.map(u => (
+                              <div 
+                                  key={u.id}
+                                  onClick={() => insertMention(u.name.replace(/\s/g,''))} // Removing spaces for the actual mention text if desired, or keep them. Often mentions are @FirstLast or @username
+                                  className="flex items-center space-x-2 p-2 hover:bg-blue-50 rounded-lg cursor-pointer"
+                              >
+                                  <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-500 overflow-hidden">
+                                    {u.avatarUrl ? <img src={u.avatarUrl} alt={u.name} /> : u.name.substring(0,2).toUpperCase()}
+                                  </div>
+                                  <div>
+                                      <p className="text-sm font-bold text-slate-700">{u.name}</p>
+                                      <p className="text-[10px] text-slate-400">@{u.username}</p>
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
+                  )}
+
                   <input 
                     className="flex-1 bg-transparent border-none outline-none text-sm font-medium text-slate-700 placeholder:text-slate-400 px-2 min-w-0"
                     placeholder={`Message...`}
                     value={inputText}
-                    onChange={e => setInputText(e.target.value)}
+                    onChange={handleInputChange}
                     onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
                   />
                   

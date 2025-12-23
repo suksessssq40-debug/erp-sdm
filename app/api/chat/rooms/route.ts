@@ -153,3 +153,31 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Failed to create room' }, { status: 500 });
   }
 }
+
+export async function DELETE(request: Request) {
+  try {
+    const user = await authorize();
+    const { searchParams } = new URL(request.url);
+    const roomId = searchParams.get('id');
+
+    if (!roomId) return NextResponse.json({ error: 'Room ID required' }, { status: 400 });
+    if (roomId === 'general') return NextResponse.json({ error: 'Cannot delete general room' }, { status: 403 });
+
+    // Allow ANY user to delete (as requested: "semua user bisa hapus")
+    // But logically, they should at least be a member or it should exist
+    const roomCheck = await pool.query('SELECT 1 FROM chat_rooms WHERE id = $1', [roomId]);
+    if (roomCheck.rows.length === 0) return NextResponse.json({ error: 'Room not found' }, { status: 404 });
+
+    await pool.query('BEGIN');
+    await pool.query('DELETE FROM chat_messages WHERE room_id = $1', [roomId]);
+    await pool.query('DELETE FROM chat_members WHERE room_id = $1', [roomId]);
+    await pool.query('DELETE FROM chat_rooms WHERE id = $1', [roomId]);
+    await pool.query('COMMIT');
+
+    return NextResponse.json({ success: true, id: roomId });
+  } catch (err) {
+    await pool.query('ROLLBACK');
+    console.error(err);
+    return NextResponse.json({ error: 'Failed to delete room' }, { status: 500 });
+  }
+}
