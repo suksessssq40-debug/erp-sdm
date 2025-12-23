@@ -95,6 +95,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
            router.replace('/login');
         }}
         userName={store.currentUser.name}
+        userAvatar={store.currentUser.avatarUrl}
         unreadChatCount={unreadCount}
       >
         {children}

@@ -276,12 +276,16 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
                 <tr key={u.id} className="hover:bg-slate-50/50 transition-colors group">
                   <td className="px-6 py-5">
                     <div className="flex items-center gap-4">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-black shadow-lg ${
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-black shadow-lg overflow-hidden border-2 border-white/20 ${
                          u.role === UserRole.OWNER ? 'bg-purple-600' :
                          u.role === UserRole.MANAGER ? 'bg-amber-500' :
                          u.role === UserRole.FINANCE ? 'bg-emerald-500' : 'bg-blue-600'
                       }`}>
-                        {u.name.charAt(0)}
+                        {u.avatarUrl ? (
+                            <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover" />
+                        ) : (
+                            u.name.charAt(0)
+                        )}
                       </div>
                       <div>
                         <p className="font-bold text-slate-800 text-sm">{u.name}</p>

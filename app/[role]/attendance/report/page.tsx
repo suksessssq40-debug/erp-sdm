@@ -176,8 +176,12 @@ export default function AttendanceReportPage() {
                                             <td className="p-6 font-mono">{new Date(record.date).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' })}</td>
                                             <td className="p-6">
                                                 <div className="flex items-center gap-3">
-                                                    <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 font-black uppercase">
-                                                        {user?.name.charAt(0)}
+                                                    <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 font-black uppercase overflow-hidden border border-white shadow-sm">
+                                                        {user?.avatarUrl ? (
+                                                            <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            user?.name.charAt(0)
+                                                        )}
                                                     </div>
                                                     <span className="group-hover:text-blue-600 transition">{user?.name}</span>
                                                 </div>

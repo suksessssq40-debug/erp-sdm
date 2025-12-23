@@ -320,11 +320,18 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
                     <p className="text-[10px] font-bold text-slate-400 line-clamp-2 leading-relaxed mb-4">{project.description}</p>
                     <div className="flex justify-between items-center pt-4 border-t border-slate-50">
                       <div className="flex -space-x-2">
-                        {project.collaborators.slice(0, 3).map(id => (
-                          <div key={id} className="w-8 h-8 rounded-full bg-blue-50 border-2 border-white flex items-center justify-center text-[10px] font-black text-blue-600" title={users.find(u => u.id === id)?.name}>
-                            {users.find(u => u.id === id)?.name.charAt(0).toUpperCase()}
+                        {project.collaborators.slice(0, 3).map(id => {
+                          const u = users.find(user => user.id === id);
+                          return (
+                          <div key={id} className="w-8 h-8 rounded-full bg-blue-50 border-2 border-white flex items-center justify-center overflow-hidden" title={u?.name}>
+                            {u?.avatarUrl ? (
+                                <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover" />
+                            ) : (
+                                <span className="text-[10px] font-black text-blue-600">{u?.name.charAt(0).toUpperCase()}</span>
+                            )}
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                       <div className={`text-[9px] font-black px-2 py-1 rounded-lg flex items-center ${
                         new Date(project.deadline) < new Date() && project.status !== KanbanStatus.DONE ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-slate-50 text-slate-400'
@@ -711,11 +718,18 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, curre
                                   <div className="space-y-1">
                                     <span className={`text-base font-black ${task.isCompleted ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{task.title}</span>
                                     <div className="flex -space-x-1.5 items-center">
-                                      {task.assignedTo.map((uid: string) => (
-                                        <div key={uid} title={users.find(u => u.id === uid)?.name} className="w-5 h-5 rounded-full bg-blue-100 text-[8px] font-black flex items-center justify-center text-blue-600 border border-white uppercase cursor-help">
-                                          {users.find(u => u.id === uid)?.name.charAt(0)}
+                                      {task.assignedTo.map((uid: string) => {
+                                        const u = users.find(user => user.id === uid);
+                                        return (
+                                        <div key={uid} title={u?.name} className="w-5 h-5 rounded-full bg-blue-100 border border-white flex items-center justify-center overflow-hidden cursor-help">
+                                          {u?.avatarUrl ? (
+                                             <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover" />
+                                          ) : (
+                                             <span className="text-[8px] font-black text-blue-600 uppercase">{u?.name.charAt(0)}</span>
+                                          )}
                                         </div>
-                                      ))}
+                                        );
+                                      })}
                                     </div>
                                   </div>
                                </div>

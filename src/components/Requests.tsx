@@ -155,8 +155,12 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                   >
                     <td className="px-6 py-5">
                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 font-black text-xs border-2 border-white shadow-sm">
-                             {applicant?.name.charAt(0)}
+                          <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 font-black text-xs border-2 border-white shadow-sm overflow-hidden">
+                             {applicant?.avatarUrl ? (
+                                <img src={applicant.avatarUrl} alt={applicant.name} className="w-full h-full object-cover" />
+                             ) : (
+                                applicant?.name.charAt(0)
+                             )}
                           </div>
                           <div>
                              <p className="text-slate-800 font-bold">{applicant?.name || 'Unknown'}</p>
@@ -220,8 +224,12 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
               
               <div className="flex justify-between items-start mb-8">
                  <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 font-black text-xl">
-                       {users.find(u => u.id === selectedRequest.userId)?.name.charAt(0)}
+                    <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 font-black text-xl overflow-hidden border-4 border-white shadow-lg">
+                       {users.find(u => u.id === selectedRequest.userId)?.avatarUrl ? (
+                            <img src={users.find(u => u.id === selectedRequest.userId)?.avatarUrl} alt="Avatar" className="w-full h-full object-cover"/>
+                       ) : (
+                           users.find(u => u.id === selectedRequest.userId)?.name.charAt(0)
+                       )}
                     </div>
                     <div>
                        <h3 className="text-2xl font-black text-slate-800">{users.find(u => u.id === selectedRequest.userId)?.name}</h3>
@@ -290,7 +298,13 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                            {selectedRequest.status === RequestStatus.APPROVED ? <CheckCircle2 size={18} className="mt-0.5 text-emerald-600"/> : <AlertCircle size={18} className="mt-0.5 text-rose-600"/>}
                            <div>
                               <p className="text-xs font-black uppercase tracking-wide">
-                                 {selectedRequest.status === RequestStatus.APPROVED ? 'DISETUJUI OLEH' : 'DITOLAK OLEH'}: {selectedRequest.approverName || 'Manajemen'}
+                                 {selectedRequest.status === RequestStatus.APPROVED ? 'DISETUJUI OLEH' : 'DITOLAK OLEH'}: 
+                                 <span className="ml-1 inline-flex items-center gap-1">
+                                    {selectedRequest.approverId && users.find(u => u.id === selectedRequest.approverId)?.avatarUrl && (
+                                        <img src={users.find(u => u.id === selectedRequest.approverId)?.avatarUrl} className="w-4 h-4 rounded-full object-cover border border-white" />
+                                    )}
+                                    {users.find(u => u.id === selectedRequest.approverId)?.name || selectedRequest.approverName || 'Manajemen'}
+                                 </span>
                               </p>
                               <p className="text-[10px] opacity-70 font-bold mt-1">
                                  Pada: {selectedRequest.actionAt ? new Date(selectedRequest.actionAt).toLocaleString('id-ID') : '-'}

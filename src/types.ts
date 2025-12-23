@@ -17,6 +17,9 @@ export interface User {
   password?: string;
   deviceId?: string;
   deviceIds?: string[];
+  avatarUrl?: string;
+  jobTitle?: string;
+  bio?: string;
 }
 
 export enum KanbanStatus {

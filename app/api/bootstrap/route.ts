@@ -69,7 +69,6 @@ async function ensureSeedData() {
         target_obj VARCHAR(100),
         metadata_json TEXT
       )
-      )
     `);
 
     // Ensure device_ids column exists (Migration for Multi-Device)
@@ -172,7 +171,10 @@ export async function GET() {
           telegramUsername: u.telegram_username || '',
           role: u.role,
           deviceId: u.device_id || null,
-          deviceIds: u.device_ids || []
+          deviceIds: u.device_ids || [],
+          avatarUrl: u.avatar_url || undefined,
+          jobTitle: u.job_title || undefined,
+          bio: u.bio || undefined
         })),
         projects: projectsRes.rows.map(p => ({
           id: p.id,

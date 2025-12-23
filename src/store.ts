@@ -90,21 +90,39 @@ export const useStore = () => {
         if (!res.ok) throw new Error('Failed to load data from backend');
         const data = await res.json();
         
-        setState(prev => ({
-          ...prev,
-          // If local storage was empty but bootstrap implies session (unlikely in this architecture but safe to keep logic), 
-          // we stick to local storage auth as truth.
-          users: data.users || [],
-          projects: data.projects || [],
-          attendance: data.attendance || [],
-          requests: data.requests || [],
-          transactions: data.transactions || [],
-          dailyReports: data.dailyReports || [],
-          salaryConfigs: data.salaryConfigs || [],
-          payrollRecords: data.payrollRecords || [],
-          logs: data.logs || [],
-          settings: data.settings || prev.settings
-        }));
+        setState(prev => {
+          const newUsers = data.users || [];
+          let newCurrentUser = prev.currentUser;
+
+          // Sync currentUser with fresh data from bootstrap
+          if (prev.currentUser) {
+            const foundMe = newUsers.find((u: User) => u.id === prev.currentUser!.id);
+            if (foundMe) {
+                 newCurrentUser = { ...prev.currentUser, ...foundMe };
+                 // Update LocalStorage immediately
+                 try {
+                    if (typeof window !== 'undefined') {
+                        window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(newCurrentUser));
+                    }
+                 } catch(e) {}
+            }
+          }
+
+          return {
+            ...prev,
+            users: newUsers,
+            currentUser: newCurrentUser,
+            projects: data.projects || [],
+            attendance: data.attendance || [],
+            requests: data.requests || [],
+            transactions: data.transactions || [],
+            dailyReports: data.dailyReports || [],
+            salaryConfigs: data.salaryConfigs || [],
+            payrollRecords: data.payrollRecords || [],
+            logs: data.logs || [],
+            settings: data.settings || prev.settings
+          };
+        });
       } catch (e) {
         console.error("Bootstrap error:", e);
       } finally {
@@ -113,6 +131,58 @@ export const useStore = () => {
     };
 
     initializeApp();
+    
+    // Polling System: Refresh vital shared data (Users list) every 30 seconds
+    // This allows changes like Avatar updates to propagate to other online users
+    const pollInterval = setInterval(async () => {
+        try {
+            // We can re-use the bootstrap endpoint or specific endpoints.
+            // Using bootstrap is heavy but guarantees sync. Ideally we'd have a lighter /api/users endpoint.
+            // Let's assume we can fetch just users if we had an endpoint, but for now let's just re-fetch bootstrap silently
+            // OR better: Create a specific logic if token exists.
+            
+            // To avoid complexity, we rely on the fact that 'users' are loaded in bootstrap.
+            // Let's implement a lightweight user sync if token exists.
+            const token = typeof window !== 'undefined' ? window.localStorage.getItem(CURRENT_TOKEN_KEY) : null;
+            if (!token) return;
+
+            const res = await fetch(`${API_BASE}/api/bootstrap`, { 
+                headers: { Authorization: `Bearer ${token}` },
+                cache: 'no-store' 
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setState(prev => {
+                    const newUsers = data.users || prev.users;
+                    // If current user is in the new list, update them too to reflect changes (like Avatar) immediately in UI
+                    let newCurrentUser = prev.currentUser;
+                    if (prev.currentUser) {
+                        const foundMe = newUsers.find((u: User) => u.id === prev.currentUser!.id);
+                        if (foundMe) {
+                             newCurrentUser = { ...prev.currentUser, ...foundMe };
+                             // Also update storage to keep it fresh across reloads
+                             try {
+                                if (typeof window !== 'undefined') {
+                                    window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(newCurrentUser));
+                                }
+                             } catch(e) {}
+                        }
+                    }
+
+                    return {
+                        ...prev,
+                        users: newUsers, // Sync Users
+                        currentUser: newCurrentUser,
+                        projects: data.projects || prev.projects, // Sync Kanban
+                    };
+                });
+            }
+        } catch (e) {
+            console.error("Background sync failed", e);
+        }
+    }, 30000); // 30 Seconds
+
+    return () => clearInterval(pollInterval);
   }, []);
 
   const authHeaders: Record<string, string> = state.authToken
@@ -267,10 +337,33 @@ export const useStore = () => {
           throw new Error(err.error || 'Failed to update user');
       }
       const updated: User = await res.json();
-      setState(prev => ({
-        ...prev,
-        users: prev.users.map(u => u.id === updated.id ? updated : u)
-      }));
+      
+      setState(prev => {
+        // Update user in users list
+        const newUsers = prev.users.map(u => u.id === updated.id ? { ...u, ...updated } : u); // Merge to be safe
+        
+        // Update currentUser if it's the same person
+        let newCurrentUser = prev.currentUser;
+        if (prev.currentUser && prev.currentUser.id === updated.id) {
+            newCurrentUser = { ...prev.currentUser, ...updated };
+            
+            // Persist to LocalStorage immediately
+            try {
+                if (typeof window !== 'undefined') {
+                    window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(newCurrentUser));
+                }
+            } catch (e) {
+                console.error("Failed to persist user update", e);
+            }
+        }
+
+        return {
+           ...prev,
+           users: newUsers,
+           currentUser: newCurrentUser
+        };
+      });
+      
       addLog(SystemActionType.USER_UPDATE, `Updated user info: ${updated.name}`, updated.id);
     } catch (e) {
       console.error(e);

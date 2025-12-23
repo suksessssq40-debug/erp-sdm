@@ -221,8 +221,12 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
                     </div>
                     <div className="h-8 w-[1px] bg-slate-200"></div>
                     <div className="flex items-center gap-2">
-                         <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold uppercase text-xs">
-                             {currentUser.name.charAt(0)}
+                         <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold uppercase text-xs overflow-hidden border border-blue-200">
+                             {currentUser.avatarUrl ? (
+                                <img src={currentUser.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                             ) : (
+                                currentUser.name.charAt(0)
+                             )}
                          </div>
                     </div>
                 </div>

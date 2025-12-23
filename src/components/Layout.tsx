@@ -26,9 +26,10 @@ interface LayoutProps {
   onLogout: () => void;
   userName: string;
   unreadChatCount?: number;
+  userAvatar?: string;
 }
 
-const Layout: React.FC<LayoutProps> = ({ children, userRole, activeTab, onTabChange, onLogout, userName, unreadChatCount = 0 }) => {
+const Layout: React.FC<LayoutProps> = ({ children, userRole, activeTab, onTabChange, onLogout, userName, userAvatar, unreadChatCount = 0 }) => {
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
   
   const navItems = [
@@ -129,9 +130,13 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, activeTab, onTabCha
                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">Status Sesi</p>
                <p className="text-[10px] font-black text-emerald-500 uppercase">ONLINE - SECURE</p>
             </div>
-            <div className="w-10 h-10 rounded-2xl bg-slate-900 flex items-center justify-center text-white font-black uppercase shadow-xl">
-              {userName.charAt(0)}
-            </div>
+      <button onClick={() => onTabChange('profile')} className="w-10 h-10 rounded-2xl bg-slate-900 flex items-center justify-center text-white font-black uppercase shadow-xl overflow-hidden hover:scale-105 active:scale-95 transition-transform" title="My Profile">
+              {userAvatar ? (
+                  <img src={userAvatar} alt="Profile" className="w-full h-full object-cover" />
+              ) : (
+                  userName.charAt(0)
+              )}
+            </button>
           </div>
         </header>
         <div className="p-4 md:p-8 flex-1">

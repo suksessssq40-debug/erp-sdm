@@ -184,8 +184,12 @@ _Dikirim dari Sistem ERP SDM_
                     </td>
                     <td className="px-6 py-5">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center font-black text-xs">
-                          {user?.name.charAt(0)}
+                        <div className="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center font-black text-xs overflow-hidden shadow-md">
+                          {user?.avatarUrl ? (
+                              <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
+                          ) : (
+                              user?.name.charAt(0)
+                          )}
                         </div>
                         <span className="text-xs font-bold text-slate-700">{user?.name}</span>
                       </div>

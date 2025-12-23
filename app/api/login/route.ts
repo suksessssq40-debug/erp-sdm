@@ -85,7 +85,10 @@ export async function POST(request: Request) {
       telegramId: u.telegram_id || '',
       telegramUsername: u.telegram_username || '',
       role: u.role,
-      deviceId: u.device_id || deviceId
+      deviceId: u.device_id || deviceId,
+      avatarUrl: u.avatar_url || undefined,
+      jobTitle: u.job_title || undefined,
+      bio: u.bio || undefined
     };
 
     const token = jwt.sign({ id: u.id, role: u.role }, JWT_SECRET, { expiresIn: '7d' });
