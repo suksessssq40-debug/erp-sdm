@@ -314,37 +314,45 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
                      )}
                   </td>
                   <td className="px-6 py-5 text-right">
-                     {currentUser?.role === UserRole.OWNER && (
+                     {/* Controls visible for OWNER, MANAGER, FINANCE */}
+                     {['OWNER', 'MANAGER', 'FINANCE'].includes(currentUser?.role || '') && (
                         <div className="flex items-center justify-end gap-2">
-                           {u.deviceId && (
-                              <button 
-                                onClick={async () => {
-                                  if (window.confirm(`Reset kunci perangkat untuk user ${u.name}?`)) {
-                                    try {
-                                      await onResetDevice(u.id);
-                                      toast.success("Device berhasil di-reset!");
-                                    } catch (e) {
-                                      toast.error("Gagal reset device.");
-                                    }
-                                  }
-                                }}
-                                className="p-2 bg-amber-50 text-amber-600 rounded-lg hover:bg-amber-500 hover:text-white transition border border-amber-200"
-                                title="Reset Device Lock"
-                              >
-                                <Unlock size={14} />
-                              </button>
-                           )}
-                           
-                           {/* Edit Button */}
-                           <button onClick={() => handleOpenEdit(u)} className="p-2 bg-slate-50 text-slate-600 rounded-lg hover:bg-blue-600 hover:text-white transition border border-slate-200" title="Edit User">
-                              <Pencil size={14} />
-                           </button>
+                           {/* Protect OWNER accounts from being modified by others */}
+                           {u.role === UserRole.OWNER && currentUser?.role !== UserRole.OWNER ? (
+                              <span className="text-[9px] font-bold text-slate-300 italic px-2">LOCKED</span>
+                           ) : (
+                             <>
+                               {u.deviceId && (
+                                  <button 
+                                    onClick={async () => {
+                                      if (window.confirm(`Reset kunci perangkat untuk user ${u.name}?`)) {
+                                        try {
+                                          await onResetDevice(u.id);
+                                          toast.success("Device berhasil di-reset!");
+                                        } catch (e) {
+                                          toast.error("Gagal reset device.");
+                                        }
+                                      }
+                                    }}
+                                    className="p-2 bg-amber-50 text-amber-600 rounded-lg hover:bg-amber-500 hover:text-white transition border border-amber-200"
+                                    title="Reset Device Lock"
+                                  >
+                                    <Unlock size={14} />
+                                  </button>
+                               )}
+                               
+                               {/* Edit Button */}
+                               <button onClick={() => handleOpenEdit(u)} className="p-2 bg-slate-50 text-slate-600 rounded-lg hover:bg-blue-600 hover:text-white transition border border-slate-200" title="Edit User">
+                                  <Pencil size={14} />
+                               </button>
 
-                           {/* Delete Button (Owner cannot delete themselves) */}
-                           {u.id !== currentUser.id && (
-                             <button onClick={() => handleDelete(u)} className="p-2 bg-rose-50 text-rose-600 rounded-lg hover:bg-rose-600 hover:text-white transition border border-rose-200" title="Hapus User">
-                                <Trash2 size={14} />
-                             </button>
+                               {/* Delete Button (Valid if u.id !== current) */}
+                               {u.id !== currentUser?.id && (
+                                 <button onClick={() => handleDelete(u)} className="p-2 bg-rose-50 text-rose-600 rounded-lg hover:bg-rose-600 hover:text-white transition border border-rose-200" title="Hapus User">
+                                    <Trash2 size={14} />
+                                 </button>
+                               )}
+                             </>
                            )}
                         </div>
                      )}
@@ -391,7 +399,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
                     <option value={UserRole.STAFF}>STAFF OPERASIONAL</option>
                     <option value={UserRole.FINANCE}>TIM KEUANGAN (FINANCE)</option>
                     <option value={UserRole.MANAGER}>MANAGER PROYEK</option>
-                    <option value={UserRole.OWNER}>OWNER / SUPERADMIN</option>
+                    {/* Only OWNER can create/edit other OWNERS */}
+                    {currentUser?.role === UserRole.OWNER && <option value={UserRole.OWNER}>OWNER / SUPERADMIN</option>}
                  </select>
               </div>
 

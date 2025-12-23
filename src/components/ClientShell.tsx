@@ -17,6 +17,29 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   
   // Params role
   const roleParam = params?.role as string;
+
+  // Unread Chat Badge Logic (Moved to Top to fix Hook Error)
+  const [unreadCount, setUnreadCount] = React.useState(0);
+  
+  useEffect(() => {
+     if (!store.loaded || !store.authToken) return;
+     
+     const fetchUnread = async () => {
+        try {
+           const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE || ''}/api/chat/unread`, {
+               headers: { 'Authorization': `Bearer ${store.authToken}` }
+           });
+           if (res.ok) {
+              const data = await res.json();
+              setUnreadCount(data.count);
+           }
+        } catch(e) { /* silent fail */ }
+     };
+
+     fetchUnread();
+     const interval = setInterval(fetchUnread, 10000); // Poll every 10s
+     return () => clearInterval(interval);
+  }, [store.loaded, store.authToken]);
   
   useEffect(() => {
     if (!store.loaded) return; 
@@ -72,6 +95,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
            router.replace('/login');
         }}
         userName={store.currentUser.name}
+        unreadChatCount={unreadCount}
       >
         {children}
       </Layout>

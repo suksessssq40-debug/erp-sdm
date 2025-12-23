@@ -6,7 +6,7 @@ import bcrypt from 'bcryptjs';
 // DELETE: Hapus User (Updated with Cascade Deletes)
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   try {
-    await authorize(['OWNER']);
+    await authorize(['OWNER', 'MANAGER', 'FINANCE']);
     const { id } = params;
 
     const client = await pool.connect();
@@ -50,7 +50,7 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
 // PUT: Update User
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   try {
-    await authorize(['OWNER']);
+    await authorize(['OWNER', 'MANAGER', 'FINANCE']);
     const { id } = params;
     const body = await request.json();
     const { name, username, telegramId, telegramUsername, role, password } = body;

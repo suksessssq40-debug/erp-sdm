@@ -25,6 +25,16 @@ export async function GET(request: Request) {
             joined_at BIGINT,
             PRIMARY KEY (room_id, user_id)
           );
+          
+          -- Upgrade Schema: Add last_read_at if missing
+          DO $$
+          BEGIN
+              IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='chat_members' AND column_name='last_read_at') THEN
+                  ALTER TABLE chat_members ADD COLUMN last_read_at BIGINT DEFAULT 0;
+              END IF;
+          END
+          $$;
+
           CREATE TABLE IF NOT EXISTS chat_messages (
             id VARCHAR(50) PRIMARY KEY,
             room_id VARCHAR(50),

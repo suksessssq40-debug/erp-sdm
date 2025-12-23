@@ -5,7 +5,7 @@ import bcrypt from 'bcryptjs';
 
 export async function POST(request: Request) {
   try {
-    await authorize(['OWNER', 'MANAGER']);
+    await authorize(['OWNER', 'MANAGER', 'FINANCE']);
     const { id, name, username, telegramId, telegramUsername, role, password } = await request.json();
     
     if (!id || !name || !username || !role) return NextResponse.json({ error: 'Missing fields' }, { status: 400 });

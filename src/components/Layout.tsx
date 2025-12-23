@@ -25,9 +25,10 @@ interface LayoutProps {
   onTabChange: (tab: string) => void;
   onLogout: () => void;
   userName: string;
+  unreadChatCount?: number;
 }
 
-const Layout: React.FC<LayoutProps> = ({ children, userRole, activeTab, onTabChange, onLogout, userName }) => {
+const Layout: React.FC<LayoutProps> = ({ children, userRole, activeTab, onTabChange, onLogout, userName, unreadChatCount = 0 }) => {
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
   
   const navItems = [
@@ -39,7 +40,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, activeTab, onTabCha
     { id: 'requests', label: 'Permohonan', icon: FileText, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF] },
     { id: 'daily-report', label: 'Daily Report', icon: Clock, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF] },
     { id: 'finance', label: 'Arus Kas', icon: Wallet, roles: [UserRole.OWNER, UserRole.FINANCE] },
-    { id: 'users', label: 'User Management', icon: Users, roles: [UserRole.OWNER, UserRole.MANAGER] },
+    { id: 'users', label: 'User Management', icon: Users, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE] },
     { id: 'audit', label: 'Audit Trail', icon: ShieldAlert, roles: [UserRole.OWNER] },
     { id: 'settings', label: 'Settings', icon: Settings, roles: [UserRole.OWNER] },
   ];
@@ -82,12 +83,19 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, activeTab, onTabCha
                 onTabChange(item.id);
                 setIsSidebarOpen(false);
               }}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all ${
+              className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all ${
                 activeTab === item.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
               }`}
             >
-              <item.icon size={20} />
-              <span className="font-bold text-xs uppercase tracking-widest">{item.label}</span>
+              <div className="flex items-center space-x-3">
+                 <item.icon size={20} />
+                 <span className="font-bold text-xs uppercase tracking-widest">{item.label}</span>
+              </div>
+              {item.id === 'chat' && unreadChatCount > 0 && (
+                <span className="bg-rose-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse shadow-rose-500/50 shadow-md">
+                   {unreadChatCount}
+                </span>
+              )}
             </button>
           ))}
         </nav>

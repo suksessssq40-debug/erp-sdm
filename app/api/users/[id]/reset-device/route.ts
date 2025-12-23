@@ -5,7 +5,7 @@ import { authorize } from '@/lib/auth';
 export async function POST(request: Request, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   try {
-    await authorize(['OWNER']);
+    await authorize(['OWNER', 'MANAGER', 'FINANCE']);
     const id = params.id;
     await pool.query('UPDATE users SET device_id = NULL WHERE id = $1', [id]);
     return NextResponse.json({ message: 'Device reset' });

@@ -58,8 +58,28 @@ export default function ChatModule() {
     setReplyingTo(null); 
     lastFetchRef.current = 0;
     fetchMessages();
+    
+    // Mark as Read Immediately
+    const markAsRead = async () => {
+       try {
+         await fetch(`${process.env.NEXT_PUBLIC_API_BASE || ''}/api/chat/unread`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${store.authToken}` },
+            body: JSON.stringify({ roomId: activeRoomId })
+         });
+       } catch(e) {}
+    };
+    markAsRead();
 
-    const interval = setInterval(fetchMessages, 3000); 
+    const interval = setInterval(() => {
+        fetchMessages();
+        // Also keep marking read as long as we stay in room? 
+        // Not strictly necessary unless we want to clear badge while chatting live.
+        // Let's keep it simple: mark read on entry and maybe on send/receive is implicit via UI focus. 
+        // For now, mark on entry & every fetch is safest for "live" unread clearing.
+        markAsRead(); 
+    }, 3000); 
+    
     return () => clearInterval(interval);
   }, [activeRoomId]);
 
