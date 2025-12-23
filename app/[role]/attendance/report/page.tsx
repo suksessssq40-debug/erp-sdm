@@ -318,12 +318,33 @@ export default function AttendanceReportPage() {
                                          <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-indigo-400">TOTAL DURASI</p>
                                          <p className="text-lg font-black text-indigo-600">
                                              {(() => {
-                                                 if (!selectedRecord.timeOut) return '-';
-                                                 const [startH, startM] = selectedRecord.timeIn.split(':').map(Number);
-                                                 const [endH, endM] = selectedRecord.timeOut.split(':').map(Number);
-                                                 const startMinutes = startH * 60 + startM;
-                                                 const endMinutes = endH * 60 + endM;
-                                                 const diff = endMinutes - startMinutes;
+                                                 const tIn = selectedRecord.timeIn;
+                                                 const tOut = selectedRecord.timeOut;
+                                                 
+                                                 if (!tIn || !tOut || tOut === '-') return '-';
+                                                 
+                                                 // Helper to parse "HH:mm" safely
+                                                 const parseMinutes = (timeStr: string) => {
+                                                     // Remove any non-digit/non-colon chars
+                                                     const clean = timeStr.toString().replace(/[^\d:]/g, '');
+                                                     const parts = clean.split(':');
+                                                     if (parts.length < 2) return null;
+                                                     
+                                                     const h = parseInt(parts[0], 10);
+                                                     const m = parseInt(parts[1], 10);
+                                                     
+                                                     if (isNaN(h) || isNaN(m)) return null;
+                                                     return h * 60 + m;
+                                                 };
+
+                                                 const startTotal = parseMinutes(tIn);
+                                                 const endTotal = parseMinutes(tOut);
+
+                                                 if (startTotal === null || endTotal === null) return '-';
+
+                                                 let diff = endTotal - startTotal;
+                                                 if (diff < 0) diff += 24 * 60; // Handle over-midnight shift simply if needed
+
                                                  const hours = Math.floor(diff / 60);
                                                  const mins = diff % 60;
                                                  return `${hours}j ${mins}m`;
