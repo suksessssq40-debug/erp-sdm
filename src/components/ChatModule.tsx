@@ -169,9 +169,14 @@ export default function ChatModule() {
         });
         if (res.ok) {
            toast.success('Message updated');
+           
+           // Manually update local state for realtime feel
+           setMessages(prev => prev.map(m => 
+              m.id === editingMessageId ? { ...m, content: inputText } : m
+           ));
+
            setEditingMessageId(null);
            setInputText('');
-           fetchMessages();
         }
      } catch(e) { toast.error('Failed to update'); }
   };
@@ -445,7 +450,7 @@ export default function ChatModule() {
                                 </button>
                             )}
 
-                            <div className={`relative px-4 py-3 md:px-5 md:py-3 rounded-2xl text-sm font-medium leading-relaxed shadow-sm break-words
+                            <div className={`relative px-4 py-3 md:px-5 md:py-3 rounded-2xl text-sm font-medium leading-relaxed shadow-sm break-words whitespace-pre-wrap
                                 ${isMe 
                                   ? 'bg-slate-900 text-white rounded-br-none' 
                                   : 'bg-white text-slate-600 rounded-bl-none border border-slate-100'
