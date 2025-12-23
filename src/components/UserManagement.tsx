@@ -303,15 +303,22 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
                      </div>
                   </td>
                   <td className="px-6 py-5">
-                     {u.deviceId ? (
-                       <span className="flex items-center gap-2 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg w-fit cursor-help" title={`Device ID: ${u.deviceId}`}>
-                         <LayoutIcon size={12} /> TERKUNCI
-                       </span>
-                     ) : (
-                       <span className="flex items-center gap-2 text-[10px] font-bold text-slate-400 bg-slate-50 px-3 py-1 rounded-lg w-fit">
-                         <Unlock size={12} /> BEBAS
-                       </span>
-                     )}
+                     {(() => {
+                        const count = u.deviceIds?.length ?? (u.deviceId ? 1 : 0);
+                        if (count > 0) {
+                          return (
+                           <span className="flex items-center gap-2 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg w-fit cursor-help" title={`Devices: ${count}/2`}>
+                             <LayoutIcon size={12} /> TERKUNCI ({count}/2)
+                           </span>
+                          );
+                        } else {
+                          return (
+                           <span className="flex items-center gap-2 text-[10px] font-bold text-slate-400 bg-slate-50 px-3 py-1 rounded-lg w-fit">
+                             <Unlock size={12} /> BEBAS
+                           </span>
+                          );
+                        }
+                     })()}
                   </td>
                   <td className="px-6 py-5 text-right">
                      {/* Controls visible for OWNER, MANAGER, FINANCE */}
@@ -322,10 +329,10 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
                               <span className="text-[9px] font-bold text-slate-300 italic px-2">LOCKED</span>
                            ) : (
                              <>
-                               {u.deviceId && (
+                               {(u.deviceIds?.length > 0 || u.deviceId) && (
                                   <button 
                                     onClick={async () => {
-                                      if (window.confirm(`Reset kunci perangkat untuk user ${u.name}?`)) {
+                                      if (window.confirm(`Reset kunci perangkat (semua device) untuk user ${u.name}?`)) {
                                         try {
                                           await onResetDevice(u.id);
                                           toast.success("Device berhasil di-reset!");

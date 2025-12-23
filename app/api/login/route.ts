@@ -31,12 +31,51 @@ export async function POST(request: Request) {
     }
 
     // Device Lock Check
-    // Device Lock Check (Only applies to STAFF to prevent attendance fraud)
-    if (u.role === 'STAFF' && u.device_id && deviceId && u.device_id !== deviceId) {
-       return NextResponse.json({ error: 'DEVICE_LOCKED_MISMATCH', message: 'Locked to another device.' }, { status: 403 });
-    }
-    if (!u.device_id && deviceId) {
-      await pool.query('UPDATE users SET device_id = $1 WHERE id = $2', [deviceId, u.id]);
+    // 3. Device Lock Check (Max 2 Devices for STAFF)
+    if (u.role === 'STAFF') {
+        // Auto-Migration: Ensure device_ids column exists
+        try {
+           await pool.query(`
+             DO $$ 
+             BEGIN 
+               IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='device_ids') THEN
+                 ALTER TABLE users ADD COLUMN device_ids JSONB DEFAULT '[]';
+               END IF;
+             END $$;
+           `);
+        } catch(e) {}
+
+        const resIds = await pool.query('SELECT device_ids FROM users WHERE id = $1', [u.id]);
+        let knownDevices: string[] = resIds.rows[0]?.device_ids || [];
+        
+        // Backward compatibility migration
+        if (u.device_id && !knownDevices.includes(u.device_id)) {
+           knownDevices.push(u.device_id);
+        }
+
+        if (deviceId) {
+           // Allow if device is already known
+           if (knownDevices.includes(deviceId)) {
+              // Refresh single device_id to current for legacy UI
+              if (u.device_id !== deviceId) {
+                  await pool.query('UPDATE users SET device_id = $1 WHERE id = $2', [deviceId, u.id]);
+              }
+           } 
+           // If slot available, register new device
+           else if (knownDevices.length < 2) {
+              knownDevices.push(deviceId);
+              await pool.query('UPDATE users SET device_ids = $1, device_id = $2 WHERE id = $3', [JSON.stringify(knownDevices), deviceId, u.id]);
+           } 
+           // Too many devices
+           else {
+              return NextResponse.json({ error: 'DEVICE_LOCKED_MISMATCH', message: 'Maksimal 2 perangkat terdaftar tercapai. Hubungi admin untuk reset.' }, { status: 403 });
+           }
+        }
+    } else {
+        // For non-staff, just record it if provided to keep basic lock info or audit
+        if (deviceId && u.device_id !== deviceId) {
+            await pool.query('UPDATE users SET device_id = $1 WHERE id = $2', [deviceId, u.id]);
+        }
     }
 
     const userPayload = {

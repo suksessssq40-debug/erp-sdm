@@ -72,6 +72,16 @@ async function ensureSeedData() {
       )
     `);
 
+    // Ensure device_ids column exists (Migration for Multi-Device)
+    await client.query(`
+      DO $$ 
+      BEGIN 
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='device_ids') THEN
+          ALTER TABLE users ADD COLUMN device_ids JSONB DEFAULT '[]';
+        END IF;
+      END $$;
+    `);
+
     // Ensure CHAT tables exist
     await client.query(`
       CREATE TABLE IF NOT EXISTS chat_rooms (
@@ -161,7 +171,8 @@ export async function GET() {
           telegramId: u.telegram_id || '',
           telegramUsername: u.telegram_username || '',
           role: u.role,
-          deviceId: u.device_id || null
+          deviceId: u.device_id || null,
+          deviceIds: u.device_ids || []
         })),
         projects: projectsRes.rows.map(p => ({
           id: p.id,

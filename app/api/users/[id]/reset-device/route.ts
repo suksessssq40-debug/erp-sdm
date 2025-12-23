@@ -7,7 +7,8 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
   try {
     await authorize(['OWNER', 'MANAGER', 'FINANCE']);
     const id = params.id;
-    await pool.query('UPDATE users SET device_id = NULL WHERE id = $1', [id]);
+    // Reset both legacy and new array
+    await pool.query("UPDATE users SET device_id = NULL, device_ids = '[]' WHERE id = $1", [id]);
     return NextResponse.json({ message: 'Device reset' });
   } catch (error) {
     console.error(error);

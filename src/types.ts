@@ -16,6 +16,7 @@ export interface User {
   role: UserRole;
   password?: string;
   deviceId?: string;
+  deviceIds?: string[];
 }
 
 export enum KanbanStatus {
