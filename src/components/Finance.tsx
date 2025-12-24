@@ -84,7 +84,10 @@ const FinanceModule: React.FC<FinanceProps> = ({
     setIsLoading(true);
     // Get token from localStorage since we are in a client component and need to call API
     const token = typeof window !== 'undefined' ? localStorage.getItem('sdm_erp_auth_token') : null;
-    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
 
     try {
       // 1. Fetch Summary
