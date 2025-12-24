@@ -131,12 +131,17 @@ export enum TransactionType {
   OUT = 'OUT'
 }
 
-export type FinancialAccount = 
-  | 'Mandiri 1' 
-  | 'Mandiri 2' 
-  | 'Mandiri 3' 
-  | 'BCA Syariah' 
-  | 'Kas Tunai';
+// Refactored to allow dynamic accounts from DB
+export type FinancialAccount = string;
+
+export interface FinancialAccountDef {
+  id: string;
+  name: string;
+  bankName: string;
+  accountNumber: string;
+  description: string;
+  isActive: boolean;
+}
 
 export interface Transaction {
   id: string;

@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from 'react';
-import { User, UserRole, Project, Attendance, LeaveRequest, Transaction, AppSettings, DailyReport, UserSalaryConfig, PayrollRecord, SystemLog, SystemActionType } from './types';
+import { User, UserRole, Project, Attendance, LeaveRequest, Transaction, AppSettings, DailyReport, UserSalaryConfig, PayrollRecord, SystemLog, SystemActionType, FinancialAccountDef } from './types';
 import { INITIAL_OFFICE_LOCATION } from './constants';
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -23,6 +23,7 @@ interface AppState {
   payrollRecords: PayrollRecord[];
   settings: AppSettings;
   logs: SystemLog[];
+  financialAccounts: FinancialAccountDef[];
 }
 
 const initialState: AppState = {
@@ -38,6 +39,7 @@ const initialState: AppState = {
   salaryConfigs: [],
   payrollRecords: [],
   logs: [],
+  financialAccounts: [],
   settings: {
     officeLocation: INITIAL_OFFICE_LOCATION,
     officeHours: { start: '08:00', end: '17:00' },
@@ -120,7 +122,8 @@ export const useStore = () => {
             salaryConfigs: data.salaryConfigs || [],
             payrollRecords: data.payrollRecords || [],
             logs: data.logs || [],
-            settings: data.settings || prev.settings
+            settings: data.settings || prev.settings,
+            financialAccounts: data.financialAccounts || []
           };
         });
       } catch (e) {
@@ -545,6 +548,46 @@ export const useStore = () => {
       addLog(SystemActionType.FINANCE_CREATE, `Created transaction: ${created.amount} (${created.type})`, created.id);
     } catch (e) {
       console.error(e);
+      throw e; // Propagate error for UI handling
+    }
+  };
+
+  const updateTransaction = async (t: Transaction) => {
+    // Optimistic
+    setState(prev => ({
+      ...prev,
+      transactions: prev.transactions.map(tr => tr.id === t.id ? t : tr)
+    }));
+    try {
+      const res = await fetch(`${API_BASE}/api/transactions/${t.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify(t)
+      });
+      if (!res.ok) throw new Error('Failed to update transaction');
+      addLog(SystemActionType.FINANCE_UPDATE, `Updated transaction: ${t.amount} (${t.type})`, t.id);
+    } catch (e) {
+      console.error(e);
+      throw e;
+    }
+  };
+
+  const deleteTransaction = async (id: string, detailAmount: string) => {
+    // Optimistic
+    setState(prev => ({
+      ...prev,
+      transactions: prev.transactions.filter(t => t.id !== id)
+    }));
+    try {
+      const res = await fetch(`${API_BASE}/api/transactions/${id}`, {
+        method: 'DELETE',
+        headers: { ...authHeaders }
+      });
+      if (!res.ok) throw new Error('Failed to delete transaction');
+      addLog(SystemActionType.FINANCE_UPDATE, `Deleted transaction: ${detailAmount}`, id);
+    } catch (e) {
+      console.error(e);
+      throw e;
     }
   };
 
@@ -605,6 +648,60 @@ export const useStore = () => {
     }
   };
 
+  const addFinancialAccount = async (acc: FinancialAccountDef) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/financial-accounts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify(acc)
+      });
+      if (!res.ok) throw new Error('Failed to create account');
+      const created: FinancialAccountDef = await res.json();
+      setState(prev => ({ ...prev, financialAccounts: [...prev.financialAccounts, created] }));
+      addLog(SystemActionType.FINANCE_UPDATE, `Added financial account: ${created.name}`, created.id);
+    } catch (e) {
+      console.error(e);
+      throw e;
+    }
+  };
+
+  const updateFinancialAccount = async (acc: FinancialAccountDef) => {
+    setState(prev => ({
+        ...prev,
+        financialAccounts: prev.financialAccounts.map(a => a.id === acc.id ? acc : a)
+    }));
+    try {
+      const res = await fetch(`${API_BASE}/api/financial-accounts/${acc.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify(acc)
+      });
+      if (!res.ok) throw new Error('Failed to update account');
+      addLog(SystemActionType.FINANCE_UPDATE, `Updated financial account: ${acc.name}`, acc.id);
+    } catch (e) {
+      console.error(e);
+      throw e;
+    }
+  };
+  
+  const deleteFinancialAccount = async (id: string) => {
+      setState(prev => ({
+          ...prev,
+          financialAccounts: prev.financialAccounts.filter(a => a.id !== id)
+      }));
+      try {
+        const res = await fetch(`${API_BASE}/api/financial-accounts/${id}`, {
+            method: 'DELETE',
+            headers: { ...authHeaders }
+        });
+        if (!res.ok) throw new Error('Failed to delete account');
+        addLog(SystemActionType.FINANCE_UPDATE, `Deleted financial account: ${id}`, id);
+      } catch (e) {
+        console.error(e);
+        throw e;
+      }
+  };
+
   const uploadFile = async (file: File): Promise<string> => {
     const formData = new FormData();
     formData.append('file', file);
@@ -639,9 +736,14 @@ export const useStore = () => {
     addRequest,
     updateRequest,
     addTransaction,
+    updateTransaction,
+    deleteTransaction,
     addDailyReport,
     updateSalaryConfig,
     addPayrollRecord,
+    addFinancialAccount,
+    updateFinancialAccount,
+    deleteFinancialAccount,
     resetDevice,
     uploadFile,
     impersonate: (role: UserRole) => {

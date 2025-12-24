@@ -10,7 +10,14 @@ export default function FinancePage() {
   return (
     <FinanceModule 
       transactions={store.transactions} 
+      financialAccounts={store.financialAccounts}
       onAddTransaction={store.addTransaction} 
+      onUpdateTransaction={store.updateTransaction}
+      onDeleteTransaction={store.deleteTransaction}
+      // Account Management
+      onAddAccount={store.addFinancialAccount}
+      onUpdateAccount={store.updateFinancialAccount}
+      onDeleteAccount={store.deleteFinancialAccount}
       toast={toast} 
       uploadFile={store.uploadFile} 
     />

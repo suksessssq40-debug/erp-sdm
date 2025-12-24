@@ -138,7 +138,7 @@ export async function GET() {
       const [
         usersRes, projectsRes, attendanceRes, requestsRes, 
         transactionsRes, dailyReportsRes, salaryConfigsRes, 
-        payrollRes, logsRes, settingsRes
+        payrollRes, logsRes, settingsRes, financialAccountsRes
       ] = await Promise.all([
         client.query('SELECT * FROM users'),
         client.query('SELECT * FROM projects'),
@@ -149,7 +149,8 @@ export async function GET() {
         client.query('SELECT * FROM salary_configs'),
         client.query('SELECT * FROM payroll_records ORDER BY processed_at DESC LIMIT 100'),
         client.query('SELECT * FROM system_logs ORDER BY timestamp DESC LIMIT 1000'),
-        client.query('SELECT * FROM settings LIMIT 1')
+        client.query('SELECT * FROM settings LIMIT 1'),
+        client.query('SELECT * FROM financial_accounts WHERE is_active = true')
       ]);
 
       const settingsRow = settingsRes.rows[0];
@@ -262,7 +263,15 @@ export async function GET() {
           target: l.target_obj || undefined,
           metadata: l.metadata_json ? JSON.parse(l.metadata_json) : undefined
         })),
-        settings
+        settings,
+        financialAccounts: (financialAccountsRes || { rows: [] }).rows.map(a => ({
+          id: a.id,
+          name: a.name,
+          bankName: a.bank_name,
+          accountNumber: a.account_number,
+          description: a.description,
+          isActive: a.is_active
+        }))
       };
 
       return NextResponse.json(data);
