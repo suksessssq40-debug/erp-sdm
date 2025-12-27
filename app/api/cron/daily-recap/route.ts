@@ -88,11 +88,7 @@ export async function GET(request: Request) {
        const resAtt = await pool.query(`
           SELECT 
              COUNT(*) FILTER (WHERE time_in IS NOT NULL) as present,
-             COUNT(*) FILTER (WHERE 
-                (is_late IS TRUE) OR 
-                (is_late::text = '1') OR
-                (is_late::text = 'true')
-             ) as late,
+             COUNT(*) FILTER (WHERE CAST(is_late AS TEXT) = 'true' OR CAST(is_late AS TEXT) = '1') as late,
              COUNT(*)Total
           FROM attendance 
           WHERE date = $1
