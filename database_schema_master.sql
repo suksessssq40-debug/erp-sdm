@@ -1,5 +1,5 @@
 
--- SCHEMA MASTER LENGKAP ERP-SDM
+
 -- Gabungan dari seluruh file migrasi dan setup
 -- Terakhir diperbarui untuk mendukung fitur: Keuangan Dinamis, Multi-Device, Chat System, Freelance, dan Business Units
 
