@@ -57,8 +57,15 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     let status = project.status;
     let title = project.title;
 
+    const user = await authorize();
+    
     // Apply Changes Atomically
     if (action === 'MOVE_STATUS') {
+        // SECURITY PATCH: Prevent STAFF from moving to DONE
+        if (data.status === 'DONE' && user.role === 'STAFF') {
+           await client.query('ROLLBACK');
+           return NextResponse.json({ error: 'STAFF forbidden from finalizing project (DONE)' }, { status: 403 });
+        }
         status = data.status;
     } else if (action === 'ADD_TASK') {
         tasks.push(data.task);

@@ -20,10 +20,23 @@ async function ensureSeedData() {
         textAlignment: 'center'
       };
       await client.query(
-        `INSERT INTO settings (office_lat, office_lng, office_start_time, office_end_time, telegram_bot_token, telegram_group_id, telegram_owner_chat_id, company_profile_json)
-         VALUES ($1, $2, $3, $4, '', '', '', $5)`,
+        `INSERT INTO settings (office_lat, office_lng, office_start_time, office_end_time, telegram_bot_token, telegram_group_id, telegram_owner_chat_id, company_profile_json, daily_recap_time, daily_recap_content)
+         VALUES ($1, $2, $3, $4, '', '', '', $5, '18:00', '[]')`,
         [-6.2, 106.816666, '08:00', '17:00', JSON.stringify(companyProfile)]
       );
+    } else {
+       // Migration: Ensure new columns exist
+       await client.query(`
+         DO $$ 
+         BEGIN 
+           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='settings' AND column_name='daily_recap_time') THEN
+             ALTER TABLE settings ADD COLUMN daily_recap_time VARCHAR(10) DEFAULT '18:00';
+           END IF;
+           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='settings' AND column_name='daily_recap_content') THEN
+             ALTER TABLE settings ADD COLUMN daily_recap_content JSONB DEFAULT '[]';
+           END IF;
+         END $$;
+       `);
     }
     
     // Seed Users if empty
@@ -160,6 +173,8 @@ export async function GET() {
         telegramBotToken: settingsRow.telegram_bot_token || '',
         telegramGroupId: settingsRow.telegram_group_id || '',
         telegramOwnerChatId: settingsRow.telegram_owner_chat_id || '',
+        dailyRecapTime: settingsRow.daily_recap_time || '18:00',
+        dailyRecapModules: typeof settingsRow.daily_recap_content === 'string' ? JSON.parse(settingsRow.daily_recap_content) : (settingsRow.daily_recap_content || []),
         companyProfile: JSON.parse(settingsRow.company_profile_json || '{}')
       } : {};
 

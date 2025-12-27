@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Building, ImageIcon, Trash2, AlignLeft, AlignCenter, AlignRight, Bot, MapPin } from 'lucide-react';
+import { Building, ImageIcon, Trash2, AlignLeft, AlignCenter, AlignRight, Bot, MapPin, Clock, BellRing, CheckCircle2, Circle } from 'lucide-react';
 import { CompanyProfile, UserRole } from '../types';
 
 export const AppSettings = ({ store, toast }: any) => {
@@ -8,6 +8,8 @@ export const AppSettings = ({ store, toast }: any) => {
   const [ownerChatId, setOwnerChatId] = useState(store.settings.telegramOwnerChatId);
   const [officeLoc, setOfficeLoc] = useState(store.settings.officeLocation);
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile>(store.settings.companyProfile);
+  const [recapTime, setRecapTime] = useState(store.settings.dailyRecapTime || '18:00');
+  const [recapModules, setRecapModules] = useState<string[]>(store.settings.dailyRecapModules || []);
   const [mapActive, setMapActive] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -66,13 +68,48 @@ export const AppSettings = ({ store, toast }: any) => {
         telegramGroupId: groupId, 
         telegramOwnerChatId: ownerChatId, 
         officeLocation: officeLoc,
-        companyProfile: companyProfile
+        companyProfile: companyProfile,
+        dailyRecapTime: recapTime,
+        dailyRecapModules: recapModules
       });
       toast.success("Konfigurasi Sistem Berhasil Diperbarui!");
     } catch (err: any) {
       toast.error(err?.message || 'Gagal menyimpan konfigurasi. Periksa koneksi dan coba lagi.');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleTestCron = async () => {
+    try {
+      toast.loading("Mengecek jadwal server...");
+      // Anti-cache param
+      const res = await fetch(`/api/cron/daily-recap?v=${Date.now()}`); 
+      const data = await res.json();
+      
+      if (data.skipped) {
+        toast((t: any) => (
+           <div className="flex items-start gap-2">
+             <div className="text-amber-500"><Clock size={16}/></div>
+             <div>
+               <p className="font-bold text-xs uppercase">LOGIKA JADWAL BERJALAN</p>
+               <p className="text-[10px] text-slate-500 mt-1">
+                 Server Time: <b className="text-slate-800">{data.serverTimeWIB}</b><br/>
+                 Target Setting: <b className="text-slate-800">{data.targetTime}</b>
+               </p>
+               <p className="text-[9px] text-slate-400 mt-1 italic">
+                 "Belum waktunya dikirim (Aman)."
+               </p>
+             </div>
+           </div>
+        ), { duration: 5000 });
+      } else if (data.success) {
+        toast.success("✅ JADWAL COCOK! Notifikasi dikirim ke Telegram.");
+      } else {
+        toast.error("Terjadi kesalahan sistem: " + JSON.stringify(data));
+      }
+    } catch (e) {
+      toast.error("Gagal menghubungi server");
     }
   };
 
@@ -209,6 +246,100 @@ export const AppSettings = ({ store, toast }: any) => {
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">GROUP ID (LOGS)</label>
               <input className="w-full p-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-2xl outline-none font-mono text-xs font-bold transition shadow-inner" value={groupId} onChange={e => setGroupId(e.target.value)} placeholder="-100xxxxxxxxx" />
             </div>
+          </div>
+       </div>
+
+       <div className="bg-white p-12 rounded-[3rem] shadow-xl border border-slate-100 space-y-10 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-amber-50 blur-3xl rounded-full -mr-16 -mt-16"></div>
+          <div className="flex items-center space-x-6 relative z-10">
+             <div className="w-16 h-16 bg-amber-500 rounded-[1.5rem] flex items-center justify-center text-white shadow-2xl"><BellRing size={32} /></div>
+             <div><h3 className="text-3xl font-black text-slate-800 tracking-tight leading-none uppercase italic">Personalisasi Notifikasi</h3><p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mt-2">ATUR JADWAL & KONTEN LAPORAN HARIAN</p></div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+            <div className="space-y-6">
+               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">JADWAL PENGIRIMAN (WIB)</label>
+               <div className="flex items-center space-x-4">
+                  <div className="relative flex-1">
+                    <Clock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+                    <input 
+                      type="time" 
+                      className="w-full pl-12 pr-4 py-5 bg-slate-50 border-2 border-transparent focus:border-amber-500 focus:bg-white rounded-2xl outline-none font-black text-xl text-slate-800 transition shadow-inner" 
+                      value={recapTime} 
+                      onChange={e => setRecapTime(e.target.value)} 
+                    />
+                  </div>
+                  <div className="text-[10px] font-bold text-slate-400 max-w-[150px] leading-tight">
+                    Sistem akan mengirim laporan tepat pada jam yang Anda tentukan.
+                  </div>
+               </div>
+            </div>
+
+            <div className="space-y-6">
+               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">MODUL LAPORAN YANG DIPILIH</label>
+               <div className="grid grid-cols-1 gap-3">
+                  {[
+                    { id: 'omset', label: 'Ringkasan Omset & Keuangan', desc: 'Total pemasukan & pengeluaran hari ini' },
+                    { id: 'attendance', label: 'Laporan Absensi Karyawan', desc: 'Siapa yang hadir, telat, atau tidak masuk' },
+                    { id: 'requests', label: 'Permohonan Pending (Izin/Cuti)', desc: 'Info karyawan yang menunggu approval' },
+                    { id: 'projects', label: 'Progress Proyek (Kanban)', desc: 'Task selesai & deadline mendekat' }
+                  ].map((mod) => (
+                    <button 
+                      key={mod.id}
+                      onClick={() => {
+                        if (recapModules.includes(mod.id)) {
+                          setRecapModules(recapModules.filter(m => m !== mod.id));
+                        } else {
+                          setRecapModules([...recapModules, mod.id]);
+                        }
+                      }}
+                      className={`flex items-center p-4 rounded-2xl border-2 transition text-left group ${
+                        recapModules.includes(mod.id) 
+                          ? 'border-amber-500 bg-amber-50' 
+                          : 'border-slate-100 bg-slate-50 hover:border-slate-200'
+                      }`}
+                    >
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-4 transition ${
+                        recapModules.includes(mod.id) ? 'bg-amber-500 text-white' : 'bg-slate-200 text-slate-400'
+                      }`}>
+                         {recapModules.includes(mod.id) ? <CheckCircle2 size={16} /> : <Circle size={16} />}
+                      </div>
+                      <div>
+                         <h5 className={`font-black text-xs uppercase tracking-wide ${recapModules.includes(mod.id) ? 'text-slate-800' : 'text-slate-500'}`}>{mod.label}</h5>
+                         <p className="text-[10px] font-medium text-slate-400">{mod.desc}</p>
+                      </div>
+                    </button>
+                  ))}
+               </div>
+            </div>
+          </div>
+       </div>
+
+       <div className="bg-white p-12 rounded-[3rem] shadow-xl border border-slate-100 space-y-10 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-slate-50 blur-3xl rounded-full -mr-16 -mt-16"></div>
+          <div className="flex items-center space-x-6 relative z-10">
+             <div className="w-16 h-16 bg-slate-200 rounded-[1.5rem] flex items-center justify-center text-slate-500 shadow-2xl"><Bot size={32} /></div>
+             <div><h3 className="text-3xl font-black text-slate-800 tracking-tight leading-none uppercase italic">Simulasi Jadwal</h3><p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mt-2">ALAT BANTU PENGUJIAN CRON JOB</p></div>
+          </div>
+          
+          <div className="bg-slate-50 border border-slate-200 rounded-3xl p-8 flex flex-col md:flex-row items-center justify-between gap-6">
+             <div className="flex items-start gap-6">
+               <div className="p-4 bg-white rounded-2xl shadow-sm border border-slate-100 text-slate-400">
+                  <Clock size={24} />
+               </div>
+               <div>
+                  <h5 className="font-black text-sm text-slate-700 uppercase">CEK LOGIKA WAKTU SERVER</h5>
+                  <p className="text-[11px] text-slate-400 max-w-sm leading-relaxed mt-2">
+                    Ingin memastikan server tidak tertidur? Tombol ini akan memaksa server mengecek waktu saat ini dan membandingkannya dengan jadwal Anda, tanpa menunggu menit berganti.
+                  </p>
+               </div>
+             </div>
+             <button 
+               onClick={handleTestCron}
+               className="w-full md:w-auto px-8 py-4 bg-white border-2 border-slate-200 text-slate-700 font-black text-[10px] uppercase rounded-2xl hover:border-amber-500 hover:text-amber-600 hover:shadow-lg transition flex-shrink-0"
+             >
+               TES LOGIKA SKEDULER SEKARANG
+             </button>
           </div>
        </div>
 

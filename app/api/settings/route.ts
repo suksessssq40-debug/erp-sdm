@@ -12,11 +12,11 @@ export async function PUT(request: Request) {
     const id = resSettings.rows[0].id;
     
     await pool.query(
-      `UPDATE settings SET office_lat=$1, office_lng=$2, office_start_time=$3, office_end_time=$4, telegram_bot_token=$5, telegram_group_id=$6, telegram_owner_chat_id=$7, company_profile_json=$8 WHERE id=$9`,
+      `UPDATE settings SET office_lat=$1, office_lng=$2, office_start_time=$3, office_end_time=$4, telegram_bot_token=$5, telegram_group_id=$6, telegram_owner_chat_id=$7, company_profile_json=$8, daily_recap_time=$9, daily_recap_content=$10 WHERE id=$11`,
       [
         s.officeLocation.lat, s.officeLocation.lng, s.officeHours.start, s.officeHours.end,
         s.telegramBotToken || '', s.telegramGroupId || '', s.telegramOwnerChatId || '', 
-        JSON.stringify(s.companyProfile), id
+        JSON.stringify(s.companyProfile), s.dailyRecapTime || '18:00', JSON.stringify(s.dailyRecapModules || []), id
       ]
     );
 

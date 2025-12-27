@@ -196,6 +196,8 @@ export interface AppSettings {
   telegramBotToken: string;
   telegramGroupId: string;
   telegramOwnerChatId: string;
+  dailyRecapTime: string;
+  dailyRecapModules: string[];
   companyProfile: CompanyProfile;
 }
 
