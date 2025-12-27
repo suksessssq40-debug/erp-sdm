@@ -57,7 +57,9 @@ const initialState: AppState = {
       logoUrl: '',
       logoPosition: 'top',
       textAlignment: 'center'
-    }
+    },
+    dailyRecapTime: '18:00',
+    dailyRecapModules: ['finance', 'attendance', 'projects']
   }
 };
 
