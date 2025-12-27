@@ -238,13 +238,17 @@ export const AppSettings = ({ store, toast }: any) => {
              <div><h3 className="text-3xl font-black text-slate-800 tracking-tight leading-none uppercase italic">Koneksi Telegram</h3><p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mt-2">SENTRAL NOTIFIKASI & PENGIRIMAN SLIP</p></div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-            <div className="space-y-3">
+            <div className="space-y-3 md:col-span-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">BOT API TOKEN</label>
               <input type="password" className="w-full p-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-2xl outline-none font-mono text-xs font-bold transition shadow-inner" value={botToken} onChange={e => setBotToken(e.target.value)} placeholder="00000000:AAxxxx..." />
             </div>
             <div className="space-y-3">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">GROUP ID (LOGS)</label>
               <input className="w-full p-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-2xl outline-none font-mono text-xs font-bold transition shadow-inner" value={groupId} onChange={e => setGroupId(e.target.value)} placeholder="-100xxxxxxxxx" />
+            </div>
+            <div className="space-y-3">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">OWNER CHAT ID (DAILY RECAP)</label>
+              <input className="w-full p-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-2xl outline-none font-mono text-xs font-bold transition shadow-inner" value={ownerChatId} onChange={e => setOwnerChatId(e.target.value)} placeholder="12345678" />
             </div>
           </div>
        </div>
