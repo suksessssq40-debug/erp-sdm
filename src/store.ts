@@ -1,7 +1,7 @@
-
 import { useState, useEffect } from 'react';
 import { BusinessUnit, TransactionCategory, User, UserRole, Project, Attendance, LeaveRequest, Transaction, AppSettings, DailyReport, UserSalaryConfig, PayrollRecord, SystemLog, SystemActionType, FinancialAccountDef } from './types';
 import { INITIAL_OFFICE_LOCATION } from './constants';
+import { supabase } from './lib/supabaseClient';
 
 const isDev = process.env.NODE_ENV === 'development';
 // Changed to prefer relative path (Next.js internal API) even in dev to match Vercel environment
@@ -207,7 +207,77 @@ export const useStore = () => {
         }
     }, 30000); // 30 Seconds
 
-    return () => clearInterval(pollInterval);
+    // Realtime Subscription (Supabase)
+    let channel: any;
+    if (supabase) {
+      channel = supabase
+        .channel('public:projects')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, (payload) => {
+          console.log('Realtime change received!', payload);
+          if (payload.eventType === 'INSERT') {
+            const p = payload.new;
+             // Parse JSON fields
+             // Strict Mapping for INSERT to match Project interface
+            const newProject: Project = { 
+               id: p.id,
+               title: p.title,
+               description: p.description || '',
+               status: p.status,
+               priority: p.priority,
+               deadline: p.deadline,
+               
+               tasks: typeof p.tasks_json === 'string' ? JSON.parse(p.tasks_json || '[]') : (p.tasks_json || []),
+               collaborators: typeof p.collaborators_json === 'string' ? JSON.parse(p.collaborators_json || '[]') : (p.collaborators_json || []),
+               comments: typeof p.comments_json === 'string' ? JSON.parse(p.comments_json || '[]') : (p.comments_json || []),
+               
+               isManagementOnly: p.is_management_only === 1 || p.is_management_only === true,
+               createdBy: p.created_by,
+               createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now()
+            };
+            setState(prev => ({ ...prev, projects: [...prev.projects, newProject] }));
+          } 
+          else if (payload.eventType === 'UPDATE') {
+             const p = payload.new;
+             console.log("Realtime Update Received:", p);
+             
+             setState(prev => ({
+                ...prev,
+                projects: prev.projects.map(existing => {
+                    if (existing.id === p.id) {
+                         // Strict Mapping to avoid snake_case pollution
+                         return { 
+                           ...existing,
+                           title: p.title,
+                           description: p.description,
+                           status: p.status,
+                           priority: p.priority,
+                           deadline: p.deadline,
+                           
+                           tasks: typeof p.tasks_json === 'string' ? JSON.parse(p.tasks_json || '[]') : (p.tasks_json || []),
+                           collaborators: typeof p.collaborators_json === 'string' ? JSON.parse(p.collaborators_json || '[]') : (p.collaborators_json || []),
+                           comments: typeof p.comments_json === 'string' ? JSON.parse(p.comments_json || '[]') : (p.comments_json || []),
+                           
+                           isManagementOnly: p.is_management_only === 1 || p.is_management_only === true,
+                           // createdBy & createdAt usually don't change, but good to have
+                           createdBy: p.created_by || existing.createdBy,
+                           createdAt: p.created_at ? Number(p.created_at) : existing.createdAt
+                         };
+                    }
+                    return existing;
+                })
+             }));
+          }
+          else if (payload.eventType === 'DELETE') {
+             setState(prev => ({ ...prev, projects: prev.projects.filter(p => p.id !== payload.old.id) }));
+          }
+        })
+        .subscribe();
+    }
+
+    return () => {
+        clearInterval(pollInterval);
+        if (channel) supabase?.removeChannel(channel);
+    };
   }, []);
 
   const authHeaders: Record<string, string> = state.authToken
@@ -844,6 +914,61 @@ export const useStore = () => {
     }
   };
 
+  const patchProject = async (projectId: string, action: string, data: any) => {
+    try {
+      // 1. Send Atomic Update to Backend
+      const res = await fetch(`${API_BASE}/api/projects/${projectId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ action, data })
+      });
+      
+      if (!res.ok) throw new Error('Failed to patch project');
+      
+      const updated: Project = await res.json();
+      
+      // 2. Update Local State with Server Response (Source of Truth)
+      // Note: Realtime might overlap here, but setState handles merge via map.
+      setState(prev => ({
+        ...prev,
+        projects: prev.projects.map(p => p.id === updated.id ? updated : p)
+      }));
+      
+      addLog(SystemActionType.PROJECT_UPDATE, `Atomic Update: ${action}`, updated.id);
+      return updated;
+    } catch (e) {
+      console.error(e);
+      throw e;
+    }
+  };
+
+  const deleteProject = async (projectId: string) => {
+    try {
+        const project = state.projects.find(p => p.id === projectId);
+        if (!project) return;
+
+        // Optimistic UI Update
+        setState(prev => ({
+            ...prev,
+            projects: prev.projects.filter(p => p.id !== projectId)
+        }));
+
+        const res = await fetch(`${API_BASE}/api/projects/${projectId}`, {
+            method: 'DELETE',
+            headers: { ...authHeaders }
+        });
+
+        if (!res.ok) {
+            throw new Error('Gagal menghapus proyek');
+        }
+
+        addLog(SystemActionType.PROJECT_DELETE, `Menghapus proyek: ${project.title}`, projectId);
+    } catch(e) {
+        console.error(e);
+        throw e;
+    }
+  };
+
   return {
     ...state,
     loaded,
@@ -855,6 +980,8 @@ export const useStore = () => {
     updateSettings,
     addProject,
     updateProject,
+    deleteProject, // Exported
+    patchProject, // Exported Function
     addAttendance,
     updateAttendance,
     addRequest,

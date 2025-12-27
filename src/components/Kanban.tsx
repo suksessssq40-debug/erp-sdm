@@ -24,7 +24,7 @@ interface KanbanProps {
 
 const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings, onAddProject, onUpdateProject, toast, onCelebrate }) => {
   const router = useRouter(); 
-  const { logs } = useAppStore(); // Access logs from store
+  const { logs, patchProject, deleteProject } = useAppStore(); // Access logs, patchProject, and deleteProject from store
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
@@ -138,18 +138,19 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
     }
 
     // 2. Management -> BEBAS (Aturan lama yang memblokir management dihapus)
-    // Code continues below...
 
     if (project.status === newStatus) return;
 
     try {
-      const updated = { ...project, status: newStatus };
-      onUpdateProject(updated);
+      // ATOMIC UPDATE: Gunakan patchProject untuk mencegah race condition saat geser kartu
+      patchProject(project.id, 'MOVE_STATUS', { status: newStatus });
       
       if (newStatus === KanbanStatus.DONE && onCelebrate) {
         onCelebrate(`Proyek "${project.title}" selesai!`);
       }
 
+      // Optimistic Notification (UI update handled by store via patch response)
+      const updated = { ...project, status: newStatus };
       notifyTelegram(
         "📢 Update Status Kanban", 
         `Status: <b>${project.status}</b> ➔ <b>${newStatus}</b>`, 
@@ -268,7 +269,7 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
                     key={project.id}
                     draggable
                     onDragStart={(e) => onDragStart(e, project.id)}
-                    className={`bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200 cursor-grab active:cursor-grabbing hover:border-blue-500 hover:shadow-xl transition-all group relative overflow-hidden ${project.collaborators.includes(currentUser.id) ? 'ring-2 ring-blue-500 ring-offset-2' : ''}`}
+                    className={`bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200 cursor-grab active:cursor-grabbing hover:border-blue-500 hover:shadow-xl transition-all group relative overflow-hidden ${project.collaborators?.includes(currentUser.id) ? 'ring-2 ring-blue-500 ring-offset-2' : ''}`}
                   >
                     {/* Action Buttons (Top Right) */}
                     <div className="absolute top-4 right-4 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -285,6 +286,20 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
                           title="Edit & Detail Proyek"
                        >
                           <Edit2 size={16} />
+                       </button>
+                       {/* DELETE PROJECT BUTTON for ALL ROLES */}
+                       <button 
+                          onClick={(e) => { 
+                              e.stopPropagation(); 
+                              if (window.confirm(`Apakah Anda yakin ingin menghapus proyek "${project.title}"? Tindakan ini tidak dapat dibatalkan.`)) {
+                                  deleteProject(project.id);
+                                  toast.success('Proyek berhasil dihapus');
+                              }
+                          }} 
+                          className="p-2 rounded-xl text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition"
+                          title="Hapus Proyek"
+                       >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                        </button>
                     </div>
 
@@ -356,7 +371,9 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
       {selectedProject && (
         <TaskDetailModal project={selectedProject} users={users} currentUser={currentUser} settings={settings}
           onClose={() => setSelectedProject(null)} onEditProject={() => { setEditingProject(selectedProject); setSelectedProject(null); }}
-          onUpdate={(p: Project) => { onUpdateProject(p); setSelectedProject(p); }} onMoveStatus={handleMoveStatus} toast={toast} />
+          onUpdate={(p) => onUpdateProject(p)} // Fallback for full edits
+          patchProject={patchProject} // Inject atomic updater
+          onMoveStatus={handleMoveStatus} toast={toast} />
       )}
       
       {historyProject && (
@@ -451,69 +468,92 @@ interface TaskDetailModalProps {
   settings: AppSettings;
   onClose: () => void;
   onUpdate: (p: Project) => void;
+  patchProject: (id: string, action: string, data: any) => Promise<any>;
   onMoveStatus: (p: Project, s: KanbanStatus) => void;
   onEditProject: () => void;
   toast: ReturnType<typeof useToast>;
 }
 
-const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, currentUser, settings, onClose, onUpdate, onMoveStatus, onEditProject, toast }) => {
+const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, currentUser, settings, onClose, onUpdate, patchProject, onMoveStatus, onEditProject, toast }) => {
   const [activeTaskIndex, setActiveTaskIndex] = useState<number | null>(null);
   const [taskComments, setTaskComments] = useState<{ [taskId: string]: string }>({});
   const [proofForm, setProofForm] = useState({ description: '', link: '' });
   const [showHistory, setShowHistory] = useState<string | null>(null);
   const [showEditTask, setShowEditTask] = useState<string | null>(null);
 
-  const handleAddComment = (idx: number) => {
+  const handleAddComment = async (idx: number) => {
     const taskId = project.tasks[idx].id;
     const text = taskComments[taskId];
     if (!text) return;
     
-    const updated = [...project.tasks];
-    updated[idx].comments.push({ id: Date.now().toString(), userId: currentUser.id, text, createdAt: Date.now() });
-    updated[idx].history.push({ id: Math.random().toString(36).substr(2, 9), userId: currentUser.id, userName: currentUser.name, action: `Komentar: ${text}`, timestamp: Date.now() });
-    onUpdate({ ...project, tasks: updated });
+    // Construct local update for Optimistic UI (Optionally skipped if relying on Realtime/Response)
+    // But since backend 'UPDATE_TASK' replaces the task, we need to send the NEW state of the task or just the diff?
+    // Backend 'UPDATE_TASK' logic: targets ID, merges properties.
+    // 'comments' is an array. Merging { comments: [...] } replaces the array.
+    // So we must include previous comments.
     
-    setTaskComments(prev => ({ ...prev, [taskId]: '' }));
+    const currentTask = project.tasks[idx];
+    const newComment = { id: Date.now().toString(), userId: currentUser.id, text, createdAt: Date.now() };
+    const newHistory = { id: Math.random().toString(36).substr(2, 9), userId: currentUser.id, userName: currentUser.name, action: `Komentar: ${text}`, timestamp: Date.now() };
+    
+    const updatedTask = {
+        ...currentTask,
+        comments: [...currentTask.comments, newComment],
+        history: [...currentTask.history, newHistory]
+    };
 
-    // Notify Telegram Comment
-    const targetChatId = project.isManagementOnly ? settings.telegramOwnerChatId : settings.telegramGroupId;
-    let finalChatId = targetChatId;
-    if (finalChatId) {
-        if (finalChatId.includes('_')) {
-            const parts = finalChatId.split('_');
-            if (!parts[0].startsWith('-')) finalChatId = `-100${parts[0]}_${parts[1]}`;
-        } else if (!finalChatId.startsWith('-') && /^\d+$/.test(finalChatId)) {
-            finalChatId = `-100${finalChatId}`;
-        }
+    try {
+        await patchProject(project.id, 'UPDATE_TASK', { taskId, task: updatedTask });
+        setTaskComments(prev => ({ ...prev, [taskId]: '' }));
+        // Telegram
+        const targetChatId = project.isManagementOnly ? settings.telegramOwnerChatId : settings.telegramGroupId;
+        let finalChatId = targetChatId;
+             if (finalChatId) {
+                 if (finalChatId.includes('_')) {
+                     const parts = finalChatId.split('_');
+                     if (!parts[0].startsWith('-')) finalChatId = `-100${parts[0]}_${parts[1]}`;
+                 } else if (!finalChatId.startsWith('-') && /^\d+$/.test(finalChatId)) {
+                     finalChatId = `-100${finalChatId}`;
+                 }
+             }
+        const msg = `💬 <b>Komentar Tugas Baru</b>\n\n` +
+                 `Proyek: <b>${escapeHTML(project.title)}</b>\n` +
+                 `Tugas: <b>${escapeHTML(project.tasks[idx].title)}</b>\n` +
+                 `User: <b>${escapeHTML(currentUser.name)}</b>\n` +
+                 `Pesan: "${escapeHTML(text)}"`;
+        sendTelegramNotification(settings.telegramBotToken, finalChatId, msg);
+    } catch(e) {
+        toast.error("Gagal mengirim komentar");
     }
-    const msg = `💬 <b>Komentar Tugas Baru</b>\n\n` +
-                `Proyek: <b>${escapeHTML(project.title)}</b>\n` +
-                `Tugas: <b>${escapeHTML(project.tasks[idx].title)}</b>\n` +
-                `User: <b>${escapeHTML(currentUser.name)}</b>\n` +
-                `Pesan: "${escapeHTML(text)}"`;
-    sendTelegramNotification(settings.telegramBotToken, finalChatId, msg);
   };
 
-  const finishTask = (idx: number) => {
+  const finishTask = async (idx: number) => {
     if (!proofForm.description) {
       toast.warning("Harap isi deskripsi penyelesaian tugas.");
       return;
     }
-    try {
-      const updated = [...project.tasks];
-      updated[idx].isCompleted = true;
-      updated[idx].completionProof = { ...proofForm };
-      updated[idx].history.push({ id: Math.random().toString(36).substr(2, 9), userId: currentUser.id, userName: currentUser.name, action: 'Tugas Selesai', timestamp: Date.now() });
-      onUpdate({ ...project, tasks: updated });
-      toast.success(`Tugas "${updated[idx].title}" berhasil diselesaikan!`);
+    
+    const currentTask = project.tasks[idx];
+    const newHistory = { id: Math.random().toString(36).substr(2, 9), userId: currentUser.id, userName: currentUser.name, action: 'Tugas Selesai', timestamp: Date.now() };
+    
+    const updatedTask = {
+        ...currentTask,
+        isCompleted: true,
+        completionProof: { ...proofForm },
+        history: [...currentTask.history, newHistory]
+    };
 
-      // Telegram Notification for Task Completion
-      const collaborators = users.filter(u => updated[idx].assignedTo.includes(u.id));
+    try {
+      await patchProject(project.id, 'UPDATE_TASK', { taskId: currentTask.id, task: updatedTask });
+      toast.success(`Tugas "${updatedTask.title}" berhasil diselesaikan!`);
+      
+      // Telegram Notification
+      const collaborators = users.filter(u => updatedTask.assignedTo.includes(u.id));
       const tagString = collaborators.map(u => u.telegramUsername || u.name).join(', ');
       
       const msg = `✅ <b>Tugas Selesai</b>\n\n` +
                   `Proyek: <b>${escapeHTML(project.title)}</b>\n` +
-                  `Tugas: <b>${escapeHTML(updated[idx].title)}</b>\n` +
+                  `Tugas: <b>${escapeHTML(updatedTask.title)}</b>\n` +
                   `Penyelesaian: <i>${escapeHTML(proofForm.description)}</i>\n` +
                   `Oleh: <b>${escapeHTML(currentUser.name)}</b>\n\n` +
                   `Cc: ${escapeHTML(tagString)}`;
@@ -525,7 +565,7 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, curre
       setProofForm({ description: '', link: '' });
     } catch (err: any) {
       console.error('Error finishing task:', err);
-      toast.error(err?.message || 'Gagal menyelesaikan tugas. Periksa koneksi dan coba lagi.');
+      toast.error(err?.message || 'Gagal menyelesaikan tugas.');
     }
   };
 

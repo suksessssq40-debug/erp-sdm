@@ -29,77 +29,18 @@ export const escapeHTML = (text: string): string => {
     .replace(/>/g, '&gt;');
 };
 
+// Token is now ignored as it is handled backend-side for security
 export const sendTelegramNotification = async (token: string, chatId: string, message: string) => {
-  if (!token || !chatId) return;
-  
-  // Workaround for Telegram Topics: Allow format "CHATID_THREADID" (e.g. -100123456_1)
-  let actualChatId = chatId;
-  let messageThreadId: number | undefined = undefined;
-
-  if (chatId.includes('_')) {
-    const parts = chatId.split('_');
-    if (parts.length === 2 && !isNaN(Number(parts[1]))) {
-      actualChatId = parts[0];
-      messageThreadId = parseInt(parts[1]);
-    }
-  }
-
-  // Ensure supergroup prefix (-100) if missing (Common user mistake)
-  // If user provides "2383546842", convert to "-1002383546842" for API
-  if (!actualChatId.startsWith('-') && /^\d+$/.test(actualChatId)) {
-      // Just a heuristic: most Topic-enabled groups are supergroups which need -100
-      // But let's be careful. If user inputs raw positive integer, Telegram API usually needs -100 prefix for supergroups.
-      actualChatId = `-100${actualChatId}`;
-  }
-
+  if (!chatId) return;
 
   try {
-    const body: any = {
-      chat_id: actualChatId,
-      text: message,
-      parse_mode: 'HTML',
-    };
-
-    if (messageThreadId) {
-      body.message_thread_id = messageThreadId;
-    }
-
-    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    await fetch('/api/telegram', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ chatId, message })
     });
-    
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error("Telegram API Error Response:", errorData);
-      
-      // Auto-Retry Logic: If Thread Not Found, try sending to General (no thread_id)
-      if (errorData.description && errorData.description.includes('message thread not found') && messageThreadId) {
-          console.warn("Topic not found. Retrying send to General/Default topic...");
-          delete body.message_thread_id;
-          
-          const retryResponse = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-          });
-          
-          if (!retryResponse.ok) {
-              const retryError = await retryResponse.json().catch(() => ({}));
-              throw new Error(retryError.description || `Retry API Error ${retryResponse.status}`);
-          } else {
-              console.log(`Fallback success: Message sent to ${actualChatId} (General/Default)`);
-              return; // Success on retry
-          }
-      }
-
-      throw new Error(errorData.description || `API Error ${response.status}`);
-    } else {
-        console.log(`Telegram sent to ${actualChatId} (Topic: ${messageThreadId || 'None'})`);
-    }
-  } catch (error: any) {
-    console.error("Gagal mengirim Telegram:", error.message || error);
+  } catch (error) {
+    console.error("Failed to send Telegram notification:", error);
   }
 };
 
