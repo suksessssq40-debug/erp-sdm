@@ -113,6 +113,10 @@ const FinanceModule: React.FC<FinanceProps> = ({
       parentId: null
   });
   const [expandedCategories, setExpandedCategories] = useState<string[]>([]); // Ids of expanded categories
+  
+  // Searchable Category State
+  const [categorySearch, setCategorySearch] = useState('');
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
 
   // Business Unit Form State
   const [showBusinessModal, setShowBusinessModal] = useState(false);
@@ -214,6 +218,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
       imageUrl: ''
     });
     setIsEditing(false);
+    setCategorySearch(''); // Reset search
     setShowAdd(true);
   };
 
@@ -228,6 +233,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
       businessUnitId: t.businessUnitId || '',
       imageUrl: t.imageUrl || ''
     });
+    setCategorySearch(t.category); // Init search with existing category
     setIsEditing(true);
     setShowAdd(true);
   };
@@ -1074,32 +1080,79 @@ const FinanceModule: React.FC<FinanceProps> = ({
                      </select>
                  </div>
                  <div className="space-y-3 col-span-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">KATEGORI AKUNTANSI</label>
-                    <select 
-                      className="w-full p-5 bg-slate-50 border-2 border-transparent rounded-[1.5rem] text-xs font-black uppercase tracking-widest outline-none focus:border-blue-600 focus:bg-white transition shadow-sm"
-                      value={formData.category}
-                      onChange={e => setFormData({...formData, category: e.target.value})}
-                    >
-                      <option value="">-- Pilih Kategori --</option>
-                      { (formData.type === TransactionType.IN ? groupedCategories.IN : groupedCategories.OUT).map(cat => (
-                          <optgroup key={cat.id} label={cat.name}>
-                              {/* Parent itself can be selectable if desired, but usually sub is better if exists. Let's allow parent if no subs, or just list subs */}
-                              {/* Logic: if has children, only show children. If no children, show parent option? Or always show parent? 
-                                  User requested: "Bedakan kategori dengan aliran... dropdown grouped"
-                                  Let's make Parent selectable too? Or just Label?
-                                  Usually only leaves are selectable. We'll show children. If no children, show parent as option.
-                              */}
-                              {cat.children && cat.children.length > 0 ? (
-                                  cat.children.map(child => (
-                                      <option key={child.id} value={child.name}>{child.name}</option>
-                                  ))
-                              ) : (
-                                  <option value={cat.name}>{cat.name}</option>
-                              )}
-                          </optgroup>
-                      ))}
-                      {/* Fallback for empty categories or old hardcoded ones if needed? No, we stick to DB now. */}
-                    </select>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">KATEGORI AKUNTANSI (SEARCH)</label>
+                    <div className="relative">
+                        <div className="relative">
+                           <Search size={16} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" />
+                           <input 
+                             className="w-full pl-12 pr-5 py-5 bg-slate-50 border-2 border-transparent rounded-[1.5rem] text-xs font-black uppercase tracking-widest outline-none focus:border-blue-600 focus:bg-white transition shadow-sm"
+                             placeholder="Ketik untuk mencari kategori..."
+                             value={categorySearch}
+                             onChange={(e) => {
+                                setCategorySearch(e.target.value);
+                                setFormData({...formData, category: e.target.value}); // Allow custom input too? Or strictly valid categories?
+                                setShowCategoryDropdown(true);
+                             }}
+                             onFocus={() => setShowCategoryDropdown(true)}
+                           />
+                        </div>
+                        
+                        {/* Recommendations List */}
+                        {showCategoryDropdown && (categorySearch.length > 0 || true) && (
+                            <div className="absolute z-10 mt-2 w-full bg-white rounded-[1.5rem] shadow-2xl border border-slate-100 max-h-60 overflow-y-auto custom-scrollbar p-2">
+                                {(() => {
+                                    // Flatten available categories based on Type (IN/OUT)
+                                    const availableCats = formData.type === TransactionType.IN ? groupedCategories.IN : groupedCategories.OUT;
+                                    let allOptions: TransactionCategory[] = [];
+                                    
+                                    availableCats.forEach(c => {
+                                        // Include Check: Parent match?
+                                        if (c.name.toLowerCase().includes(categorySearch.toLowerCase())) {
+                                            allOptions.push(c);
+                                        }
+                                        if (c.children) {
+                                            c.children.forEach(child => {
+                                                if (child.name.toLowerCase().includes(categorySearch.toLowerCase())) {
+                                                    allOptions.push(child);
+                                                }
+                                            });
+                                        }
+                                    });
+
+                                    // Remove duplicates if any (though logic above technically separates parents and children)
+                                    // Make unique by ID just in case
+                                    const uniqueOptions = Array.from(new Map(allOptions.map(item => [item.id, item])).values());
+
+                                    if (uniqueOptions.length === 0) {
+                                        return <div className="p-4 text-center text-slate-400 text-[10px] font-bold italic">Tidak ada kategori yang cocok. <br/> Gunakan nama baru ini atau buat di menu Kategori.</div>;
+                                    }
+
+                                    return uniqueOptions.map(cat => (
+                                        <button 
+                                            key={cat.id}
+                                            onClick={() => {
+                                                setFormData({...formData, category: cat.name});
+                                                setCategorySearch(cat.name);
+                                                setShowCategoryDropdown(false);
+                                            }}
+                                            className="w-full text-left p-3 hover:bg-slate-50 rounded-xl transition flex justify-between items-center group"
+                                        >
+                                            <span className="text-xs font-bold text-slate-700">{cat.name}</span>
+                                            {cat.parentId && <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-2 py-1 rounded">SUB</span>}
+                                        </button>
+                                    ));
+                                })()}
+                            </div>
+                        )}
+                        {/* Overlay to close dropdown when clicking outside */}
+                        {showCategoryDropdown && (
+                            <div className="fixed inset-0 z-0" onClick={() => setShowCategoryDropdown(false)} style={{ display: 'none' }}></div> 
+                            // Using fixed inset might break modal layout logic since modal is also fixed. 
+                            // Better to use onBlur with delay or just click handler.
+                            // Simple solution: Click backdrop handled above? No. 
+                            // Let's rely on selection closing it.
+                        )}
+                    </div>
                  </div>
                </div>
 
