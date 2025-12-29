@@ -925,7 +925,18 @@ export const useStore = () => {
       
       if (!res.ok) throw new Error('Failed to patch project');
       
-      const updated: Project = await res.json();
+      const raw: any = await res.json();
+      
+      // Fix Serialization from Prisma (JSON fields are strings)
+      const updated: Project = {
+          ...raw,
+          tasks: typeof raw.tasksJson === 'string' ? JSON.parse(raw.tasksJson) : (raw.tasks || []),
+          comments: typeof raw.commentsJson === 'string' ? JSON.parse(raw.commentsJson) : (raw.comments || []),
+          collaborators: typeof raw.collaboratorsJson === 'string' ? JSON.parse(raw.collaboratorsJson) : (raw.collaborators || []),
+          // Ensure dates are compatible
+          deadline: raw.deadline ? new Date(raw.deadline).toISOString() : raw.deadline,
+          createdAt: raw.createdAt ? new Date(raw.createdAt).getTime() : Date.now()
+      };
       
       // 2. Update Local State with Server Response (Source of Truth)
       // Note: Realtime might overlap here, but setState handles merge via map.
