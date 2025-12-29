@@ -24,7 +24,7 @@ export async function POST(request: Request) {
             telegramUsername: telegramUsername || '',
             role,
             passwordHash: hash,
-            isFreelance: (isFreelance ? 1 : 0) as any,
+            isFreelance: !!isFreelance,
             deviceIds: [] // Initialize empty
           }
         });

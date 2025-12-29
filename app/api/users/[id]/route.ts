@@ -20,7 +20,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     const { name, username, telegramId, telegramUsername, role, password, isFreelance } = body;
 
     const data: any = {
-       name, username, telegramId, telegramUsername, role, isFreelance: (!!isFreelance ? 1 : 0) as any
+       name, username, telegramId, telegramUsername, role, isFreelance: !!isFreelance
     };
 
     if (password && password.length >= 6) {

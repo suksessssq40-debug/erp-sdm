@@ -30,7 +30,7 @@ export async function GET() {
         prisma.payrollRecord.findMany({ orderBy: { processedAt: 'desc' }, take: 100 }),
         prisma.systemLog.findMany({ orderBy: { timestamp: 'desc' }, take: 1000 }),
         prisma.settings.findFirst(),
-        prisma.financialAccount.findMany({ where: { isActive: 1 as any } })
+        prisma.financialAccount.findMany({ where: { isActive: true } })
     ]);
 
     // Format Settings
@@ -140,7 +140,14 @@ export async function GET() {
         })),
         logs: logs.map(l => ({
           id: l.id,
-          timestamp: Number(l.timestamp),
+          timestamp: (() => {
+            const t = l.timestamp as any;
+            if (typeof t === 'bigint') return Number(t);
+            if (typeof t === 'number') return t;
+            if (t instanceof Date) return t.getTime();
+            if (typeof t === 'string') return new Date(t).getTime();
+            return Date.now();
+          })(),
           actorId: l.actorId,
           actorName: l.actorName,
           actorRole: l.actorRole,
@@ -156,7 +163,7 @@ export async function GET() {
           bankName: a.bankName,
           accountNumber: a.accountNumber,
           description: a.description,
-          isActive: !!a.isActive
+          isActive: a.isActive
         }))
     };
 
