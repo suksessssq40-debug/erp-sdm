@@ -502,29 +502,36 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, curre
         history: [...currentTask.history, newHistory]
     };
 
-    try {
-        await patchProject(project.id, 'UPDATE_TASK', { taskId, task: updatedTask });
-        setTaskComments(prev => ({ ...prev, [taskId]: '' }));
-        // Telegram
-        const targetChatId = project.isManagementOnly ? settings.telegramOwnerChatId : settings.telegramGroupId;
-        let finalChatId = targetChatId;
-             if (finalChatId) {
-                 if (finalChatId.includes('_')) {
-                     const parts = finalChatId.split('_');
-                     if (!parts[0].startsWith('-')) finalChatId = `-100${parts[0]}_${parts[1]}`;
-                 } else if (!finalChatId.startsWith('-') && /^\d+$/.test(finalChatId)) {
-                     finalChatId = `-100${finalChatId}`;
-                 }
+     try {
+         const updatedProject = await patchProject(project.id, 'UPDATE_TASK', { taskId, task: updatedTask });
+         setTaskComments(prev => ({ ...prev, [taskId]: '' }));
+         
+         // 1. Force UI Update via callback (Parent re-renders)
+         if (onUpdate) onUpdate(updatedProject); // This ensures the modal sees the new project data immediately
+         
+         // 2. Add Toast Feedback (UX requirement)
+         toast.success("Komentar terkirim");
+
+         // Telegram
+         const targetChatId = project.isManagementOnly ? settings.telegramOwnerChatId : settings.telegramGroupId;
+         let finalChatId = targetChatId;
+         if (finalChatId) {
+             if (finalChatId.includes('_')) {
+                 const parts = finalChatId.split('_');
+                 if (!parts[0].startsWith('-')) finalChatId = `-100${parts[0]}_${parts[1]}`;
+             } else if (!finalChatId.startsWith('-') && /^\d+$/.test(finalChatId)) {
+                 finalChatId = `-100${finalChatId}`;
              }
-        const msg = `💬 <b>Komentar Tugas Baru</b>\n\n` +
-                 `Proyek: <b>${escapeHTML(project.title)}</b>\n` +
-                 `Tugas: <b>${escapeHTML(project.tasks[idx].title)}</b>\n` +
-                 `User: <b>${escapeHTML(currentUser.name)}</b>\n` +
-                 `Pesan: "${escapeHTML(text)}"`;
-        sendTelegramNotification(settings.telegramBotToken, finalChatId, msg);
-    } catch(e) {
-        toast.error("Gagal mengirim komentar");
-    }
+         }
+         const msg = `💬 <b>Komentar Tugas Baru</b>\n\n` +
+                  `Proyek: <b>${escapeHTML(project.title)}</b>\n` +
+                  `Tugas: <b>${escapeHTML(project.tasks[idx].title)}</b>\n` +
+                  `User: <b>${escapeHTML(currentUser.name)}</b>\n` +
+                  `Pesan: "${escapeHTML(text)}"`;
+         sendTelegramNotification(settings.telegramBotToken, finalChatId, msg);
+     } catch(e) {
+         toast.error("Gagal mengirim komentar");
+     }
   };
 
   const finishTask = async (idx: number) => {
