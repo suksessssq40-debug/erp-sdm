@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '../context/StoreContext';
-import { ChatRoom, ChatMessage, User } from '../types';
-import { Send, Plus, Users, Hash, MessageSquare, Image as ImageIcon, MoreVertical, X, Search, FileText, Reply, Paperclip, Download, ExternalLink, ArrowLeft, Trash2, Pencil } from 'lucide-react';
+import { ChatRoom, ChatMessage } from '../types';
+import { Send, Plus, Users, Hash, MessageSquare, MoreVertical, X, Search, FileText, Reply, Paperclip, Download, ExternalLink, ArrowLeft, Trash2, Pencil, Pin, Loader2 } from 'lucide-react';
 import { useToast } from './Toast';
 
 export default function ChatModule() {
@@ -23,7 +23,6 @@ export default function ChatModule() {
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   
   // Mention State
-  // Mention State
   const [mentionSearch, setMentionSearch] = useState<string | null>(null);
   const mentionCandidates = mentionSearch !== null 
     ? store.users.filter(u => 
@@ -37,19 +36,101 @@ export default function ChatModule() {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastFetchRef = useRef<number>(0);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [hasMoreHistory, setHasMoreHistory] = useState(true);
+  const [draftAttachment, setDraftAttachment] = useState<File | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const [activeRoomMenuId, setActiveRoomMenuId] = useState<string | null>(null); // For sidebar menus
+  
+  // Pin State
+  const [pinnedMessage, setPinnedMessage] = useState<ChatMessage | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
 
+  const scrollToMessage = (msgId: string) => {
+    const el = document.getElementById(`msg-${msgId}`);
+    if (el) {
+       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+       setHighlightedMessageId(msgId);
+       setTimeout(() => setHighlightedMessageId(null), 2000); // Remove highlight after 2s
+    } else {
+       toast.error('Message is not in current view (try scrolling up)');
+    }
+  };
 
-
-  // 1. Poll Rooms
+  // Close menus on click outside
   useEffect(() => {
-    fetchRooms();
-    const interval = setInterval(fetchRooms, 10000); // Poll rooms every 10s
-    return () => clearInterval(interval);
+     const closeMenus = () => { setActiveMenuId(null); setActiveRoomMenuId(null); };
+     window.addEventListener('click', closeMenus);
+     return () => window.removeEventListener('click', closeMenus);
   }, []);
 
-  const fetchRooms = async () => {
+  const fetchPinnedMessage = useCallback(async () => {
+     try {
+       const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE || ''}/api/chat/messages/pin?roomId=${activeRoomId}`, {
+         headers: { 'Authorization': `Bearer ${store.authToken}` }
+       });
+       if(res.ok) {
+         const data = await res.json();
+         setPinnedMessage(data.pinnedMessage);
+       }
+     } catch(e) {}
+  }, [activeRoomId, store.authToken]);
+
+  // Poll Pinned Message
+  useEffect(() => {
+    if(!activeRoomId) return;
+    
+    // Initial fetch
+    fetchPinnedMessage();
+
+    // Ideally, pinned message updates should come via websocket or polled
+    // Let's add it to the message poller logic or separate poller
+    const interval = setInterval(fetchPinnedMessage, 10000); 
+    return () => clearInterval(interval);
+  }, [activeRoomId, fetchPinnedMessage]);
+
+  const handleTogglePinMessage = async (msg: ChatMessage) => {
+     try {
+       const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE || ''}/api/chat/messages/pin`, {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${store.authToken}` },
+         body: JSON.stringify({ messageId: msg.id })
+       });
+       if(res.ok) { 
+          toast.success('Pin updated');
+          fetchPinnedMessage(); // Refresh header
+          // Ideally update local message state too if we show icon on message
+          setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, isPinned: !m.isPinned } : m));
+       } else {
+          toast.error('Failed to pin (Access Denied?)');
+       }
+     } catch(e) { toast.error('Error pinning'); }
+  };
+
+  const handleTogglePinRoom = async (roomId: string, e: React.MouseEvent) => {
+     e.stopPropagation();
+     try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE || ''}/api/chat/rooms/pin`, {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${store.authToken}` },
+           body: JSON.stringify({ roomId })
+        });
+        if(res.ok) {
+           toast.success('Channel pinned');
+           // Optimistic update
+           setRooms(prev => prev.map(r => r.id === roomId ? { ...r, isPinned: !r.isPinned } : r).sort((a,b) => (Number(b.isPinned)-Number(a.isPinned))));
+           fetchRooms(); // Sync
+        }
+     } catch(e) { toast.error('Error toggling pin'); }
+  };
+
+
+
+  const fetchRooms = useCallback(async () => {
     try {
       if (!store.authToken) return;
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE || ''}/api/chat/rooms`, {
@@ -62,7 +143,14 @@ export default function ChatModule() {
     } catch (e) {
       console.error(e);
     }
-  };
+  }, [store.authToken]);
+
+  // 1. Poll Rooms
+  useEffect(() => {
+    fetchRooms();
+    const interval = setInterval(fetchRooms, 10000); // Poll rooms every 10s
+    return () => clearInterval(interval);
+  }, [fetchRooms]);
 
   // 2. Poll Messages
   useEffect(() => {
@@ -72,9 +160,9 @@ export default function ChatModule() {
     setMessages([]);
     setReplyingTo(null); 
     lastFetchRef.current = 0;
+    setHasMoreHistory(true); // Reset history tracker
     fetchMessages();
     
-    // Mark as Read Immediately
     const markAsRead = async () => {
        try {
          await fetch(`${process.env.NEXT_PUBLIC_API_BASE || ''}/api/chat/unread`, {
@@ -82,6 +170,8 @@ export default function ChatModule() {
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${store.authToken}` },
             body: JSON.stringify({ roomId: activeRoomId })
          });
+         // Clear unread count locally for immediate feedback
+         setRooms(prev => prev.map(r => r.id === activeRoomId ? { ...r, unreadCount: 0 } : r));
        } catch(e) {}
     };
     markAsRead();
@@ -101,24 +191,39 @@ export default function ChatModule() {
   const fetchMessages = async () => {
     if (!activeRoomId || !store.authToken) return;
     try {
+      // Use polling timestamp (after) to get only NEW messages
       const url = `${process.env.NEXT_PUBLIC_API_BASE || ''}/api/chat/messages?roomId=${activeRoomId}&after=${lastFetchRef.current}`;
       const res = await fetch(url, {
         headers: { 'Authorization': `Bearer ${store.authToken}` }
       });
       if (res.ok) {
-        const newMsgs: ChatMessage[] = await res.json();
+        const data = await res.json();
+        const newMsgs: ChatMessage[] = Array.isArray(data) ? data : (data.messages || []);
+        
+        // Update Realtime Read Status
+        if (!Array.isArray(data) && data.readStatus) {
+           setRooms(prev => prev.map(r => r.id === activeRoomId ? { ...r, readStatus: data.readStatus } : r));
+        }
+
         if (newMsgs.length > 0) {
+          // Check scroll position before state update
+          const container = messagesContainerRef.current;
+          const isNearBottom = container ? (container.scrollHeight - container.scrollTop - container.clientHeight < 150) : true;
+          const isInitialLoad = lastFetchRef.current === 0;
+
           setMessages(prev => {
             const existingIds = new Set(prev.map(m => m.id));
             const uniqueNew = newMsgs.filter(m => !existingIds.has(m.id));
             if (uniqueNew.length === 0) return prev;
             
+            // Update timestamp marker
             const lastMsg = newMsgs[newMsgs.length - 1];
             lastFetchRef.current = Math.max(lastFetchRef.current, lastMsg.createdAt);
             
             return [...prev, ...uniqueNew].sort((a,b) => a.createdAt - b.createdAt);
           });
-          setTimeout(scrollToBottom, 100);
+          
+          if (isInitialLoad || isNearBottom) setTimeout(scrollToBottom, 100);
         }
       }
     } catch (e) {
@@ -126,17 +231,86 @@ export default function ChatModule() {
     }
   };
 
+  const loadHistory = async () => {
+    if (!activeRoomId || isLoadingHistory || !hasMoreHistory || messages.length === 0) return;
+    setIsLoadingHistory(true);
+    
+    try {
+       const oldestMsg = messages[0];
+       const url = `${process.env.NEXT_PUBLIC_API_BASE || ''}/api/chat/messages?roomId=${activeRoomId}&before=${oldestMsg.createdAt}`;
+       const res = await fetch(url, { headers: { 'Authorization': `Bearer ${store.authToken}` } });
+       
+       if (res.ok) {
+          const data = await res.json();
+          // Compatible with new API format
+          const historyMsgs: ChatMessage[] = Array.isArray(data) ? data : (data.messages || []);
+          
+          if (historyMsgs.length > 0) {
+             const container = messagesContainerRef.current;
+             const oldScrollHeight = container ? container.scrollHeight : 0;
+             const oldScrollTop = container ? container.scrollTop : 0;
+
+             setMessages(prev => {
+                const existingIds = new Set(prev.map(m => m.id));
+                const uniqueHistory = historyMsgs.filter(m => !existingIds.has(m.id));
+                // Sort combined: History + Prev
+                return [...uniqueHistory, ...prev].sort((a,b) => a.createdAt - b.createdAt);
+             });
+
+             // Restore scroll position after render
+             requestAnimationFrame(() => {
+                if (container) {
+                   container.scrollTop = container.scrollHeight - oldScrollHeight + oldScrollTop;
+                }
+             });
+          } else {
+             setHasMoreHistory(false);
+          }
+       }
+    } catch(e) { console.error(e); }
+    setIsLoadingHistory(false);
+  };
+  
+  const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
+     if (e.currentTarget.scrollTop === 0) {
+        loadHistory();
+     }
+  };
+
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   const handleSendMessage = async () => {
-    if (!activeRoomId || (!inputText.trim())) return;
+    if (isSending) return;
+    if (!activeRoomId || ( (!inputText.trim()) && !draftAttachment )) return;
+    setIsSending(true);
     
     try {
+      let attachmentUrl = '';
+      let content = inputText;
+
+      // 1. Upload Attachment if exists
+      if (draftAttachment) {
+         try {
+            attachmentUrl = await store.uploadFile(draftAttachment);
+            if (!inputText.trim()) {
+               // Auto caption if empty
+               const ext = draftAttachment.name.split('.').pop()?.toUpperCase() || 'FILE';
+               content = draftAttachment.type.startsWith('image/') ? 'Sent an image' : `Sent a ${ext} file`;
+            }
+         } catch(e) {
+            toast.error('Failed to upload attachment');
+            setIsSending(false);
+            return;
+         }
+      }
+
       const payload = { 
           roomId: activeRoomId, 
-          content: inputText,
+          content: content,
+          attachmentUrl: attachmentUrl || undefined,
           replyToId: replyingTo?.id
       };
 
@@ -151,12 +325,14 @@ export default function ChatModule() {
 
       if (res.ok) {
         setInputText('');
-        setReplyingTo(null); // Clear reply after sending
+        setReplyingTo(null);
+        setDraftAttachment(null); // Clear draft
         fetchMessages();
       }
     } catch (e) {
       toast.error('Failed to send');
     }
+    setIsSending(false);
   };
 
   const handleUpdateMessage = async () => {
@@ -192,27 +368,30 @@ export default function ChatModule() {
     setInputText('');
   };
 
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (e.clipboardData.items) {
+      for (let i = 0; i < e.clipboardData.items.length; i++) {
+        const item = e.clipboardData.items[i];
+        if (item.type.indexOf('image') !== -1) {
+          const blob = item.getAsFile();
+          if (blob) {
+             setDraftAttachment(blob);
+             // Don't prevent default, user might want to paste text too? 
+             // Ideally prevent default if it's ONLY an image.
+             // But let's allow text paste. But if image is found, we grab it.
+          }
+        }
+      }
+    }
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !activeRoomId) return;
-    try {
-      const url = await store.uploadFile(file);
-      const isImage = file.type.startsWith('image/');
-      const content = isImage ? 'Sent an image' : `Sent a file: ${file.name}`;
-      
-      await fetch(`${process.env.NEXT_PUBLIC_API_BASE || ''}/api/chat/messages`, {
-        method: 'POST',
-        headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${store.authToken}` 
-        },
-        body: JSON.stringify({ roomId: activeRoomId, attachmentUrl: url, content })
-      });
-      fetchMessages();
-    } catch (err: any) {
-      console.error(err);
-      toast.error('Upload failed');
-    }
+    setDraftAttachment(file);
+    
+    // Reset input so same file can be selected again if cancelled
+    e.target.value = '';
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -351,20 +530,61 @@ export default function ChatModule() {
                  ${activeRoomId === room.id ? 'bg-white shadow-lg shadow-blue-100 ring-1 ring-slate-100' : 'hover:bg-white/60 active:bg-white'}
                `}
              >
-                <div className={`p-3 rounded-xl flex-shrink-0 ${activeRoomId === room.id ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-500 group-hover:bg-blue-100 group-hover:text-blue-600'}`}>
+                <div className={`p-3 rounded-xl flex-shrink-0 relative ${activeRoomId === room.id ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-500 group-hover:bg-blue-100 group-hover:text-blue-600'}`}>
                    {room.type === 'GROUP' ? <Hash size={20} /> : <Users size={20} />}
+                   {(room.unreadCount || 0) > 0 && activeRoomId !== room.id && (
+                      <div className="absolute -top-1 -right-1 w-5 h-5 bg-rose-500 rounded-full border-2 border-white flex items-center justify-center text-[9px] font-black text-white animate-pulse">
+                         {(room.unreadCount || 0) > 9 ? '9+' : room.unreadCount}
+                      </div>
+                   )}
                 </div>
-                <div className="flex-1 min-w-0">
-                   <div className="flex justify-between items-baseline mb-1">
-                      <h4 className={`text-sm font-bold truncate ${activeRoomId === room.id ? 'text-slate-900' : 'text-slate-700'}`}>{room.name}</h4>
-                      {room.lastMessage && <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap ml-2">{formatTime(Number(room.lastMessage.timestamp))}</span>}
-                   </div>
-                   {room.lastMessage ? (
-                      <p className={`text-xs truncate ${activeRoomId === room.id ? 'text-slate-500' : 'text-slate-400'}`}>
-                        <span className="font-bold">{room.lastMessage.senderName}:</span> {room.lastMessage.content}
-                      </p>
-                   ) : <p className="text-[10px] text-slate-300 italic">No messages yet</p>}
-                </div>
+                  <div className="flex-1 min-w-0 pr-6 relative">
+                     <div className="flex justify-between items-baseline mb-1">
+                        <div className="flex items-center space-x-1 min-w-0">
+                           <h4 className={`text-sm font-bold truncate ${activeRoomId === room.id ? 'text-slate-900' : 'text-slate-700'}`}>{room.name}</h4>
+                           {room.isPinned && <Pin size={10} className="fill-amber-500 text-amber-500 flex-shrink-0" />}
+                        </div>
+                        {room.lastMessage && <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap ml-2">{formatTime(Number(room.lastMessage.timestamp))}</span>}
+                     </div>
+                     
+                     {room.lastMessage ? (
+                        <p className={`text-xs truncate ${activeRoomId === room.id ? 'text-slate-500' : 'text-slate-400'}`}>
+                          <span className="font-bold">{room.lastMessage.senderName}:</span> {room.lastMessage.content}
+                        </p>
+                     ) : <p className="text-[10px] text-slate-300 italic">No messages yet</p>}
+
+                     {/* Room Actions Menu Button - Absolute Positioned */}
+                     <div className={`absolute -right-2 top-0 ${activeRoomId === room.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
+                        <button 
+                            onClick={(e) => {
+                               e.stopPropagation();
+                               setActiveRoomMenuId(activeRoomMenuId === room.id ? null : room.id);
+                            }}
+                            className="p-1 rounded-full hover:bg-slate-200/50 text-slate-400 hover:text-slate-600"
+                        >
+                           <MoreVertical size={16} />
+                        </button>
+                        
+                        {activeRoomMenuId === room.id && (
+                           <div className="absolute right-0 top-6 w-32 bg-white rounded-xl shadow-xl border border-slate-100 z-50 overflow-hidden animate-in zoom-in-95 duration-100 origin-top-right">
+                              <button 
+                                onClick={(e) => handleTogglePinRoom(room.id, e)}
+                                className="w-full text-left px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center space-x-2"
+                              >
+                                 <Pin size={12} /> <span>{room.isPinned ? 'Unpin' : 'Pin'}</span>
+                              </button>
+                              {room.id !== 'general' && (
+                                  <button 
+                                    onClick={(e) => { e.stopPropagation(); handleDeleteRoom(); }} 
+                                    className="w-full text-left px-4 py-2 text-xs font-bold text-rose-500 hover:bg-rose-50 flex items-center space-x-2"
+                                  >
+                                     <Trash2 size={12} /> <span>Delete</span>
+                                  </button>
+                              )}
+                           </div>
+                        )}
+                     </div>
+                  </div>
              </button>
            ))}
         </div>
@@ -372,7 +592,7 @@ export default function ChatModule() {
 
       {/* MAIN CHAT AREA */}
       <div className={`
-        flex-1 flex-col bg-white h-full relative
+        flex-1 flex-col bg-white h-full relative min-w-0
         ${!activeRoomId ? 'hidden md:flex' : 'flex'}
       `}>
         {activeRoom ? (
@@ -407,15 +627,46 @@ export default function ChatModule() {
                   </button>
                </div>
             </div>
+            
+            {/* PINNED MESSAGE BANNER - Safe Overflow */}
+            {pinnedMessage && (
+               <div 
+                  onClick={() => scrollToMessage(pinnedMessage.id)}
+                  className="bg-amber-50 border-b border-amber-100 px-4 py-2 z-20 shrink-0 w-full max-w-full cursor-pointer hover:bg-amber-100 transition active:scale-[0.99]"
+               >
+                  <div className="flex items-center space-x-3 overflow-hidden w-full">
+                     <div className="w-8 h-8 rounded-lg bg-amber-200 text-amber-600 flex items-center justify-center flex-shrink-0">
+                        <Pin size={16} className="fill-amber-600" />
+                     </div>
+                     <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-black text-amber-600 uppercase tracking-wide">Pinned Message</p>
+                        <p className="text-xs font-medium text-slate-700 truncate w-full">{pinnedMessage.content || 'Attachment'}</p>
+                     </div>
+                  </div>
+               </div>
+            )}
 
             {/* MESSAGES LIST */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 space-y-6 bg-slate-50/30">
+            <div 
+               ref={messagesContainerRef} 
+               onScroll={onScroll}
+               className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 space-y-6 bg-slate-50/30"
+            >
+               {isLoadingHistory && (
+                  <div className="flex justify-center py-2">
+                     <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest animate-pulse">Loading History...</span>
+                  </div>
+               )}
                {messages.map((msg, idx) => {
                  const isMe = msg.senderId === store.currentUser?.id;
                  const showHeader = idx === 0 || messages[idx-1].senderId !== msg.senderId || (msg.createdAt - messages[idx-1].createdAt > 300000); 
                  
                  return (
-                   <div key={msg.id} className={`group flex ${isMe ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2 duration-300`}>
+                   <div 
+                     key={msg.id} 
+                     id={`msg-${msg.id}`}
+                     className={`group flex ${isMe ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2 duration-300 p-1 rounded-xl transition-all ${highlightedMessageId === msg.id ? 'bg-amber-100 ring-2 ring-amber-400 shadow-lg' : ''}`}
+                   >
                       <div className={`max-w-[85%] md:max-w-[70%] ${isMe ? 'items-end' : 'items-start'} flex flex-col`}>
                          {showHeader && !isMe && (
                            <div className="mb-1 ml-1 flex items-baseline space-x-2">
@@ -431,24 +682,25 @@ export default function ChatModule() {
                          
                          {/* Reply Bubble */}
                          <div className="relative group/msg max-w-full">
-                            {/* Reply Action Button */}
-                            <button 
-                                onClick={() => setReplyingTo(msg)}
-                                className={`absolute top-2 ${isMe ? '-left-10' : '-right-10'} p-2 rounded-full bg-slate-200 text-slate-500 opacity-0 group-hover/msg:opacity-100 hover:bg-blue-100 hover:text-blue-600 transition shadow-sm md:flex hidden`}
-                                title="Reply"
-                            >
-                                <Reply size={16} />
-                            </button>
-                            
-                            {isMe && !msg.attachmentUrl && (
-                                <button
-                                   onClick={() => startEditing(msg)}
-                                   className={`absolute top-12 ${isMe ? '-left-10' : '-right-10'} p-2 rounded-full bg-slate-200 text-slate-500 opacity-0 group-hover/msg:opacity-100 hover:bg-blue-100 hover:text-blue-600 transition shadow-sm md:flex hidden`}
-                                   title="Edit"
-                                >
-                                   <Pencil size={16} />
+                            {/* Message Actions Menu (Three Dots) */ }
+                            <div className={`absolute top-2 ${isMe ? '-left-8' : '-right-8'} opacity-0 group-hover/msg:opacity-100 transition-opacity z-10 md:block hidden`}>
+                                <button className="p-1.5 rounded-full bg-slate-100/50 hover:bg-white text-slate-400 hover:text-blue-600 border border-slate-200 shadow-sm transition" onClick={(e) => { e.stopPropagation(); setActiveMenuId(activeMenuId === msg.id ? null : msg.id); }}>
+                                    <MoreVertical size={14} />
                                 </button>
-                            )}
+                                {activeMenuId === msg.id && (
+                                    <div className={`absolute top-7 ${isMe ? 'right-0' : 'left-0'} w-32 bg-white rounded-xl shadow-2xl border border-slate-100 overflow-hidden animate-in zoom-in-95 origin-top z-[60]`} onClick={e=>e.stopPropagation()}>
+                                        <button onClick={() => { setReplyingTo(msg); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-2 border-b border-slate-50"><Reply size={14}/><span>Reply</span></button>
+                                        {isMe && !msg.attachmentUrl && <button onClick={() => { startEditing(msg); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-2 border-b border-slate-50"><Pencil size={14}/><span>Edit</span></button>}
+                                        <button onClick={() => { handleTogglePinMessage(msg); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-2"><Pin size={14}/><span>{msg.isPinned ? 'Unpin' : 'Pin'}</span></button>
+                                    </div>
+                                )}
+                            </div>
+                            
+
+                            
+
+                            
+
 
                             <div className={`relative px-4 py-3 md:px-5 md:py-3 rounded-2xl text-sm font-medium leading-relaxed shadow-sm break-words whitespace-pre-wrap
                                 ${isMe 
@@ -508,18 +760,43 @@ export default function ChatModule() {
                                 )}
                                 
                                 {renderContentWithMentions(msg.content)}
-                                
-                                <span className={`text-[9px] opacity-70 block text-right mt-1 ${isMe ? 'text-slate-400' : 'text-slate-300'}`}>
-                                  {formatTime(msg.createdAt)}
-                                </span>
-                            </div>
-                         </div>
-                      </div>
-                   </div>
-                 );
-               })}
-               <div ref={messagesEndRef} />
-            </div>
+                                 
+                                 <div className="flex items-center justify-end space-x-1 mt-1 opacity-70">
+                                     {msg.isPinned && <Pin size={10} className="fill-amber-500 text-amber-500 mr-1" />}
+                                     <span className={`text-[9px] ${isMe ? 'text-slate-400' : 'text-slate-300'}`}>
+                                       {formatTime(msg.createdAt)} {msg.edited && '(edited)'}
+                                     </span>
+                                     
+                                     {/* Seen By Logic - Only for my latest message */}
+                                     {isMe && idx === messages.length - 1 && activeRoom?.readStatus && (
+                                       <div className="flex -space-x-1 ml-1">
+                                          {Object.entries(activeRoom.readStatus)
+                                             .filter(([uid, ts]) => uid !== store.currentUser?.id && ts >= msg.createdAt)
+                                             .map(([uid]) => {
+                                                const user = store.users.find(u => u.id === uid);
+                                                if (!user) return null;
+                                                return (
+                                                   <div key={uid} className="w-3 h-3 rounded-full border border-white bg-slate-300" title={`Seen by ${user.name}`}>
+                                                      {user.avatarUrl ? (
+                                                         <img src={user.avatarUrl} className="w-full h-full rounded-full object-cover" />
+                                                      ) : (
+                                                         <div className="w-full h-full bg-green-500 rounded-full" />
+                                                      )}
+                                                   </div>
+                                                );
+                                             })
+                                          }
+                                       </div>
+                                     )}
+                                 </div>
+                             </div>
+                          </div>
+                       </div>
+                    </div>
+                  );
+                })}
+                <div ref={messagesEndRef} />
+             </div>
 
             {/* INPUT AREA */}
             <div className="p-3 md:p-6 bg-white border-t border-slate-50 z-20 relative shadow-[0_-5px_15px_-5px_rgba(0,0,0,0.05)]">
@@ -551,7 +828,29 @@ export default function ChatModule() {
                   </div>
                )}
 
-               <div className={`flex items-end space-x-2 bg-slate-50 p-2 rounded-[1.5rem] border border-slate-100 shadow-sm focus-within:ring-2 ring-blue-100 transition ${(replyingTo || editingMessageId) ? 'rounded-t-none' : ''}`}>
+               {/* Draft Attachment Preview */}
+               {draftAttachment && (
+                  <div className="absolute -top-16 left-2 right-2 md:left-6 md:right-6 h-16 bg-slate-100 border border-slate-200 border-b-0 rounded-t-xl flex items-center justify-between px-4 animate-in slide-in-from-bottom-2 fade-in duration-200 shadow-xl z-20">
+                      <div className="flex items-center gap-3">
+                          {draftAttachment.type.startsWith('image/') ? (
+                             <img src={URL.createObjectURL(draftAttachment)} className="w-10 h-10 object-cover rounded-lg border border-slate-300" />
+                          ) : (
+                             <div className="w-10 h-10 bg-slate-200 rounded-lg flex items-center justify-center text-slate-500">
+                                <FileText size={20} />
+                             </div>
+                          )}
+                          <div className="flex flex-col">
+                              <span className="text-xs font-bold text-slate-700 truncate max-w-[150px] md:max-w-xs">{draftAttachment.name}</span>
+                              <span className="text-[10px] text-slate-400 font-bold uppercase">{(draftAttachment.size / 1024).toFixed(1)} KB</span>
+                          </div>
+                      </div>
+                      <button onClick={() => setDraftAttachment(null)} className="p-2 hover:bg-rose-100 rounded-full transition text-slate-400 hover:text-rose-500">
+                          <X size={16} />
+                      </button>
+                  </div>
+               )}
+
+               <div className={`flex items-end space-x-2 bg-slate-50 p-2 rounded-[1.5rem] border border-slate-100 shadow-sm focus-within:ring-2 ring-blue-100 transition ${(replyingTo || editingMessageId || draftAttachment) ? 'rounded-t-none' : ''}`}>
                   <button onClick={() => fileInputRef.current?.click()} className="p-2 md:p-3 bg-white rounded-full text-slate-400 hover:text-blue-500 shadow-sm transition active:scale-90 flex-shrink-0 mb-1">
                      <Paperclip size={20} />
                   </button>
@@ -594,14 +893,17 @@ export default function ChatModule() {
                             else handleSendMessage();
                         }
                     }}
+                    onPaste={handlePaste}
                   />
                   
                   <button 
                     onClick={editingMessageId ? handleUpdateMessage : handleSendMessage}
-                    disabled={!inputText.trim()}
-                    className={`p-2 md:p-3 text-white rounded-full shadow-lg transition transform active:scale-95 flex-shrink-0 mb-1 ${editingMessageId ? 'bg-amber-500 hover:bg-amber-600' : 'bg-slate-900 hover:bg-blue-600' } disabled:opacity-50 disabled:hover:bg-slate-900`}
+                    disabled={isSending || (!inputText.trim() && !draftAttachment)}
+                    className={`p-2 md:p-3 text-white rounded-full shadow-lg transition transform active:scale-95 flex-shrink-0 mb-1 flex items-center justify-center ${
+                        editingMessageId ? 'bg-amber-500 hover:bg-amber-600' : 'bg-slate-900 hover:bg-blue-600' 
+                    } disabled:opacity-50 disabled:hover:bg-slate-900 disabled:cursor-not-allowed`}
                   >
-                     {editingMessageId ? <Pencil size={18} /> : <Send size={18} />}
+                     {isSending ? <Loader2 size={18} className="animate-spin" /> : (editingMessageId ? <Pencil size={18} /> : <Send size={18} />)}
                   </button>
                </div>
             </div>

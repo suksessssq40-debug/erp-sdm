@@ -270,6 +270,9 @@ export interface ChatRoom {
     timestamp: number;
   };
   memberIds: string[]; // For UI convenience
+  unreadCount?: number;
+  readStatus?: Record<string, number>;
+  isPinned?: boolean; // Pinned by current user (for rooms)
 }
 
 export interface ChatMessage {
@@ -287,6 +290,8 @@ export interface ChatMessage {
   createdAt: number;
   senderName?: string; // Populated on fetch
   senderRole?: UserRole;
+  edited?: boolean;
+  isPinned?: boolean; // Global pin for the room
 }
 
 export interface TransactionCategory {

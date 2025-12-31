@@ -26,11 +26,20 @@ export async function GET(request: Request) {
             PRIMARY KEY (room_id, user_id)
           );
           
-          -- Upgrade Schema: Add last_read_at if missing
+          
+          -- Upgrade Schema: Add last_read_at, is_pinned if missing
           DO $$
           BEGIN
               IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='chat_members' AND column_name='last_read_at') THEN
                   ALTER TABLE chat_members ADD COLUMN last_read_at BIGINT DEFAULT 0;
+              END IF;
+              
+              IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='chat_members' AND column_name='is_pinned') THEN
+                  ALTER TABLE chat_members ADD COLUMN is_pinned BOOLEAN DEFAULT FALSE;
+              END IF;
+
+              IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='chat_messages' AND column_name='is_pinned') THEN
+                  ALTER TABLE chat_messages ADD COLUMN is_pinned BOOLEAN DEFAULT FALSE;
               END IF;
           END
           $$;
@@ -42,7 +51,8 @@ export async function GET(request: Request) {
             content TEXT,
             attachment_url TEXT,
             reply_to_id VARCHAR(50),
-            created_at BIGINT
+            created_at BIGINT,
+            is_pinned BOOLEAN DEFAULT FALSE
           );
         `);
 
@@ -76,11 +86,17 @@ export async function GET(request: Request) {
                (SELECT json_agg(user_id) FROM chat_members WHERE room_id = r.id), '[]'
              ) as member_ids,
              (SELECT json_build_object('content', content, 'senderName', (SELECT name FROM users WHERE id = chat_messages.sender_id), 'timestamp', created_at) 
-              FROM chat_messages WHERE room_id = r.id ORDER BY created_at DESC LIMIT 1) as last_message
+              FROM chat_messages WHERE room_id = r.id ORDER BY created_at DESC LIMIT 1) as last_message,
+             (SELECT COUNT(*)::int FROM chat_messages 
+              WHERE room_id = r.id 
+              AND created_at > COALESCE(cm.last_read_at, 0)) as unread_count,
+             (SELECT json_object_agg(user_id, last_read_at) FROM chat_members WHERE room_id = r.id) as read_status,
+             COALESCE(cm.is_pinned, FALSE) as is_pinned_room
       FROM chat_rooms r
       INNER JOIN chat_members cm ON r.id = cm.room_id
       WHERE cm.user_id = $1
       ORDER BY 
+        cm.is_pinned DESC,
         CASE WHEN (SELECT created_at FROM chat_messages WHERE room_id = r.id ORDER BY created_at DESC LIMIT 1) IS NOT NULL 
         THEN (SELECT created_at FROM chat_messages WHERE room_id = r.id ORDER BY created_at DESC LIMIT 1)
         ELSE r.created_at END DESC
@@ -98,7 +114,10 @@ export async function GET(request: Request) {
          content: row.last_message.content,
          senderName: row.last_message.senderName || 'Unknown',
          timestamp: Number(row.last_message.timestamp)
-      } : undefined
+      } : undefined,
+      unreadCount: Number(row.unread_count || 0),
+      readStatus: row.read_status || {},
+      isPinned: row.is_pinned_room
     }));
 
     return NextResponse.json(rooms);

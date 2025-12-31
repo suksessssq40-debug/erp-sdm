@@ -10,6 +10,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const roomId = searchParams.get('roomId');
     const after = searchParams.get('after'); // timestamp
+    const before = searchParams.get('before'); // timestamp for history pagination
 
     if (!roomId) return NextResponse.json({ error: 'Room ID required' }, { status: 400 });
 
@@ -32,12 +33,19 @@ export async function GET(request: Request) {
     `;
     const params: any[] = [roomId];
 
-    if (after && Number(after) > 0) {
-      query += ` AND m.created_at > $2`;
-      params.push(BigInt(after));
+    if (before && Number(before) > 0) {
+       // Load History: Messages OLDER than 'before'
+       // Logic: Get 50 messages < before ORDER BY DESC (closest to before), then ASC them back
+       query = `SELECT * FROM (${query} AND m.created_at < $2 ORDER BY m.created_at DESC LIMIT 50) sub ORDER BY sub.created_at ASC`;
+       params.push(BigInt(before));
+    } else if (after && Number(after) > 0) {
+       // Load New: Messages NEWER than 'after'
+       query += ` AND m.created_at > $2 ORDER BY m.created_at ASC`;
+       params.push(BigInt(after));
+    } else {
+       // Initial Load: Last 50 messages
+       query = `SELECT * FROM (${query} ORDER BY m.created_at DESC LIMIT 50) sub ORDER BY sub.created_at ASC`;
     }
-
-    query += ` ORDER BY m.created_at ASC LIMIT 100`;
 
     const res = await pool.query(query, params);
 
@@ -55,10 +63,18 @@ export async function GET(request: Request) {
       } : undefined,
       createdAt: Number(row.created_at),
       senderName: row.sender_name,
-      senderRole: row.sender_role
+      senderRole: row.sender_role,
+      isPinned: row.is_pinned || false
     }));
 
-    return NextResponse.json(messages);
+    // Fetch Read Status for Room (Realtime Update)
+    const memberRes = await pool.query('SELECT user_id, last_read_at FROM chat_members WHERE room_id = $1', [roomId]);
+    const readStatus: Record<string, number> = {};
+    memberRes.rows.forEach(r => {
+       if (r.last_read_at) readStatus[r.user_id] = Number(r.last_read_at);
+    });
+
+    return NextResponse.json({ messages, readStatus });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: 'Failed to fetch messages' }, { status: 500 });
