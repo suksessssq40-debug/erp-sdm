@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '../context/StoreContext';
 import { ChatRoom, ChatMessage } from '../types';
-import { Send, Plus, Users, Hash, MessageSquare, MoreVertical, X, Search, FileText, Reply, Paperclip, Download, ExternalLink, ArrowLeft, Trash2, Pencil, Pin } from 'lucide-react';
+import { Send, Plus, Users, Hash, MessageSquare, MoreVertical, X, Search, FileText, Reply, Paperclip, Download, ExternalLink, ArrowLeft, Trash2, Pencil, Pin, Loader2 } from 'lucide-react';
 import { useToast } from './Toast';
 
 export default function ChatModule() {
@@ -197,7 +197,14 @@ export default function ChatModule() {
         headers: { 'Authorization': `Bearer ${store.authToken}` }
       });
       if (res.ok) {
-        const newMsgs: ChatMessage[] = await res.json();
+        const data = await res.json();
+        const newMsgs: ChatMessage[] = Array.isArray(data) ? data : (data.messages || []);
+        
+        // Update Realtime Read Status
+        if (!Array.isArray(data) && data.readStatus) {
+           setRooms(prev => prev.map(r => r.id === activeRoomId ? { ...r, readStatus: data.readStatus } : r));
+        }
+
         if (newMsgs.length > 0) {
           // Check scroll position before state update
           const container = messagesContainerRef.current;
@@ -215,11 +222,8 @@ export default function ChatModule() {
             
             return [...prev, ...uniqueNew].sort((a,b) => a.createdAt - b.createdAt);
           });
-
-          // Smart Scroll
-          if (isInitialLoad || isNearBottom) {
-             setTimeout(scrollToBottom, 100);
-          }
+          
+          if (isInitialLoad || isNearBottom) setTimeout(scrollToBottom, 100);
         }
       }
     } catch (e) {
@@ -237,7 +241,10 @@ export default function ChatModule() {
        const res = await fetch(url, { headers: { 'Authorization': `Bearer ${store.authToken}` } });
        
        if (res.ok) {
-          const historyMsgs: ChatMessage[] = await res.json();
+          const data = await res.json();
+          // Compatible with new API format
+          const historyMsgs: ChatMessage[] = Array.isArray(data) ? data : (data.messages || []);
+          
           if (historyMsgs.length > 0) {
              const container = messagesContainerRef.current;
              const oldScrollHeight = container ? container.scrollHeight : 0;
@@ -276,6 +283,7 @@ export default function ChatModule() {
   };
 
   const handleSendMessage = async () => {
+    if (isSending) return;
     if (!activeRoomId || ( (!inputText.trim()) && !draftAttachment )) return;
     setIsSending(true);
     
@@ -890,10 +898,12 @@ export default function ChatModule() {
                   
                   <button 
                     onClick={editingMessageId ? handleUpdateMessage : handleSendMessage}
-                    disabled={!inputText.trim()}
-                    className={`p-2 md:p-3 text-white rounded-full shadow-lg transition transform active:scale-95 flex-shrink-0 mb-1 ${editingMessageId ? 'bg-amber-500 hover:bg-amber-600' : 'bg-slate-900 hover:bg-blue-600' } disabled:opacity-50 disabled:hover:bg-slate-900`}
+                    disabled={isSending || (!inputText.trim() && !draftAttachment)}
+                    className={`p-2 md:p-3 text-white rounded-full shadow-lg transition transform active:scale-95 flex-shrink-0 mb-1 flex items-center justify-center ${
+                        editingMessageId ? 'bg-amber-500 hover:bg-amber-600' : 'bg-slate-900 hover:bg-blue-600' 
+                    } disabled:opacity-50 disabled:hover:bg-slate-900 disabled:cursor-not-allowed`}
                   >
-                     {editingMessageId ? <Pencil size={18} /> : <Send size={18} />}
+                     {isSending ? <Loader2 size={18} className="animate-spin" /> : (editingMessageId ? <Pencil size={18} /> : <Send size={18} />)}
                   </button>
                </div>
             </div>

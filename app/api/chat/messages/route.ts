@@ -67,7 +67,14 @@ export async function GET(request: Request) {
       isPinned: row.is_pinned || false
     }));
 
-    return NextResponse.json(messages);
+    // Fetch Read Status for Room (Realtime Update)
+    const memberRes = await pool.query('SELECT user_id, last_read_at FROM chat_members WHERE room_id = $1', [roomId]);
+    const readStatus: Record<string, number> = {};
+    memberRes.rows.forEach(r => {
+       if (r.last_read_at) readStatus[r.user_id] = Number(r.last_read_at);
+    });
+
+    return NextResponse.json({ messages, readStatus });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: 'Failed to fetch messages' }, { status: 500 });
