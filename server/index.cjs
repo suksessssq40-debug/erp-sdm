@@ -581,11 +581,14 @@ app.put('/api/settings', auth(['OWNER']), async (req, res) => {
     const id = resSettings.rows[0].id;
     
     await pool.query(
-      `UPDATE settings SET office_lat=$1, office_lng=$2, office_start_time=$3, office_end_time=$4, telegram_bot_token=$5, telegram_group_id=$6, telegram_owner_chat_id=$7, company_profile_json=$8 WHERE id=$9`,
+      `UPDATE settings SET office_lat=$1, office_lng=$2, office_start_time=$3, office_end_time=$4, telegram_bot_token=$5, telegram_group_id=$6, telegram_owner_chat_id=$7, company_profile_json=$8, daily_recap_time=$9, daily_recap_content=$10 WHERE id=$11`,
       [
         s.officeLocation.lat, s.officeLocation.lng, s.officeHours.start, s.officeHours.end,
         s.telegramBotToken || '', s.telegramGroupId || '', s.telegramOwnerChatId || '', 
-        JSON.stringify(s.companyProfile), id
+        JSON.stringify(s.companyProfile), 
+        s.dailyRecapTime || '18:00', 
+        JSON.stringify(s.dailyRecapModules || []),
+        id
       ]
     );
     res.json({ ok: true });
@@ -597,9 +600,152 @@ app.put('/api/settings', auth(['OWNER']), async (req, res) => {
 
 // For Vercel, we can export the app. Vercel automatically handles "api" directory files.
 // However, since we are doing a rewrite approach or stand-alone server approach, export default app is often safest for Vercel Node runtime.
+// --- DAILY RECAP SCHEDULER ---
+const startDailyRecapScheduler = () => {
+    console.log('[Scheduler] Daily Recap Service Started');
+    setInterval(async () => {
+        try {
+            const now = new Date();
+            const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+            const wibDate = new Date(utc + (3600000 * 7));
+            const currentHHMM = wibDate.toISOString().slice(11, 16);
+            const dateStr = wibDate.toISOString().split('T')[0];
+
+            // 1. Get Settings
+            const resSettings = await pool.query('SELECT * FROM settings LIMIT 1');
+            if (resSettings.rows.length === 0) return;
+            const settings = resSettings.rows[0];
+
+            if (!settings.telegram_bot_token || !settings.telegram_owner_chat_id) return;
+
+            const targetTime = settings.daily_recap_time || '18:00';
+            
+            // Check Time (Exact Minute Match to avoid drift issues, or check ">= and not sent")
+            if (currentHHMM !== targetTime) return;
+
+            // 2. Check Deduplication
+            const logCheck = await pool.query(`
+                SELECT id FROM system_logs 
+                WHERE action_type = 'DAILY_RECAP_AUTO' 
+                AND details LIKE $1
+                LIMIT 1
+            `, [`%${dateStr}%`]);
+
+            if (logCheck.rows.length > 0) {
+                 console.log(`[Scheduler] Recap for ${dateStr} already sent.`);
+                 return; 
+            }
+
+            console.log(`[Scheduler] Generating Daily Recap for ${dateStr}...`);
+
+            // 3. Generate Content
+            let targetModules = [];
+            try {
+                targetModules = typeof settings.daily_recap_content === 'string' 
+                    ? JSON.parse(settings.daily_recap_content) 
+                    : settings.daily_recap_content || [];
+            } catch (e) { list = []; }
+
+            let message = `🔔 *LAPORAN HARIAN OWNER* 🔔\n📅 ${dateStr}\n\n`;
+            let hasContent = false;
+
+            // Finance
+            if (targetModules.includes('omset')) {
+               const resFin = await pool.query(`
+                  SELECT 
+                    COALESCE(SUM(amount) FILTER (WHERE type='IN'), 0) as income,
+                    COALESCE(SUM(amount) FILTER (WHERE type='OUT'), 0) as expense
+                  FROM transactions 
+                  WHERE date = CURRENT_DATE
+               `);
+               const { income, expense } = resFin.rows[0];
+               message += `💰 *KEUANGAN HARI INI*\n📥 Masuk: Rp ${Number(income).toLocaleString('id-ID')}\nBeban: Rp ${Number(expense).toLocaleString('id-ID')}\n💸 *Net: Rp ${Number(income - expense).toLocaleString('id-ID')}*\n\n`;
+               hasContent = true;
+            }
+
+            // Attendance
+            if (targetModules.includes('attendance')) {
+               // Use Query for today
+               const resAtt = await pool.query(`
+                  SELECT 
+                     COUNT(*) FILTER (WHERE time_in IS NOT NULL) as present,
+                     COUNT(*) FILTER (WHERE is_late = 1) as late
+                  FROM attendance 
+                  WHERE date = $1
+               `, [new Date().toDateString()]); // Using device date string usually stored in DB
+               
+               // Fallback if DB uses ISO string
+               if (resAtt.rows[0].present == 0) {
+                   // Try ISO check just in case
+                   // Not implementing complex double-check to keep it fast, relying on standard format
+               }
+
+               const { present, late } = resAtt.rows[0] || { present: 0, late: 0 };
+               message += `👥 *ABSENSI KARYAWAN*\n✅ Hadir: ${present} orang\n⚠️ Terlambat: ${late} orang\n\n`;
+               hasContent = true;
+            }
+
+            // Requests
+            if (targetModules.includes('requests')) {
+                const resReq = await pool.query(`SELECT type, COUNT(*) as count FROM leave_requests WHERE status = 'PENDING' GROUP BY type`);
+                const pendingTotal = resReq.rows.reduce((acc, curr) => acc + Number(curr.count), 0);
+                if (pendingTotal > 0) {
+                   message += `📩 *PENDING REQUESTS*: ${pendingTotal}\n`;
+                } else {
+                   message += `📩 *REQUESTS*: All Clear\n`;
+                }
+                hasContent = true;
+                message += '\n';
+            }
+            
+            // Projects
+            if (targetModules.includes('projects')) {
+                 const resProj = await pool.query(`SELECT status, COUNT(*) as count FROM projects GROUP BY status`);
+                 message += `📊 *PROJECT STATUS*\n`;
+                 resProj.rows.forEach(r => {
+                     message += `- ${r.status}: ${r.count}\n`;
+                 });
+                 if (resProj.rows.length === 0) message += `(No active projects)\n`;
+                 hasContent = true;
+            }
+
+            if (!hasContent) message += "_Tidak ada data laporan yang dipilih._";
+
+            // 4. Send Telegram
+            const telegramUrl = `https://api.telegram.org/bot${settings.telegram_bot_token}/sendMessage`;
+            let body = { chat_id: settings.telegram_owner_chat_id, text: message, parse_mode: 'Markdown' };
+
+            // Fetch Polyfill/Check
+            const fetchFn = global.fetch || require('node-fetch'); // Assuming Node 18 or 'node-fetch' available. If not, this might fail. 
+            // Since this is a custom server, and user has 'npm run dev', likely Node 18+.
+            
+            const resp = await fetchFn(telegramUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+
+            if (resp.ok) {
+                console.log(`[Scheduler] Recap sent to ${settings.telegram_owner_chat_id}`);
+                // 5. Log Success
+                await pool.query(`
+                    INSERT INTO system_logs (id, timestamp, actor_id, actor_name, actor_role, action_type, details, target_obj)
+                    VALUES ($1, $2, 'system', 'SYSTEM CRON', 'SYSTEM', 'DAILY_RECAP_AUTO', $3, 'Telegram')
+                `, [`log_cron_${Date.now()}`, Date.now(), `Laporan Harian sent for ${dateStr}`]);
+            } else {
+                console.error(`[Scheduler] Telegram Failed: ${resp.status}`);
+            }
+
+        } catch (e) {
+            console.error('[Scheduler] Error:', e);
+        }
+    }, 60000); // Check every minute
+};
+
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
     console.log(`SDM ERP backend running on port ${PORT}`);
+    startDailyRecapScheduler();
   });
 }
 

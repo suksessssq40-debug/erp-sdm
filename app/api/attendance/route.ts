@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
+import { calculateDistance } from '@/utils';
+import { OFFICE_RADIUS_METERS } from '@/constants';
 
 export async function POST(request: Request) {
   try {
-    await authorize();
+    const payload = await authorize();
     const a = await request.json();
 
     // --- HARDENING: SERVER TIME ENFORCEMENT ---
@@ -18,6 +20,26 @@ export async function POST(request: Request) {
     // Calculate Late Status (Server Side)
     const settings = await prisma.settings.findFirst();
     const startHour = settings?.officeStartTime || '08:00';
+
+    // --- SECURITY: RADIUS VALIDATION ---
+    // Fetch full user to check 'isFreelance' status
+    const user = await prisma.user.findUnique({ where: { id: payload.id } });
+    
+    if (user && !user.isFreelance && settings?.officeLat && settings?.officeLng) {
+       const dist = calculateDistance(
+          Number(a.location.lat), 
+          Number(a.location.lng),
+          Number(settings.officeLat), 
+          Number(settings.officeLng)
+       );
+       
+       // Allow slight buffer for GPS drift (e.g. 50m hard limit from constants)
+       if (dist > OFFICE_RADIUS_METERS) {
+          return NextResponse.json({ 
+             error: `GAGAL: Lokasi Anda terdeteksi ${Math.round(dist)}m dari kantor. Batas radius adalah ${OFFICE_RADIUS_METERS}m. Harap mendekat ke kantor.` 
+          }, { status: 400 });
+       }
+    }
     
     // Compare H:mStrings
     const [h, m] = serverTimeStr.split(':').map(Number);
