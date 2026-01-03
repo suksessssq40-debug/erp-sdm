@@ -16,19 +16,21 @@ export async function GET(request: Request) {
     const client = await pool.connect();
     try {
       // 1. Calculate Balance per Account
-      // Note: We group by 'account' column in transactions.
+      // Updated: Join with financial_accounts to use stable IDs but return Names for frontend compatibility
       let balanceQuery = `
-        SELECT account, 
-               SUM(CASE WHEN type = 'IN' THEN amount ELSE -amount END) as balance
-        FROM transactions
+        SELECT 
+           COALESCE(fa.name, t.account) as account_name,
+           SUM(CASE WHEN t.type = 'IN' THEN t.amount ELSE -t.amount END) as balance
+        FROM transactions t
+        LEFT JOIN financial_accounts fa ON t.account_id = fa.id
       `;
       const balanceParams: any[] = [];
       
       if (hasUnitFilter) {
-          balanceQuery += ` WHERE business_unit_id = $1`;
+          balanceQuery += ` WHERE t.business_unit_id = $1`;
           balanceParams.push(businessUnitId);
       }
-      balanceQuery += ` GROUP BY account`;
+      balanceQuery += ` GROUP BY COALESCE(fa.name, t.account)`;
 
       const balanceRes = await client.query(balanceQuery, balanceParams);
 
@@ -60,8 +62,12 @@ export async function GET(request: Request) {
 
       balanceRes.rows.forEach(r => {
         const bal = Number(r.balance);
-        accountBalances[r.account] = bal;
-        totalAssets += bal;
+        // Use the joined name or fallback to stored string
+        const accName = r.account_name; 
+        if (accName) {
+            accountBalances[accName] = bal;
+            totalAssets += bal;
+        }
       });
 
       return NextResponse.json({

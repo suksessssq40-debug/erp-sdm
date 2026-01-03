@@ -146,6 +146,8 @@ model FinancialAccount {
   isActive      Boolean? @default(true) @map("is_active")
   createdAt     DateTime? @map("created_at") @db.Timestamptz()
 
+  transactions Transaction[]
+
   @@map("financial_accounts")
 }
 
@@ -160,11 +162,14 @@ model Transaction {
   account        String?  @db.VarChar(100)
   imageUrl       String?  @map("image_url")
   businessUnitId String?  @map("business_unit_id") @db.VarChar(50)
+  accountId      String?  @map("account_id") @db.VarChar(50) // NEW
   createdAt      DateTime? @default(now()) @map("created_at") @db.Timestamptz()
 
-  businessUnit BusinessUnit? @relation(fields: [businessUnitId], references: [id])
+  businessUnit     BusinessUnit?     @relation(fields: [businessUnitId], references: [id])
+  financialAccount FinancialAccount? @relation(fields: [accountId], references: [id])
 
   @@index([businessUnitId], name: "idx_trans_biz_unit")
+  @@index([accountId], name: "idx_trans_account")
   @@map("transactions")
 }
 

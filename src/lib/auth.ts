@@ -2,7 +2,10 @@ import jwt from 'jsonwebtoken';
 // @ts-ignore
 import { headers } from 'next/headers';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'sdm_erp_dev_secret';
+const JWT_SECRET = process.env.JWT_SECRET as string;
+if (!JWT_SECRET) {
+  throw new Error('FATAL: JWT_SECRET is not defined in environment variables.');
+}
 
 export interface AuthPayload {
   id: string;

@@ -1,6 +1,6 @@
 
 import { NextResponse } from 'next/server';
-import pool from '@/lib/db';
+import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
 
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
@@ -10,22 +10,46 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     const id = params.id;
     const body = await request.json();
 
-    // Prevent editing if not owner maybe? No, requested "Finance role also can".
     // Basic validation
     if (!body.amount || !body.account) {
         return NextResponse.json({ error: 'Invalid data' }, { status: 400 });
     }
 
-    await pool.query(
-      `UPDATE transactions 
-       SET date = $1, amount = $2, type = $3, category = $4, description = $5, account = $6, business_unit_id = $7, image_url = $8
-       WHERE id = $9`,
-      [body.date, body.amount, body.type, body.category || null, body.description, body.account, body.businessUnitId || null, body.imageUrl || null, id]
-    );
+    // Fix Data Integrity: Lookup Account ID based on name
+    let accountId = null;
+    if (body.account) {
+        const acc = await prisma.financialAccount.findFirst({
+            where: {
+                name: {
+                    equals: body.account,
+                    mode: 'insensitive'
+                }
+            }
+        });
+        if (acc) {
+            accountId = acc.id;
+        }
+    }
 
-    return NextResponse.json(body);
+    // Update transaction using Prisma
+    const updated = await prisma.transaction.update({
+        where: { id },
+        data: {
+            date: new Date(body.date),
+            amount: body.amount,
+            type: body.type,
+            category: body.category || null,
+            description: body.description,
+            account: body.account,
+            accountId: accountId, // Ensure relation is updated
+            businessUnitId: body.businessUnitId || null,
+            imageUrl: body.imageUrl || null
+        }
+    });
+
+    return NextResponse.json(updated);
   } catch (error) {
-    console.error(error);
+    console.error('Update Transaction Error:', error);
     return NextResponse.json({ error: 'Failed to update transaction' }, { status: 500 });
   }
 }
@@ -35,11 +59,13 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     await authorize(['OWNER', 'FINANCE']);
     const id = params.id;
 
-    await pool.query('DELETE FROM transactions WHERE id = $1', [id]);
+    await prisma.transaction.delete({
+        where: { id }
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error(error);
+    console.error('Delete Transaction Error:', error);
     return NextResponse.json({ error: 'Failed to delete transaction' }, { status: 500 });
   }
 }

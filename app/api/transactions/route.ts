@@ -51,6 +51,23 @@ export async function POST(request: Request) {
     await authorize(['OWNER', 'FINANCE']);
     const t = await request.json();
 
+    // Link Account by Name (Lookup ID)
+    let accountId = null;
+    if (t.account) {
+        // Try to find the account linkage
+        const acc = await prisma.financialAccount.findFirst({
+            where: {
+                name: {
+                  equals: t.account,
+                  mode: 'insensitive' // Match case-insensitively
+                }
+            }
+        });
+        if (acc) {
+            accountId = acc.id;
+        }
+    }
+
     await prisma.transaction.create({
       data: {
         id: t.id,
@@ -59,7 +76,8 @@ export async function POST(request: Request) {
         type: t.type,
         category: t.category || null,
         description: t.description,
-        account: t.account,
+        account: t.account, // Still store legacy name for backup
+        accountId: accountId, // NEW: Link to real table
         businessUnitId: t.businessUnitId || null,
         imageUrl: t.imageUrl || null
       }

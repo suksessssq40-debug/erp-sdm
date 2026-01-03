@@ -259,10 +259,37 @@ const FinanceModule: React.FC<FinanceProps> = ({
         toast.warning("Pilih akun keuangan");
         return;
     }
+    
+    // Auto-Create Category Logic
+    let finalCategory = formData.category;
+    if (categorySearch && categorySearch !== formData.category) {
+        finalCategory = categorySearch; // Use what user typed
+    }
+    
+    if (finalCategory && !categories.some(c => c.name.toLowerCase() === finalCategory.toLowerCase())) {
+        const confirmCreate = confirm(`Kategori "${finalCategory}" belum ada. Buat otomatis sebagai ${formData.type === TransactionType.IN ? 'PEMASUKAN' : 'PENGELUARAN'}?`);
+        if (!confirmCreate) return;
+
+        try {
+            if (onAddCategory) {
+                await onAddCategory({
+                    id: Math.random().toString(36).substr(2, 9),
+                    name: finalCategory,
+                    type: formData.type, // Auto-inherit type from transaction
+                    parentId: null
+                });
+                toast.success(`Kategori "${finalCategory}" dibuat otomatis.`);
+            }
+        } catch (e) {
+            toast.error("Gagal membuat kategori baru otomatis.");
+            return;
+        }
+    }
 
     try {
       const payload: Transaction = {
         ...formData,
+        category: finalCategory,
         id: isEditing ? formData.id : Math.random().toString(36).substr(2, 9),
         date: isEditing ? localTransactions.find(t => t.id === formData.id)?.date || new Date().toISOString() : new Date().toISOString()
       };
@@ -1119,29 +1146,50 @@ const FinanceModule: React.FC<FinanceProps> = ({
                                         }
                                     });
 
-                                    // Remove duplicates if any (though logic above technically separates parents and children)
-                                    // Make unique by ID just in case
+                                    // Deduplicate by ID
                                     const uniqueOptions = Array.from(new Map(allOptions.map(item => [item.id, item])).values());
+                                    
+                                    const exactMatch = uniqueOptions.some(c => c.name.toLowerCase() === categorySearch.toLowerCase());
 
-                                    if (uniqueOptions.length === 0) {
-                                        return <div className="p-4 text-center text-slate-400 text-[10px] font-bold italic">Tidak ada kategori yang cocok. <br/> Gunakan nama baru ini atau buat di menu Kategori.</div>;
-                                    }
-
-                                    return uniqueOptions.map(cat => (
-                                        <button 
-                                            key={cat.id}
-                                            onClick={() => {
-                                                setFormData({...formData, category: cat.name});
-                                                setCategorySearch(cat.name);
-                                                setShowCategoryDropdown(false);
-                                            }}
-                                            className="w-full text-left p-3 hover:bg-slate-50 rounded-xl transition flex justify-between items-center group"
-                                        >
-                                            <span className="text-xs font-bold text-slate-700">{cat.name}</span>
-                                            {cat.parentId && <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-2 py-1 rounded">SUB</span>}
-                                        </button>
-                                    ));
+                                    return (
+                                       <>
+                                          {uniqueOptions.map(cat => (
+                                              <button 
+                                                key={cat.id}
+                                                onClick={() => {
+                                                    setCategorySearch(cat.name);
+                                                    setFormData({...formData, category: cat.name});
+                                                    setShowCategoryDropdown(false);
+                                                }}
+                                                className="w-full text-left px-5 py-3 rounded-xl hover:bg-slate-50 transition text-[10px] font-black uppercase tracking-widest text-slate-600 flex justify-between group"
+                                              >
+                                                  <span>{cat.name}</span>
+                                                  {cat.parentId && <span className="text-[8px] bg-slate-100 px-2 py-0.5 rounded text-slate-400">Sub</span>}
+                                              </button>
+                                          ))}
+                                          
+                                          {/* Option to create new if no exact match */}
+                                          {categorySearch && !exactMatch && (
+                                              <button 
+                                                onClick={() => {
+                                                    // Just set search, creation happens on Submit
+                                                    setFormData({...formData, category: categorySearch});
+                                                    setShowCategoryDropdown(false);
+                                                }}
+                                                className="w-full text-left px-5 py-3 rounded-xl hover:bg-emerald-50 bg-blue-50/50 mt-1 transition text-[10px] font-black uppercase tracking-widest text-blue-600 border border-blue-100 flex items-center gap-2"
+                                              >
+                                                 <Plus size={14} /> <span>PAKAI & BUAT BARU: "{categorySearch}"</span>
+                                              </button>
+                                          )}
+                                          
+                                          {uniqueOptions.length === 0 && !categorySearch && (
+                                              <div className="p-4 text-center text-[10px] text-slate-400 italic">Mulai ketik untuk mencari kategori...</div>
+                                          )}
+                                       </>
+                                    );
                                 })()}
+
+
                             </div>
                         )}
                         {/* Overlay to close dropdown when clicking outside */}

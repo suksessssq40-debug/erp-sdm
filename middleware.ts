@@ -2,7 +2,10 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'sdm_erp_dev_secret';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+    throw new Error('JWT_SECRET is not defined');
+}
 
 export async function middleware(request: NextRequest) {
   // 1. Skip checks for login, public assets, and Next.js internals
@@ -11,7 +14,8 @@ export async function middleware(request: NextRequest) {
     request.nextUrl.pathname.startsWith('/_next') || 
     request.nextUrl.pathname.startsWith('/favicon.ico') ||
     request.nextUrl.pathname.startsWith('/api/cron') ||
-    request.nextUrl.pathname.startsWith('/api/check-db')
+    request.nextUrl.pathname.startsWith('/api/check-db') ||
+    request.nextUrl.pathname.startsWith('/api/migrate')
   ) {
     return NextResponse.next();
   }
