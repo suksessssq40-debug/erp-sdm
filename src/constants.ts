@@ -12,7 +12,7 @@ export const KANBAN_COLUMNS = [
 export const INITIAL_OFFICE_LOCATION = { lat: -7.826390, lng: 111.987060 }; // Jakarta Default
 export const OFFICE_RADIUS_METERS = 50; // Updated to 50m as per request
 
-export const ROLE_LABELS: Record<UserRole, string> = {
+export const ROLE_LABELS: Record<UserRole, string> = { // tes aja
   [UserRole.OWNER]: 'Owner',
   [UserRole.MANAGER]: 'Manager',
   [UserRole.FINANCE]: 'Finance Team',
