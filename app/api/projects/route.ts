@@ -20,7 +20,7 @@ export async function POST(request: Request) {
         isManagementOnly: (p.isManagementOnly ? 1 : 0) as any,
         priority: p.priority,
         createdBy: p.createdBy,
-        createdAt: (p.createdAt ? new Date(p.createdAt) : new Date()) as any
+        createdAt: (p.createdAt ? BigInt(new Date(p.createdAt).getTime()) : BigInt(Date.now())) as any
       }
     });
 

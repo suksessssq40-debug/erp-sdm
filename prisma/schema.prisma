@@ -64,7 +64,7 @@ model Project {
   commentsJson     String?   @map("comments_json")
   isManagementOnly Int?      @default(0) @map("is_management_only") // 0=No, 1=Yes
   createdBy        String?   @map("created_by") @db.VarChar(50)
-  createdAt        DateTime? @map("created_at") @db.Timestamptz()
+  createdAt        BigInt?   @map("created_at")
 
   @@map("projects")
 }
