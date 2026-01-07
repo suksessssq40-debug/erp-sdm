@@ -31,7 +31,7 @@ interface LayoutProps {
 }
 
 const Layout: React.FC<LayoutProps> = ({ children, userRole, activeTab, onTabChange, onLogout, userName, userAvatar, unreadChatCount = 0, pendingRequestCount = 0 }) => {
-  const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = React.useState(true);
   
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: [UserRole.OWNER] },
@@ -62,17 +62,19 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, activeTab, onTabCha
         />
       )}
 
-      {/* Sidebar - Fixed on Mobile, Static on Desktop */}
+      {/* Sidebar - Fixed on Mobile, Dynamic on Desktop */}
       <aside className={`
-        fixed top-0 left-0 h-full w-64 bg-slate-900 text-white flex flex-col z-30 transition-transform duration-300 ease-in-out shadow-2xl
+        fixed inset-y-0 left-0 z-30 w-64 bg-slate-900 text-white flex flex-col transition-transform duration-300 ease-in-out shadow-2xl
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         md:translate-x-0 md:static md:shadow-none
+        ${!isSidebarOpen ? 'md:w-0 md:opacity-0 md:overflow-hidden' : 'md:w-64 md:opacity-100'} 
       `}>
         <div className="p-6 border-b border-slate-800 flex justify-between items-center">
           <div>
             <h1 className="text-xl font-bold tracking-tight text-blue-400 italic">SDM <span className="text-white">ERP</span></h1>
             <p className="text-[10px] text-slate-400 mt-1 font-black uppercase tracking-widest">Sukses Digital Media</p>
           </div>
+          {/* Close button always visible if sidebar is open, usable on mobile */}
           <button onClick={() => setIsSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-white">
             <X size={20} />
           </button>
@@ -84,14 +86,15 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, activeTab, onTabCha
               key={item.id}
               onClick={() => {
                 onTabChange(item.id);
-                setIsSidebarOpen(false);
+                // On mobile, auto-close. On desktop, keep open.
+                if (window.innerWidth < 768) setIsSidebarOpen(false);
               }}
-              className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all ${
+              className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all whitespace-nowrap ${
                 activeTab === item.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
               }`}
             >
               <div className="flex items-center space-x-3">
-                 <item.icon size={20} />
+                 <item.icon size={20} className="shrink-0" />
                  <span className="font-bold text-xs uppercase tracking-widest">{item.label}</span>
               </div>
               {item.id === 'chat' && unreadChatCount > 0 && (
@@ -108,7 +111,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, activeTab, onTabCha
           ))}
         </nav>
 
-        <div className="p-4 border-t border-slate-800 bg-slate-900/50">
+        <div className="p-4 border-t border-slate-800 bg-slate-900/50 whitespace-nowrap">
           <div className="mb-4 px-4">
             <p className="text-sm font-black truncate">{userName}</p>
             <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{userRole}</p>
@@ -117,7 +120,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, activeTab, onTabCha
             onClick={onLogout}
             className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-rose-400 hover:bg-rose-500/10 transition-colors"
           >
-            <LogOut size={20} />
+            <LogOut size={20} className="shrink-0" />
             <span className="font-bold text-xs uppercase tracking-widest">Sign Out</span>
           </button>
         </div>
@@ -127,7 +130,8 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, activeTab, onTabCha
       <main className="flex-1 overflow-y-auto relative custom-scrollbar flex flex-col">
         <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-md border-b border-slate-100 px-4 md:px-8 py-4 flex justify-between items-center">
           <div className="flex items-center gap-4">
-            <button onClick={toggleSidebar} className="md:hidden p-2 bg-slate-100 rounded-lg text-slate-600 hover:bg-slate-200 transition">
+            {/* Toggle Button for Desktop AND Mobile */}
+            <button onClick={toggleSidebar} className="p-2 bg-slate-100 rounded-lg text-slate-600 hover:bg-slate-200 transition">
               <Menu size={20} />
             </button>
             <h2 className="text-lg font-black uppercase tracking-widest text-slate-800 italic truncate">{activeTab.replace('-', ' ')}</h2>
