@@ -15,6 +15,8 @@ const nextConfig = {
     ],
   },
   // API Routes are automatic in App Router
+  // Optimization for Hosting (Standalone Build)
+  output: 'standalone',
 };
 
 module.exports = nextConfig;
