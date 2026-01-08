@@ -6,16 +6,13 @@ import { Search, Landmark, Edit, Trash2, ImageIcon } from 'lucide-react';
 interface JournalViewProps {
   transactions: Transaction[];
   businessUnits: BusinessUnit[];
-  selectedMonth: number;
-  selectedYear: number;
-  MONTHS: string[];
   
   onEdit: (t: Transaction) => void;
   onDelete: (t: Transaction) => void;
 }
 
 export const JournalView: React.FC<JournalViewProps> = ({
-  transactions, businessUnits, selectedMonth, selectedYear, MONTHS, onEdit, onDelete
+  transactions, businessUnits, onEdit, onDelete
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [previewImage, setPreviewImage] = useState<string | null>(null);
@@ -30,7 +27,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
     <div className="bg-white rounded-[3rem] shadow-xl border border-slate-100 overflow-hidden animate-in fade-in duration-500">
         <div className="p-10 border-b flex flex-col md:flex-row justify-between items-center gap-6 bg-slate-50/30">
         <div>
-            <h4 className="text-2xl font-black text-slate-800 italic uppercase tracking-tighter">Jurnal {MONTHS[selectedMonth]} {selectedYear}</h4>
+            <h4 className="text-2xl font-black text-slate-800 italic uppercase tracking-tighter">Jurnal Transaksi</h4>
             <p className="text-[10px] text-slate-400 uppercase font-black tracking-[0.3em] mt-1">LOG TRANSAKSI KRONOLOGIS</p>
         </div>
         <div className="flex gap-3 w-full md:w-auto">

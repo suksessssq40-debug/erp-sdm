@@ -378,7 +378,7 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
       {selectedProject && (
         <TaskDetailModal project={selectedProject} users={users} currentUser={currentUser} settings={settings}
           onClose={() => setSelectedProject(null)} onEditProject={() => { setEditingProject(selectedProject); setSelectedProject(null); }}
-          onUpdate={(p) => onUpdateProject(p)} // Fallback for full edits
+          onUpdate={(p) => { onUpdateProject(p); setSelectedProject(p); }} // Sync local state
           patchProject={patchProject} // Inject atomic updater
           onMoveStatus={handleMoveStatus} toast={toast} />
       )}

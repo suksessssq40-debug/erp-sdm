@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
 }
 
 // 1. User Model
@@ -20,6 +20,8 @@ model User {
   jobTitle         String? @map("job_title") @db.VarChar(100)
   bio              String?
   isFreelance      Boolean? @default(false) @map("is_freelance")
+  deviceId         String?  @map("device_id")
+  createdAt        DateTime? @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
   attendance      Attendance[]
@@ -82,6 +84,7 @@ model Attendance {
   checkoutSelfieUrl String? @map("checkout_selfie_url")
   locationLat       Decimal? @map("location_lat")
   locationLng       Decimal? @map("location_lng")
+  createdAt         DateTime? @map("created_at") @db.Timestamptz()
 
   user User? @relation(fields: [userId], references: [id])
 
@@ -98,11 +101,11 @@ model LeaveRequest {
   endDate       DateTime? @map("end_date") @db.Date
   attachmentUrl String?   @map("attachment_url")
   status        String?   @db.VarChar(20)
-  createdAt     DateTime? @map("created_at") @db.Timestamptz()
+  createdAt     BigInt?   @map("created_at")
   approverId    String?   @map("approver_id") @db.VarChar(50)
   approverName  String?   @map("approver_name") @db.VarChar(100)
   actionNote    String?   @map("action_note")
-  actionAt      DateTime? @map("action_at") @db.Timestamptz()
+  actionAt      BigInt?   @map("action_at")
 
   user User? @relation(fields: [userId], references: [id])
 
@@ -115,7 +118,7 @@ model BusinessUnit {
   name        String   @db.VarChar(100)
   description String?
   isActive    Boolean? @default(true) @map("is_active")
-  createdAt   DateTime? @default(now()) @map("created_at") @db.Timestamptz()
+  createdAt   BigInt?   @map("created_at")
 
   transactions Transaction[]
 
@@ -128,7 +131,7 @@ model TransactionCategory {
   name      String   @db.VarChar(100)
   type      String   @db.VarChar(10)
   parentId  String?  @map("parent_id") @db.VarChar(50)
-  createdAt DateTime? @default(now()) @map("created_at") @db.Timestamptz()
+  createdAt BigInt? @map("created_at")
 
   parent   TransactionCategory?  @relation("CategoryToCategory", fields: [parentId], references: [id])
   children TransactionCategory[] @relation("CategoryToCategory")
@@ -144,7 +147,7 @@ model FinancialAccount {
   accountNumber String?  @map("account_number") @db.VarChar(100)
   description   String?
   isActive      Boolean? @default(true) @map("is_active")
-  createdAt     DateTime? @map("created_at") @db.Timestamptz()
+  createdAt     BigInt? @map("created_at")
 
   transactions Transaction[]
 
@@ -163,6 +166,7 @@ model Transaction {
   imageUrl       String?  @map("image_url")
   businessUnitId String?  @map("business_unit_id") @db.VarChar(50)
   accountId      String?  @map("account_id") @db.VarChar(50) // NEW
+  isReconciled   Boolean? @default(false) @map("is_reconciled")
   createdAt      DateTime? @default(now()) @map("created_at") @db.Timestamptz()
 
   businessUnit     BusinessUnit?     @relation(fields: [businessUnitId], references: [id])
@@ -179,6 +183,7 @@ model DailyReport {
   userId         String? @map("user_id") @db.VarChar(50)
   date           String? @db.VarChar(20)
   activitiesJson String? @map("activities_json")
+  createdAt      DateTime? @map("created_at") @db.Timestamptz()
 
   user User? @relation(fields: [userId], references: [id])
 
@@ -210,8 +215,9 @@ model PayrollRecord {
   deductions         Decimal?
   netSalary          Decimal? @map("net_salary")
   isSent             Int?     @default(0) @map("is_sent") // 0=False, 1=True
-  processedAt        DateTime? @map("processed_at") @db.Timestamptz()
+  processedAt        BigInt?  @map("processed_at")
   metadataJson       String?  @map("metadata_json")
+  createdAt          BigInt?  @map("created_at")
 
   user User? @relation(fields: [userId], references: [id])
 
@@ -239,7 +245,7 @@ model ChatRoom {
   name      String?  @db.VarChar(100)
   type      String?  @db.VarChar(20)
   createdBy String?  @map("created_by") @db.VarChar(50)
-  createdAt DateTime? @map("created_at") @db.Timestamptz()
+  createdAt BigInt? @map("created_at")
 
   members  ChatMember[]
   messages ChatMessage[]
@@ -251,7 +257,9 @@ model ChatRoom {
 model ChatMember {
   roomId   String @map("room_id") @db.VarChar(50)
   userId   String @map("user_id") @db.VarChar(50)
-  joinedAt DateTime? @map("joined_at") @db.Timestamptz()
+  joinedAt   BigInt?   @map("joined_at")
+  lastReadAt BigInt?   @map("last_read_at")
+  isPinned   Boolean?  @default(false) @map("is_pinned") 
 
   room ChatRoom @relation(fields: [roomId], references: [id])
   user User     @relation(fields: [userId], references: [id])
@@ -266,8 +274,9 @@ model ChatMessage {
   senderId      String? @map("sender_id") @db.VarChar(50)
   content       String?
   attachmentUrl String? @map("attachment_url")
-  createdAt     DateTime? @map("created_at") @db.Timestamptz()
-  replyToId     String? @map("reply_to_id") @db.VarChar(50)
+  createdAt     BigInt?   @map("created_at")
+  replyToId     String?   @map("reply_to_id") @db.VarChar(50)
+  isPinned      Boolean?  @default(false) @map("is_pinned")
 
   room   ChatRoom? @relation(fields: [roomId], references: [id])
   sender User?     @relation(fields: [senderId], references: [id])

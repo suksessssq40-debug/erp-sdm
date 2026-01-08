@@ -66,8 +66,9 @@ export const sendTelegramDocument = async (token: string, chatId: string, pdfBlo
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.description || `API Error ${response.status}`);
     }
-  } catch (error: any) {
-    console.error("Gagal mengirim Dokumen Telegram:", error.message || error);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("Gagal mengirim Dokumen Telegram:", msg);
     throw error;
   }
 };

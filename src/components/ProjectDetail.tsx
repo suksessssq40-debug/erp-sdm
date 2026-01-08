@@ -10,7 +10,7 @@ import {
 import { useToast } from './Toast';
 
 export const ProjectDetail = () => {
-  const { projects, users, currentUser, updateProject } = useAppStore();
+  const { projects, users, currentUser, updateProject, patchProject } = useAppStore();
   const router = useRouter();
   const params = useParams();
   const toast = useToast();
@@ -18,6 +18,57 @@ export const ProjectDetail = () => {
   const projectId = params?.id as string;
   const [project, setProject] = useState<Project | null>(null);
   const [commentText, setCommentText] = useState('');
+  const [taskInputs, setTaskInputs] = useState<Record<string, string>>({}); // New local state for task inputs
+
+  const handleTaskComment = async (e: React.MouseEvent | React.KeyboardEvent, taskId: string) => {
+    e.stopPropagation();
+    if (!project || !currentUser) return;
+    
+    const text = taskInputs[taskId];
+    if (!text?.trim()) return;
+
+    try {
+        const tIdx = project.tasks.findIndex(t => t.id === taskId);
+        if (tIdx === -1) return;
+        
+        const task = project.tasks[tIdx];
+        const newComment = { 
+            id: Date.now().toString(), 
+            userId: currentUser.id, 
+            text, 
+            createdAt: Date.now() 
+        };
+        
+        // Optimistic Update locally to feel instant
+        const optimisticTasks = [...project.tasks];
+        optimisticTasks[tIdx] = {
+            ...task,
+            comments: [...(task.comments || []), newComment]
+        };
+        setProject({ ...project, tasks: optimisticTasks });
+
+        // Atomic Update
+        const updatedTask = {
+            ...task,
+            comments: [...(task.comments || []), newComment]
+        };
+
+        if (patchProject) {
+            await patchProject(project.id, 'UPDATE_TASK', { taskId, task: updatedTask });
+        } else {
+            // Fallback if patchProject not avail (should not match)
+            console.warn("patchProject unavailable, using updateProject");
+            updateProject({ ...project, tasks: optimisticTasks }); 
+        }
+
+        setTaskInputs(prev => ({ ...prev, [taskId]: '' }));
+        toast.success("Komentar terkirim");
+    } catch (e) {
+        toast.error("Gagal kirim komentar");
+        console.error(e);
+        // Revert? (Optional: for now simple optimistic is fine)
+    }
+  };
 
   useEffect(() => {
     if (projectId && projects.length > 0) {
@@ -200,8 +251,38 @@ export const ProjectDetail = () => {
                                )}
                             </div>
                          </div>
+
+
+                      {/* Task Comments Section */}
+                      <div className="mt-4 pt-4 border-t border-slate-100" onClick={e => e.stopPropagation()}>
+                          {task.comments && task.comments.length > 0 && (
+                            <div className="space-y-2 mb-3">
+                                {task.comments.map(c => (
+                                    <div key={c.id} className="bg-slate-50 p-3 rounded-lg text-xs border border-slate-100/50">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="font-bold text-slate-700">{users.find(u => u.id === c.userId)?.name}</span>
+                                            <span className="text-slate-400 text-[10px]">{new Date(c.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                        </div>
+                                        <p className="text-slate-600">{c.text}</p>
+                                    </div>
+                                ))}
+                            </div>
+                          )}
+                          <div className="flex gap-2">
+                             <input 
+                                className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-blue-500 transition"
+                                placeholder="Tulis komentar/instruksi..."
+                                value={taskInputs[task.id] || ''}
+                                onChange={e => setTaskInputs(prev => ({...prev, [task.id]: e.target.value}))}
+                                onKeyDown={e => e.key === 'Enter' && handleTaskComment(e, task.id)}
+                             />
+                             <button onClick={e => handleTaskComment(e, task.id)} className="p-2.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-blue-600 hover:text-white transition shadow-sm">
+                                <Send size={14} />
+                             </button>
+                          </div>
                       </div>
-                  ))}
+                   </div>
+               ))}
                   {project.tasks.length === 0 && (
                      <div className="text-center py-10 text-slate-400 italic text-xs">Belum ada tugas yang dibuat.</div>
                   )}

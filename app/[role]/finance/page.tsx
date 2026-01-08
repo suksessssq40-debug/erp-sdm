@@ -31,6 +31,7 @@ export default function FinancePage() {
       onUpdateBusinessUnit={store.updateBusinessUnit}
       onDeleteBusinessUnit={store.deleteBusinessUnit}
       
+      companyProfile={store.settings?.companyProfile || {}}
       toast={toast} 
       uploadFile={store.uploadFile} 
     />

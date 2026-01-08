@@ -83,7 +83,14 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       data: updateData
     });
 
-    return NextResponse.json(updated);
+    // Fix BigInt serialization
+    const serialized = JSON.parse(JSON.stringify(updated, (key, value) =>
+        typeof value === 'bigint'
+            ? Number(value)
+            : value // return everything else unchanged
+    ));
+
+    return NextResponse.json(serialized);
   } catch (error) {
     console.error("PATCH Error:", error);
     return NextResponse.json({ error: 'Failed to patch project' }, { status: 500 });
