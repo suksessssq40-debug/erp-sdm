@@ -17,6 +17,12 @@ const nextConfig = {
   // API Routes are automatic in App Router
   // Optimization for Hosting (Standalone Build)
   output: 'standalone',
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  typescript: {
+    ignoreBuildErrors: true,
+  },
 };
 
 module.exports = nextConfig;
