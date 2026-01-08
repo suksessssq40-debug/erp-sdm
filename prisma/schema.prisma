@@ -9,15 +9,15 @@ datasource db {
 // 1. User Model
 model User {
   id               String  @id
-  name             String? @db.VarChar(100)
-  username         String? @unique @db.VarChar(50)
-  telegramId       String? @map("telegram_id") @db.VarChar(50)
-  telegramUsername String? @map("telegram_username") @db.VarChar(50)
-  role             String? @db.VarChar(20)
+  name             String?
+  username         String? @unique
+  telegramId       String? @map("telegram_id")
+  telegramUsername String? @map("telegram_username")
+  role             String?
   passwordHash     String? @map("password_hash")
   deviceIds        Json?   @default("[]") @map("device_ids")
   avatarUrl        String? @map("avatar_url")
-  jobTitle         String? @map("job_title") @db.VarChar(100)
+  jobTitle         String? @map("job_title")
   bio              String?
   isFreelance      Boolean? @default(false) @map("is_freelance")
   deviceId         String?  @map("device_id")
@@ -37,10 +37,10 @@ model User {
 
 // 2. Settings Model
 model Settings {
-  officeLat           Decimal? @map("office_lat")
-  officeLng           Decimal? @map("office_lng")
-  officeStartTime     String?  @map("office_start_time") @db.VarChar(10)
-  officeEndTime       String?  @map("office_end_time") @db.VarChar(10)
+  officeLat           Float?   @map("office_lat")
+  officeLng           Float?   @map("office_lng")
+  officeStartTime     String?  @map("office_start_time")
+  officeEndTime       String?  @map("office_end_time")
   telegramBotToken    String?  @map("telegram_bot_token")
   telegramGroupId     String?  @map("telegram_group_id")
   telegramOwnerChatId String?  @map("telegram_owner_chat_id")
@@ -55,17 +55,17 @@ model Settings {
 
 // 3. Projects Model
 model Project {
-  id               String    @id @db.VarChar(50)
-  title            String?   @db.VarChar(200)
+  id               String    @id
+  title            String?
   description      String?
-  status           String?   @db.VarChar(20)
-  priority         String?   @db.VarChar(20)
+  status           String?
+  priority         String?
   deadline         DateTime? @db.Timestamp()
   tasksJson        String?   @map("tasks_json")
   collaboratorsJson String?  @map("collaborators_json")
   commentsJson     String?   @map("comments_json")
   isManagementOnly Int?      @default(0) @map("is_management_only") // 0=No, 1=Yes
-  createdBy        String?   @map("created_by") @db.VarChar(50)
+  createdBy        String?   @map("created_by")
   createdAt        BigInt?   @map("created_at")
 
   @@map("projects")
@@ -73,17 +73,17 @@ model Project {
 
 // 4. Attendance Model
 model Attendance {
-  id                String  @id @db.VarChar(50)
-  userId            String? @map("user_id") @db.VarChar(50)
+  id                String  @id
+  userId            String? @map("user_id")
   date              String? @db.VarChar(20)
-  timeIn            String? @map("time_in") @db.VarChar(10)
-  timeOut           String? @map("time_out") @db.VarChar(10)
+  timeIn            String? @map("time_in")
+  timeOut           String? @map("time_out")
   isLate            Int?    @map("is_late") // 0=No, 1=Yes
   lateReason        String? @map("late_reason")
   selfieUrl         String? @map("selfie_url")
   checkoutSelfieUrl String? @map("checkout_selfie_url")
-  locationLat       Decimal? @map("location_lat")
-  locationLng       Decimal? @map("location_lng")
+  locationLat       Float?  @map("location_lat")
+  locationLng       Float?  @map("location_lng")
   createdAt         DateTime? @map("created_at") @db.Timestamptz()
 
   user User? @relation(fields: [userId], references: [id])
@@ -93,17 +93,17 @@ model Attendance {
 
 // 5. Leave Requests
 model LeaveRequest {
-  id            String    @id @db.VarChar(50)
-  userId        String?   @map("user_id") @db.VarChar(50)
-  type          String?   @db.VarChar(20)
+  id            String    @id
+  userId        String?   @map("user_id")
+  type          String?
   description   String?
   startDate     DateTime? @map("start_date") @db.Date
   endDate       DateTime? @map("end_date") @db.Date
   attachmentUrl String?   @map("attachment_url")
-  status        String?   @db.VarChar(20)
+  status        String?
   createdAt     BigInt?   @map("created_at")
-  approverId    String?   @map("approver_id") @db.VarChar(50)
-  approverName  String?   @map("approver_name") @db.VarChar(100)
+  approverId    String?   @map("approver_id")
+  approverName  String?   @map("approver_name")
   actionNote    String?   @map("action_note")
   actionAt      BigInt?   @map("action_at")
 
@@ -114,8 +114,8 @@ model LeaveRequest {
 
 // 6. Business Units
 model BusinessUnit {
-  id          String   @id @db.VarChar(50)
-  name        String   @db.VarChar(100)
+  id          String   @id
+  name        String
   description String?
   isActive    Boolean? @default(true) @map("is_active")
   createdAt   BigInt?   @map("created_at")
@@ -127,10 +127,10 @@ model BusinessUnit {
 
 // 7. Transaction Categories
 model TransactionCategory {
-  id        String   @id @db.VarChar(50)
-  name      String   @db.VarChar(100)
-  type      String   @db.VarChar(10)
-  parentId  String?  @map("parent_id") @db.VarChar(50)
+  id        String   @id
+  name      String
+  type      String
+  parentId  String?  @map("parent_id")
   createdAt BigInt? @map("created_at")
 
   parent   TransactionCategory?  @relation("CategoryToCategory", fields: [parentId], references: [id])
@@ -141,10 +141,10 @@ model TransactionCategory {
 
 // 8. Financial Accounts
 model FinancialAccount {
-  id            String   @id @db.VarChar(50)
-  name          String   @db.VarChar(100)
-  bankName      String   @map("bank_name") @db.VarChar(100)
-  accountNumber String?  @map("account_number") @db.VarChar(100)
+  id            String   @id
+  name          String
+  bankName      String   @map("bank_name")
+  accountNumber String?  @map("account_number")
   description   String?
   isActive      Boolean? @default(true) @map("is_active")
   createdAt     BigInt? @map("created_at")
@@ -156,16 +156,16 @@ model FinancialAccount {
 
 // 9. Transactions
 model Transaction {
-  id             String   @id @db.VarChar(50)
+  id             String   @id
   date           DateTime? @db.Date
   amount         Decimal?
-  type           String?  @db.VarChar(10)
-  category       String?  @db.VarChar(100)
+  type           String?
+  category       String?
   description    String?
-  account        String?  @db.VarChar(100)
+  account        String?
   imageUrl       String?  @map("image_url")
-  businessUnitId String?  @map("business_unit_id") @db.VarChar(50)
-  accountId      String?  @map("account_id") @db.VarChar(50) // NEW
+  businessUnitId String?  @map("business_unit_id")
+  accountId      String?  @map("account_id") // NEW
   isReconciled   Boolean? @default(false) @map("is_reconciled")
   createdAt      DateTime? @default(now()) @map("created_at") @db.Timestamptz()
 
@@ -179,8 +179,8 @@ model Transaction {
 
 // 10. Daily Reports
 model DailyReport {
-  id             String  @id @db.VarChar(50)
-  userId         String? @map("user_id") @db.VarChar(50)
+  id             String  @id
+  userId         String? @map("user_id")
   date           String? @db.VarChar(20)
   activitiesJson String? @map("activities_json")
   createdAt      DateTime? @map("created_at") @db.Timestamptz()
@@ -192,7 +192,7 @@ model DailyReport {
 
 // 11. Salary Configs
 model SalaryConfig {
-  userId        String   @id @map("user_id") @db.VarChar(50)
+  userId        String   @id @map("user_id")
   basicSalary   Decimal? @map("basic_salary")
   allowance     Decimal?
   mealAllowance Decimal? @map("meal_allowance")
@@ -205,9 +205,9 @@ model SalaryConfig {
 
 // 12. Payroll Records
 model PayrollRecord {
-  id                 String   @id @db.VarChar(50)
-  userId             String?  @map("user_id") @db.VarChar(50)
-  month              String?  @db.VarChar(10)
+  id                 String   @id
+  userId             String?  @map("user_id")
+  month              String?
   basicSalary        Decimal? @map("basic_salary")
   allowance          Decimal?
   totalMealAllowance Decimal? @map("total_meal_allowance")
@@ -226,14 +226,14 @@ model PayrollRecord {
 
 // 13. System Logs
 model SystemLog {
-  id           String  @id @db.VarChar(50)
+  id           String  @id
   timestamp    BigInt    @map("timestamp")
-  actorId      String? @map("actor_id") @db.VarChar(50)
-  actorName    String? @map("actor_name") @db.VarChar(100)
-  actorRole    String? @map("actor_role") @db.VarChar(20)
-  actionType   String? @map("action_type") @db.VarChar(50)
+  actorId      String? @map("actor_id")
+  actorName    String? @map("actor_name")
+  actorRole    String? @map("actor_role")
+  actionType   String? @map("action_type")
   details      String?
-  targetObj    String? @map("target_obj") @db.VarChar(100)
+  targetObj    String? @map("target_obj")
   metadataJson String? @map("metadata_json")
 
   @@map("system_logs")
@@ -241,10 +241,10 @@ model SystemLog {
 
 // 14. Chat Rooms
 model ChatRoom {
-  id        String   @id @db.VarChar(50)
-  name      String?  @db.VarChar(100)
-  type      String?  @db.VarChar(20)
-  createdBy String?  @map("created_by") @db.VarChar(50)
+  id        String   @id
+  name      String?
+  type      String?
+  createdBy String?  @map("created_by")
   createdAt BigInt? @map("created_at")
 
   members  ChatMember[]
@@ -255,8 +255,8 @@ model ChatRoom {
 
 // Chat Members (Many-to-Many relation table)
 model ChatMember {
-  roomId   String @map("room_id") @db.VarChar(50)
-  userId   String @map("user_id") @db.VarChar(50)
+  roomId   String @map("room_id")
+  userId   String @map("user_id")
   joinedAt   BigInt?   @map("joined_at")
   lastReadAt BigInt?   @map("last_read_at")
   isPinned   Boolean?  @default(false) @map("is_pinned") 
@@ -269,13 +269,13 @@ model ChatMember {
 }
 
 model ChatMessage {
-  id            String  @id @db.VarChar(50)
-  roomId        String? @map("room_id") @db.VarChar(50)
-  senderId      String? @map("sender_id") @db.VarChar(50)
+  id            String  @id
+  roomId        String? @map("room_id")
+  senderId      String? @map("sender_id")
   content       String?
   attachmentUrl String? @map("attachment_url")
   createdAt     BigInt?   @map("created_at")
-  replyToId     String?   @map("reply_to_id") @db.VarChar(50)
+  replyToId     String?   @map("reply_to_id")
   isPinned      Boolean?  @default(false) @map("is_pinned")
 
   room   ChatRoom? @relation(fields: [roomId], references: [id])
