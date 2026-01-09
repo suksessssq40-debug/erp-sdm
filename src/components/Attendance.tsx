@@ -70,70 +70,74 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
   const todayStr = new Date(Date.now() + serverOffset).toDateString(); // Use server-aligned date for filtering
   const myAttendanceToday = attendanceLog.find(a => a.userId === currentUser.id && a.date === todayStr); // This matches valid server date format "Wed Dec 27 2023"
 
-  const handleStartCheckIn = () => {
-    setIsCheckOut(false);
-    setStage('CHECKING_LOCATION');
-    
-    if (!navigator.geolocation) {
-      toast.error("Browser Anda tidak mendukung Geolocation. Gunakan browser modern seperti Chrome atau Firefox.");
-      setStage('IDLE');
-      return;
-    }
+  // LIVE GPS TRACKING STATE
+  const [gpsLoading, setGpsLoading] = useState(true);
+  const [currentDistance, setCurrentDistance] = useState<number | null>(null);
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
+  const [liveLocation, setLiveLocation] = useState<{lat: number, lng: number} | null>(null);
 
-    // Gunakan timeout lebih tinggi untuk perbaikan akurasi GPS
-    navigator.geolocation.getCurrentPosition(
+  // Start Watching GPS on Mount
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    
+    const watcher = navigator.geolocation.watchPosition(
       (pos) => {
         const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setLocation(coords);
+        setLiveLocation(coords);
+        setGpsAccuracy(pos.coords.accuracy);
         
         const dist = calculateDistance(coords.lat, coords.lng, settings.officeLocation.lat, settings.officeLocation.lng);
-
-        const now = new Date();
-        const startHms = settings.officeHours?.start || '08:00';
-        const [h, m] = startHms.split(':').map(Number);
-        const startTime = new Date();
-        startTime.setHours(h, m, 0);
-        
-        const isLateCheck = now > startTime;
-        setIsLate(isLateCheck);
-
-        // Geofencing: User MUST be at office (UNLESS Freelance)
-        if (!currentUser.isFreelance && dist > OFFICE_RADIUS_METERS) {
-          toast.error(`Check-in Gagal: Lokasi Anda terlalu jauh dari kantor (${Math.round(dist)}m). Radius maksimal: ${OFFICE_RADIUS_METERS}m.`);
-          setStage('IDLE');
-          return;
-        }
-
-        if (currentUser.isFreelance) {
-           toast.info(`Mode Freelance Aktif: Lokasi dicatat (${Math.round(dist)}m dari kantor).`);
-        }
-
-        setStage(isLateCheck ? 'LATE_REASON' : 'SELFIE');
+        setCurrentDistance(dist);
+        setGpsLoading(false);
       },
       (err) => {
-        console.error("Geolocation Error:", err);
-        toast.error("Gagal mendapatkan lokasi presisi. Pastikan GPS aktif, izin lokasi diberikan di browser, dan Anda berada di area terbuka.");
-        setStage('IDLE');
+        console.warn("GPS Watch Error:", err);
+        setGpsLoading(false);
       },
       { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
     );
+
+    return () => navigator.geolocation.clearWatch(watcher);
+  }, [settings.officeLocation]);
+
+  const handleStartCheckIn = () => {
+    setIsCheckOut(false);
+    
+    // Fallback: If live tracking failed but they clicked anyway (or first load), rely on state
+    if (!liveLocation && !currentUser.isFreelance) {
+      toast.error("Sedang mencari lokasi... Tunggu indikator jarak muncul.");
+      return;
+    }
+
+    const dist = currentDistance || 0;
+    const now = new Date();
+    const startHms = settings.officeHours?.start || '08:00';
+    const [h, m] = startHms.split(':').map(Number);
+    const startTime = new Date();
+    startTime.setHours(h, m, 0);
+    
+    const isLateCheck = now > startTime;
+    setIsLate(isLateCheck);
+    setLocation(liveLocation as any);
+
+    // Geofencing Logic
+    if (!currentUser.isFreelance && dist > OFFICE_RADIUS_METERS) {
+      toast.error(`Gagal: Lokasi masih terlalu jauh (${Math.round(dist)}m). Tunggu GPS stabil atau mendekat ke kantor.`);
+      return;
+    }
+
+    if (currentUser.isFreelance) {
+        toast.info(`Mode Freelance: Lokasi (${Math.round(dist)}m) dicatat.`);
+    }
+
+    setStage(isLateCheck ? 'LATE_REASON' : 'SELFIE');
   };
 
   const handleStartCheckOut = () => {
     setIsCheckOut(true);
-    setStage('CHECKING_LOCATION');
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setStage('SELFIE');
-      },
-      (err) => {
-        console.warn("Geolocation fallback for checkout:", err);
-        setLocation({ lat: 0, lng: 0 }); 
-        setStage('SELFIE');
-      },
-      { enableHighAccuracy: false, timeout: 10000 }
-    );
+    // Checkout is looser, just take whatever location we have
+    setLocation(liveLocation || { lat: 0, lng: 0 });
+    setStage('SELFIE');
   };
 
   const startCamera = async () => {
@@ -309,9 +313,34 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
                 </div>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-4">
                 <h3 className="text-3xl font-black text-slate-800 tracking-tight">Portal Absensi SDM</h3>
                 <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Silahkan lakukan absensi masuk atau pulang harian</p>
+                
+                {/* LIVE GPS INDICATOR */}
+                {!myAttendanceToday && stage === 'IDLE' && (
+                  <div className={`p-4 rounded-2xl flex items-center justify-between border shadow-sm transition-colors duration-500
+                    ${gpsLoading ? 'bg-slate-50 border-slate-200' : 
+                      (currentDistance || 0) <= OFFICE_RADIUS_METERS ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-700'}
+                  `}>
+                    <div className="flex items-center gap-3">
+                       <div className={`w-3 h-3 rounded-full animate-pulse ${gpsLoading ? 'bg-slate-400' : (currentDistance || 0) <= OFFICE_RADIUS_METERS ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
+                       <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest opacity-70">STATUS LOKASI</p>
+                          <p className="text-xs font-black">
+                             {gpsLoading ? 'MENCARI GPS...' : 
+                              (currentDistance || 0) <= OFFICE_RADIUS_METERS ? `DALAM AREA (${Math.round(currentDistance!)}m)` : `DILUAR AREA (${Math.round(currentDistance!)}m)`}
+                          </p>
+                       </div>
+                    </div>
+                    {!gpsLoading && (
+                       <div className="text-right">
+                          <p className="text-[9px] font-bold opacity-60">AKURASI</p>
+                          <p className="text-[10px] font-mono">{Math.round(gpsAccuracy || 0)}m</p>
+                       </div>
+                    )}
+                  </div>
+                )}
               </div>
 
                {/* REPORT BUTTON: Visible for ALL Roles now, Responsive Styling */}
@@ -327,18 +356,24 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
                   <History size={14} /> <span>LAPORAN DETAIL</span>
                </button>
 
+
               {!myAttendanceToday ? (
                 <button 
                   onClick={handleStartCheckIn}
-                  className="bg-slate-900 text-white px-16 py-5 rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] hover:bg-blue-600 shadow-2xl transition transform active:scale-95 flex items-center gap-3"
+                  disabled={gpsLoading || (!currentUser.isFreelance && (currentDistance || 9999) > OFFICE_RADIUS_METERS)}
+                  className={`px-16 py-5 rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] shadow-2xl transition transform active:scale-95 flex items-center gap-3
+                    ${gpsLoading || (!currentUser.isFreelance && (currentDistance || 9999) > OFFICE_RADIUS_METERS) 
+                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none' 
+                      : 'bg-emerald-600 text-white hover:bg-emerald-700'}
+                  `}
                 >
-                  <MapPin size={18} /> CHECK-IN (MASUK)
+                  <MapPin size={18} /> {gpsLoading ? 'MENCARI SINYAL...' : (!currentUser.isFreelance && (currentDistance || 9999) > OFFICE_RADIUS_METERS) ? 'TERLALU JAUH' : 'CHECK-IN (MASUK)'}
                 </button>
               ) : !myAttendanceToday.timeOut ? (
                 <div className="flex flex-col items-center space-y-6">
                    <div className="bg-emerald-50 text-emerald-600 px-8 py-4 rounded-[1.5rem] font-black text-xs uppercase tracking-widest flex items-center space-x-3 border border-emerald-100 shadow-sm">
                       <CheckCircle2 size={20} />
-                      <span>Berhasil Masuk: {myAttendanceToday.timeIn}</span>
+                      <span>Berhasil Masuk: {myAttendanceToday?.timeIn}</span>
                    </div>
                    <button 
                     onClick={handleStartCheckOut}
@@ -352,7 +387,7 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
                    <div className="bg-blue-50 text-blue-600 px-8 py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest border border-blue-100 shadow-sm inline-block">
                       Absensi Hari Ini Selesai
                    </div>
-                   <p className="text-slate-500 font-bold text-xs italic">Riwayat Kehadiran: {myAttendanceToday.timeIn} - {myAttendanceToday.timeOut}</p>
+                   <p className="text-slate-500 font-bold text-xs italic">Riwayat Kehadiran: {myAttendanceToday?.timeIn} - {myAttendanceToday?.timeOut}</p>
                 </div>
               )}
             </>
