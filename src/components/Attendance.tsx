@@ -253,6 +253,29 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
     }
   };
 
+  const handleSetOfficeLocation = () => {
+    if (!navigator.geolocation) {
+       toast.error("Browser tidak mendukung Geolocation");
+       return;
+    }
+    toast.info("Mencari titik koordinat presisi...");
+    navigator.geolocation.getCurrentPosition(
+       (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          if (window.confirm(`Set lokasi kantor ke posisi Anda saat ini?\nLat: ${lat}\nLng: ${lng}`)) {
+             onUpdateSettings({ officeLocation: { lat, lng } });
+             toast.success("Lokasi kantor berhasil diperbarui ke posisi Anda!");
+          }
+       },
+       (err) => {
+          console.error(err);
+          toast.error("Gagal mendapatkan lokasi. Pastikan GPS aktif.");
+       },
+       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
+
   // Clock Formatter
   const timeString = currentDate.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
   const dateString = currentDate.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -453,7 +476,15 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
                 <div className="pt-4 border-t border-white/5">
                   <p className="text-[9px] font-black text-slate-600 uppercase tracking-[0.3em] mb-2">RADIUS AKTIF: {OFFICE_RADIUS_METERS}M</p>
                   <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2">TITIK LOKASI KANTOR</p>
-                  <p className="text-[10px] font-mono text-blue-400 bg-blue-400/10 p-3 rounded-xl border border-blue-400/20">{settings.officeLocation.lat.toFixed(6)}, {settings.officeLocation.lng.toFixed(6)}</p>
+                  <p className="text-[10px] font-mono text-blue-400 bg-blue-400/10 p-3 rounded-xl border border-blue-400/20 mb-3">{settings.officeLocation.lat.toFixed(6)}, {settings.officeLocation.lng.toFixed(6)}</p>
+                  
+                  <button 
+                    onClick={handleSetOfficeLocation}
+                    className="w-full bg-blue-600 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 transition flex items-center justify-center gap-2"
+                  >
+                     <MapPin size={14} /> ATUR TITIK GPS SAAT INI
+                  </button>
+                  <p className="text-[9px] text-slate-500 mt-2 text-center leading-tight">Pastikan Anda berada di kantor saat menekan tombol ini.</p>
                 </div>
              </div>
           </div>
