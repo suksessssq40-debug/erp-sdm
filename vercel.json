@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/daily-recap?key=sdm_default_secret_123",
-      "schedule": "0 11 * * *" 
+      "schedule": "0 22 * * *" 
     }
   ]
 }

@@ -22,6 +22,10 @@ export async function GET(request: Request) {
 
     // 1. Timezone Check (Jakarta)
     const now = new Date();
+    const jakartaDate = new Date(
+      now.toLocaleString("en-US", { timeZone: "Asia/Jakarta" })
+    );
+
     const currentHHMM = now
       .toLocaleTimeString("id-ID", {
         timeZone: "Asia/Jakarta",
@@ -31,13 +35,24 @@ export async function GET(request: Request) {
       })
       .replace(/\./g, ":");
 
-    const jakartaDate = new Date(
-      now.toLocaleString("en-US", { timeZone: "Asia/Jakarta" })
-    );
-    const yyyy = jakartaDate.getFullYear();
-    const mm = String(jakartaDate.getMonth() + 1).padStart(2, "0");
-    const dd = String(jakartaDate.getDate()).padStart(2, "0");
-    const dateStr = `${yyyy}-${mm}-${dd}`;
+    const currentHour = parseInt(currentHHMM.split(':')[0]);
+    
+    // SMART CONTEXT LOGIC:
+    // If running in morning (< 10:00), assume we report Yesterday's data
+    // If running in afternoon/evening (>= 10:00), report Today's data
+    let reportDate = new Date(jakartaDate);
+    let isYesterdayContext = false;
+
+    if (currentHour < 10) {
+        reportDate.setDate(reportDate.getDate() - 1);
+        isYesterdayContext = true;
+    }
+
+    const yyyy = reportDate.getFullYear();
+    const mm = String(reportDate.getMonth() + 1).padStart(2, "0");
+    const dd = String(reportDate.getDate()).padStart(2, "0");
+    const dateStr = `${yyyy}-${mm}-${dd}`; // Used for SQL Query
+    const displayDateStr = reportDate.toLocaleDateString("id-ID", { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
     // 2. Get Settings
     const res = await pool.query("SELECT * FROM settings LIMIT 1");
@@ -101,7 +116,7 @@ export async function GET(request: Request) {
       targetModules = [];
     }
 
-    let message = `🔔 *LAPORAN HARIAN OWNER* 🔔\n📅 ${dateStr}\n\n`;
+    let message = `🔔 *LAPORAN HARIAN OWNER* 🔔\n📅 ${displayDateStr}\n${isYesterdayContext ? '_(Rekapan Data Kemarin)_' : ''}\n\n`;
     let hasContent = false;
 
     // Finance
@@ -112,8 +127,8 @@ export async function GET(request: Request) {
             COALESCE(SUM(amount) FILTER (WHERE type='IN'), 0) as income,
             COALESCE(SUM(amount) FILTER (WHERE type='OUT'), 0) as expense
           FROM transactions 
-          WHERE date = CURRENT_DATE
-       `);
+          WHERE date = $1::date
+       `, [dateStr]);
       // Note: PG pool returns strings/numbers usually.
       const { income, expense } = resFin.rows[0];
 
