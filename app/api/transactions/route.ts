@@ -20,23 +20,34 @@ export async function GET(request: Request) {
         };
     }
 
+    // Update GET Query
     const transactions = await prisma.transaction.findMany({
         where: whereClause,
         orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
-        take: limit
+        take: limit,
+        include: { coa: true } as any // Cast to any to bypass stale types
     });
     
     // Map to safe format (Date to String)
-    const safeTransactions = transactions.map(t => ({
+    const safeTransactions = transactions.map((t: any) => ({
         id: t.id,
         date: t.date ? t.date.toISOString().split('T')[0] : '',
         amount: Number(t.amount),
         type: t.type,
-        category: t.category,
+        category: t.coa ? `${t.coa.code} - ${t.coa.name}` : t.category, // Hybrid Display
         description: t.description,
         account: t.account,
         businessUnitId: t.businessUnitId,
-        imageUrl: t.imageUrl
+        imageUrl: t.imageUrl,
+        // New Accrual Fields
+        coaId: t.coaId,
+        coa: t.coa ? {
+            ...t.coa,
+            createdAt: t.coa.createdAt ? t.coa.createdAt.toString() : null
+        } : null, // Pass full object safely (BigInt to String)
+        contactName: t.contactName,
+        status: t.status,
+        dueDate: t.dueDate ? t.dueDate.toISOString().split('T')[0] : null
     }));
 
     return NextResponse.json(safeTransactions);
@@ -54,33 +65,31 @@ export async function POST(request: Request) {
     // Link Account by Name (Lookup ID)
     let accountId = null;
     if (t.account) {
-        // Try to find the account linkage
         const acc = await prisma.financialAccount.findFirst({
-            where: {
-                name: {
-                  equals: t.account,
-                  mode: 'insensitive' // Match case-insensitively
-                }
-            }
+            where: { name: { equals: t.account, mode: 'insensitive' } }
         });
-        if (acc) {
-            accountId = acc.id;
-        }
+        if (acc) accountId = acc.id;
     }
 
+    // CREATE
     await prisma.transaction.create({
       data: {
         id: t.id,
         date: new Date(t.date),
         amount: t.amount,
         type: t.type,
-        category: t.category || null,
+        category: t.category || null, // Keep string for backup
         description: t.description,
-        account: t.account, // Still store legacy name for backup
-        accountId: accountId, // NEW: Link to real table
+        account: t.account,
+        accountId: accountId,
         businessUnitId: t.businessUnitId || null,
-        imageUrl: t.imageUrl || null
-      }
+        imageUrl: t.imageUrl || null,
+        // New Fields
+        coaId: t.coaId || null,
+        contactName: t.contactName || null,
+        status: t.status || 'PAID',
+        dueDate: t.dueDate ? new Date(t.dueDate) : null
+      } as any // Cast to any
     });
 
     return NextResponse.json(t, { status: 201 });

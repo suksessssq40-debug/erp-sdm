@@ -125,7 +125,7 @@ model BusinessUnit {
   @@map("business_units")
 }
 
-// 7. Transaction Categories
+// 7. Transaction Categories (Legacy - To be Migrated)
 model TransactionCategory {
   id        String   @id
   name      String
@@ -137,6 +137,22 @@ model TransactionCategory {
   children TransactionCategory[] @relation("CategoryToCategory")
 
   @@map("transaction_categories")
+}
+
+// 7.5 Chart of Accounts (New Standard)
+model ChartOfAccount {
+  id          String   @id
+  code        String   @unique
+  name        String
+  type        String // ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE
+  normalPos   String @map("normal_pos") // DEBIT, CREDIT
+  description String?
+  isActive    Boolean? @default(true) @map("is_active")
+  createdAt   BigInt?   @map("created_at")
+
+  transactions Transaction[]
+
+  @@map("chart_of_accounts")
 }
 
 // 8. Financial Accounts
@@ -160,20 +176,29 @@ model Transaction {
   date           DateTime? @db.Date
   amount         Decimal?
   type           String?
-  category       String?
+  category       String? // Legacy String
   description    String?
   account        String?
   imageUrl       String?  @map("image_url")
   businessUnitId String?  @map("business_unit_id")
-  accountId      String?  @map("account_id") // NEW
+  accountId      String?  @map("account_id") 
   isReconciled   Boolean? @default(false) @map("is_reconciled")
+  
+  // NEW For Accrual Basis
+  coaId          String?  @map("coa_id") // Link to ChartOfAccount
+  contactName    String?  @map("contact_name") // Customer / Supplier Name
+  status         String?  @default("PAID") // PAID, PENDING (Unpaid)
+  dueDate        DateTime? @map("due_date") @db.Date
+
   createdAt      DateTime? @default(now()) @map("created_at") @db.Timestamptz()
 
   businessUnit     BusinessUnit?     @relation(fields: [businessUnitId], references: [id])
   financialAccount FinancialAccount? @relation(fields: [accountId], references: [id])
+  coa              ChartOfAccount?   @relation(fields: [coaId], references: [id])
 
   @@index([businessUnitId], name: "idx_trans_biz_unit")
   @@index([accountId], name: "idx_trans_account")
+  @@index([coaId], name: "idx_trans_coa")
   @@map("transactions")
 }
 

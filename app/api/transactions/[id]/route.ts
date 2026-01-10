@@ -43,7 +43,12 @@ export async function PUT(request: Request, { params }: { params: { id: string }
             account: body.account,
             accountId: accountId, // Ensure relation is updated
             businessUnitId: body.businessUnitId || null,
-            imageUrl: body.imageUrl || null
+            imageUrl: body.imageUrl || null,
+            // New Fields (Fix Update Status)
+            coaId: body.coaId || null,
+            contactName: body.contactName || null,
+            status: body.status || 'PAID',
+            dueDate: body.dueDate ? new Date(body.dueDate) : null
         }
     });
 

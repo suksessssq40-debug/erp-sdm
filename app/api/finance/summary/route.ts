@@ -23,11 +23,12 @@ export async function GET(request: Request) {
            SUM(CASE WHEN t.type = 'IN' THEN t.amount ELSE -t.amount END) as balance
         FROM transactions t
         LEFT JOIN financial_accounts fa ON t.account_id = fa.id
+        WHERE (t.status = 'PAID' OR t.status IS NULL)
       `;
       const balanceParams: any[] = [];
       
       if (hasUnitFilter) {
-          balanceQuery += ` WHERE t.business_unit_id = $1`;
+          balanceQuery += ` AND t.business_unit_id = $1`;
           balanceParams.push(businessUnitId);
       }
       balanceQuery += ` GROUP BY COALESCE(fa.name, t.account)`;

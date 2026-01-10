@@ -29,7 +29,7 @@ export async function GET(request: Request) {
             SELECT SUM(CASE WHEN t.type = 'IN' THEN t.amount ELSE -t.amount END) as total
             FROM transactions t
             LEFT JOIN financial_accounts fa ON t.account_id = fa.id
-            WHERE t.date < $1
+            WHERE t.date < $1 AND (t.status = 'PAID' OR t.status IS NULL)
         `;
         const openingParams: any[] = [startDate];
         let paramIdx = 2;
@@ -55,7 +55,7 @@ export async function GET(request: Request) {
             SELECT t.*, fa.name as linked_account_name 
             FROM transactions t
             LEFT JOIN financial_accounts fa ON t.account_id = fa.id
-            WHERE t.date >= $1 AND t.date <= $2
+            WHERE t.date >= $1 AND t.date <= $2 AND (t.status = 'PAID' OR t.status IS NULL)
         `;
         const transParams: any[] = [startDate, endDate];
         paramIdx = 3;

@@ -51,6 +51,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
                 <th className="px-10 py-6">DESKRIPSI</th>
                 <th className="px-10 py-6">KATEGORI</th>
                 <th className="px-10 py-6">UNIT (KB)</th>
+                <th className="px-10 py-6 text-center">STATUS</th>
                 <th className="px-10 py-6 text-right">NOMINAL</th>
                 <th className="px-10 py-6 text-center">AKSI</th>
             </tr>
@@ -67,7 +68,10 @@ export const JournalView: React.FC<JournalViewProps> = ({
                     <span className="text-[10px] font-black text-slate-700 uppercase">{t.account}</span>
                     </div>
                 </td>
-                <td className="px-10 py-7 text-xs font-bold text-slate-600 italic">"{t.description}"</td>
+                <td className="px-10 py-7 text-xs font-bold text-slate-600 italic">
+                    "{t.description}"
+                    {t.contactName && <div className="text-[9px] text-slate-400 not-italic mt-1">Ref: {t.contactName}</div>}
+                </td>
                 <td className="px-10 py-7">
                     <span className="bg-white border border-slate-100 text-slate-500 px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-[0.15em]">{t.category || 'GENERAL'}</span>
                 </td>
@@ -78,19 +82,44 @@ export const JournalView: React.FC<JournalViewProps> = ({
                         </span>
                     ) : <span className="text-slate-300">-</span>}
                 </td>
+                <td className="px-10 py-7 text-center">
+                    {t.status === 'PENDING' ? (
+                        <span className="bg-rose-100 text-rose-600 px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border border-rose-200">
+                            BELUM LUNAS
+                        </span>
+                    ) : (
+                        <span className="text-[8px] font-black uppercase tracking-widest text-emerald-500/50">
+                            LUNAS
+                        </span>
+                    )}
+                </td>
                 <td className={`px-10 py-7 text-sm font-black text-right ${t.type === TransactionType.IN ? 'text-emerald-600' : 'text-rose-600'}`}>
                     {t.type === TransactionType.IN ? '+' : '-'}{formatCurrency(t.amount)}
                 </td>
                 <td className="px-10 py-7 text-center">
                     <div className="flex items-center justify-center gap-2">
+                    
+                    {/* SETTLEMENT BUTTON FOR PENDING */}
+                    {t.status === 'PENDING' && (
+                        <button 
+                            onClick={() => onEdit(t)} 
+                            className="px-3 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition shadow-lg shadow-emerald-200 flex items-center gap-2 animate-pulse"
+                            title="Klik untuk Melunasi"
+                        >
+                            <span className="text-[8px] font-black uppercase tracking-widest">LUNASI</span>
+                        </button>
+                    )}
+
                     {t.imageUrl && (
                         <button onClick={() => setPreviewImage(t.imageUrl!)} className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition">
                             <ImageIcon size={14} />
                         </button>
                     )}
+                    
                     <button onClick={() => onEdit(t)} className="p-2 bg-amber-50 text-amber-600 rounded-lg hover:bg-amber-500 hover:text-white transition">
                         <Edit size={14} />
                     </button>
+                    
                     <button onClick={() => onDelete(t)} className="p-2 bg-rose-50 text-rose-600 rounded-lg hover:bg-rose-500 hover:text-white transition">
                         <Trash2 size={14} />
                     </button>

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Transaction, TransactionType, FinancialAccountDef, TransactionCategory, BusinessUnit, CompanyProfile } from '../types';
+import { Transaction, TransactionType, FinancialAccountDef, TransactionCategory, BusinessUnit, CompanyProfile, ChartOfAccount } from '../types';
 import { formatCurrency } from '../utils';
 import { Wallet, Calendar, RefreshCw, Plus, Landmark, Edit, ArrowRight, Download, FileText, FileSpreadsheet } from 'lucide-react';
 import { useToast } from './Toast';
@@ -17,6 +17,8 @@ import { LedgerView } from './finance/LedgerView';
 import { ReportView } from './finance/ReportView';
 import { CategoryManager } from './finance/CategoryManager';
 import { BusinessUnitManager } from './finance/BusinessUnitManager';
+import { CreateCoaModal } from './finance/CreateCoaModal';
+import { ImportTransactionModal } from './finance/ImportTransactionModal';
 
 interface FinanceProps {
   transactions: Transaction[]; // Fallback
@@ -67,7 +69,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
   toast, 
   uploadFile 
 }) => {
-  const [activeTab, setActiveTab] = useState<'MUTASI' | 'BUKU_BESAR' | 'LAPORAN' | 'KATEGORI' | 'KBPOS'>('MUTASI');
+  const [activeTab, setActiveTab] = useState<'MUTASI' | 'BUKU_BESAR' | 'LAPORAN' | 'DAFTAR_AKUN' | 'KBPOS'>('MUTASI');
   const [isLoading, setIsLoading] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   
@@ -86,6 +88,9 @@ const FinanceModule: React.FC<FinanceProps> = ({
   
   // Data State
   const [localTransactions, setLocalTransactions] = useState<Transaction[]>([]);
+  const [coaList, setCoaList] = useState<ChartOfAccount[]>([]);
+  const [coaSearchTerm, setCoaSearchTerm] = useState('');
+  const [coaTypeFilter, setCoaTypeFilter] = useState('ALL');
   const [summary, setSummary] = useState<{
     accountBalances: Record<string, number>;
     totalAssets: number;
@@ -103,6 +108,26 @@ const FinanceModule: React.FC<FinanceProps> = ({
       }
   }, [financialAccounts, ledgerAccount]);
 
+  // --- REUSABLE COA FETCH ---
+  const refreshCoa = async () => {
+        try {
+            const token = typeof window !== 'undefined' ? localStorage.getItem('sdm_erp_auth_token') : null;
+            const headers: Record<string, string> = {};
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            
+            const res = await fetch('/api/finance/coa', { headers });
+            if (res.ok) {
+                setCoaList(await res.json());
+            }
+        } catch (e) {
+            console.error("Failed to fetch COA", e);
+        }
+  };
+
+  // --- FETCH COA (ONCE) ---
+  useEffect(() => {
+      refreshCoa();
+  }, []);
 
   // --- MODAL STATES ---
   const [transactionModal, setTransactionModal] = useState<{ isOpen: boolean; isEditing: boolean; data: Transaction | null }>({
@@ -117,6 +142,9 @@ const FinanceModule: React.FC<FinanceProps> = ({
   const [businessModal, setBusinessModal] = useState<{ isOpen: boolean; data: Partial<BusinessUnit> }>({
     isOpen: false, data: {}
   });
+  // NEW: Manual COA Creation
+  const [createCoaModal, setCreateCoaModal] = useState(false);
+  const [importModal, setImportModal] = useState(false); // Import Modal State
 
   // --- DATA FETCHING (MAIN) ---
   const fetchData = async () => {
@@ -139,6 +167,10 @@ const FinanceModule: React.FC<FinanceProps> = ({
       if (resTrans.ok) {
         setLocalTransactions(await resTrans.json());
       }
+      
+      // 3. Refresh COA Balances (Fix for "Saldo COA Tetap")
+      await refreshCoa();
+
     } catch (e) {
       console.error(e);
       toast.error('Gagal memuat data keuangan');
@@ -438,7 +470,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
        {/* --- TABS --- */}
        <div className="flex flex-col md:flex-row gap-4 justify-between items-end border-b-2 border-slate-100">
         <div className="flex space-x-2 overflow-x-auto pb-1 custom-scrollbar w-full md:w-auto">
-          {['MUTASI', 'BUKU_BESAR', 'LAPORAN', 'KATEGORI', 'KBPOS'].map(tab => (
+          {['MUTASI', 'BUKU_BESAR', 'LAPORAN', 'DAFTAR_AKUN', 'KBPOS'].map(tab => (
               <button 
                 key={tab}
                 onClick={() => setActiveTab(tab as any)} 
@@ -452,6 +484,9 @@ const FinanceModule: React.FC<FinanceProps> = ({
           <div className="bg-slate-900 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center shadow-xl shadow-slate-100 italic">
             <Wallet size={14} className="mr-2 text-blue-400" /> TOTAL: <span className="ml-2">{formatCurrency(summary?.totalAssets || 0)}</span>
           </div>
+          <button onClick={() => setImportModal(true)} className="bg-emerald-100 text-emerald-600 px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center hover:bg-emerald-200 transition shadow-sm">
+             <FileSpreadsheet size={16} className="mr-2" /> IMPORT EXCEL
+          </button>
           <button onClick={() => handleOpenTransaction(false)} className="bg-blue-600 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center hover:bg-blue-700 transition shadow-2xl shadow-blue-100">
             <Plus size={16} className="mr-2" /> BUAT TRANSAKSI
           </button>
@@ -488,14 +523,102 @@ const FinanceModule: React.FC<FinanceProps> = ({
           />
       )}
 
-      {activeTab === 'KATEGORI' && (
-          <CategoryManager 
-             categories={categories}
-             onAddCategoryClick={handleOpenCategory}
-             onDeleteCategory={handleDeleteCategory}
-             importCategories={importCategories}
-             toast={toast}
-          />
+      {activeTab === 'DAFTAR_AKUN' && (
+          <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100">
+             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                <h3 className="text-xl font-black text-slate-800">DAFTAR AKUN (COA) / NERACA SALDO</h3>
+                <div className="flex gap-2">
+                    <button 
+                      onClick={() => setCreateCoaModal(true)}
+                      className="bg-slate-900 text-white px-5 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-slate-800 transition"
+                    >
+                        + TAMBAH AKUN MANUAL
+                    </button>
+                    {/* Refresh Button */}
+                    <button 
+                        onClick={refreshCoa}
+                        className="bg-white border border-slate-200 text-slate-600 px-4 py-3 rounded-2xl hover:bg-slate-50 transition"
+                        title="Refresh Data"
+                    >
+                        ↻
+                    </button>
+                </div>
+             </div>
+
+             {/* SEARCH & FILTER CONTROLS */}
+             <div className="flex flex-wrap gap-4 mb-6 bg-slate-50 p-4 rounded-[1.5rem] border border-slate-100">
+                <div className="flex-1 min-w-[200px] relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
+                    <input 
+                        type="text" 
+                        placeholder="Cari Kode atau Nama Akun..." 
+                        className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 text-sm font-bold outline-none focus:border-blue-500 transition"
+                        value={coaSearchTerm}
+                        onChange={(e) => setCoaSearchTerm(e.target.value)}
+                    />
+                </div>
+                <div className="w-full md:w-auto">
+                    <select 
+                        className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm font-bold outline-none focus:border-blue-500 bg-white"
+                        value={coaTypeFilter}
+                        onChange={(e) => setCoaTypeFilter(e.target.value)}
+                    >
+                        <option value="ALL">SEMUA TIPE</option>
+                        <option value="ASSET">ASSET (HARTA)</option>
+                        <option value="LIABILITY">LIABILITY (KEWAJIBAN)</option>
+                        <option value="EQUITY">EQUITY (MODAL)</option>
+                        <option value="REVENUE">REVENUE (PENDAPATAN)</option>
+                        <option value="EXPENSE">EXPENSE (BEBAN)</option>
+                    </select>
+                </div>
+             </div>
+
+             <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                   <thead>
+                      <tr className="border-b border-slate-100 text-xs font-black text-slate-400 uppercase tracking-widest">
+                         <th className="pb-4 pl-4">KODE</th>
+                         <th className="pb-4">NAMA AKUN</th>
+                         <th className="pb-4">TIPE</th>
+                         <th className="pb-4 text-right">SALDO SAAT INI</th>
+                      </tr>
+                   </thead>
+                   <tbody className="text-sm">
+                      {coaList
+                        .filter(coa => {
+                            const searchMatch = !coaSearchTerm || 
+                                coa.code.includes(coaSearchTerm) || 
+                                coa.name.toLowerCase().includes(coaSearchTerm.toLowerCase());
+                            const typeMatch = coaTypeFilter === 'ALL' || coa.type === coaTypeFilter;
+                            return searchMatch && typeMatch;
+                        })
+                        .map((coa) => (
+                         <tr key={coa.id} className="border-b border-slate-50 hover:bg-slate-50 transition group">
+                            <td className="py-4 pl-4 font-mono font-bold text-slate-600">{coa.code}</td>
+                            <td className="py-4 font-bold text-slate-800 min-w-[200px]">
+                                {coa.name}
+                                {/* If system generated bank */}
+                                {(coa as any).isSystem && <span className="ml-2 text-[8px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded font-black uppercase">SYSTEM</span>}
+                            </td>
+                            <td className="py-4">
+                               <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${
+                                 ['ASSET', 'EXPENSE'].includes(coa.type) ? 'bg-orange-50 text-orange-600' : 'bg-emerald-50 text-emerald-600'
+                               }`}>
+                                 {coa.type}
+                               </span>
+                            </td>
+                            <td className={`py-4 text-right font-black ${ (coa as any).balance < 0 ? 'text-rose-500' : 'text-slate-700' }`}>
+                                {(coa as any).balance !== undefined ? formatCurrency((coa as any).balance) : '-'}
+                            </td>
+                         </tr>
+                      ))}
+                      {coaList.length === 0 && (
+                         <tr><td colSpan={4} className="py-8 text-center text-slate-400 italic">Belum ada data COA. Coba refresh halaman.</td></tr>
+                      )}
+                   </tbody>
+                </table>
+             </div>
+          </div>
       )}
 
       {activeTab === 'KBPOS' && (
@@ -515,7 +638,8 @@ const FinanceModule: React.FC<FinanceProps> = ({
             isEditing={transactionModal.isEditing}
             initialData={transactionModal.data}
             financialAccounts={financialAccounts}
-            categories={categories}
+            categories={categories} // Keep for legacy
+            coaList={coaList} // NEW
             businessUnits={businessUnits}
             onSave={handleSaveTransaction}
             onAddAccount={onAddAccount}
@@ -556,6 +680,44 @@ const FinanceModule: React.FC<FinanceProps> = ({
              toast={toast}
           />
       )}
+
+      {createCoaModal && (
+          <CreateCoaModal 
+            isOpen={createCoaModal}
+            onClose={() => setCreateCoaModal(false)}
+            onSave={async (data) => {
+                const token = typeof window !== 'undefined' ? localStorage.getItem('sdm_erp_auth_token') : null;
+                const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+                
+                const res = await fetch('/api/finance/coa', {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(data)
+                });
+
+                if (res.ok) {
+                    toast.success("Akun berhasil dibuat!");
+                    // Refresh COA List
+                    const resList = await fetch('/api/finance/coa', { headers });
+                    if (resList.ok) setCoaList(await resList.json());
+                } else {
+                    const err = await res.json();
+                    toast.error(err.error || 'Gagal membuat akun');
+                }
+            }}
+            toast={toast}
+          />
+      )}
+      
+      {/* IMPORT MODAL */}
+      <ImportTransactionModal
+        isOpen={importModal}
+        onClose={() => setImportModal(false)}
+        onSuccess={() => { fetchData(); setImportModal(false); }}
+        toast={toast}
+      />
+
     </div>
   );
 };

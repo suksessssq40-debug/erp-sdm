@@ -143,6 +143,17 @@ export interface FinancialAccountDef {
   isActive: boolean;
 }
 
+// Chart of Account Definitions
+export interface ChartOfAccount {
+  id: string;
+  code: string;
+  name: string;
+  type: string; // ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE
+  normalPos: string; // DEBIT, CREDIT
+  description?: string;
+  isActive: boolean;
+}
+
 export interface Transaction {
   id: string;
   date: string;
@@ -153,6 +164,13 @@ export interface Transaction {
   account: FinancialAccount;
   businessUnitId?: string; // Optional: Link transaction to a specific business unit (KB Pos)
   imageUrl?: string; // New field for payment proof
+  
+  // New Accrual Fields
+  coaId?: string;
+  coa?: ChartOfAccount;
+  contactName?: string;
+  status?: string; // PAID, PENDING
+  dueDate?: string;
 }
 
 export interface UserSalaryConfig {

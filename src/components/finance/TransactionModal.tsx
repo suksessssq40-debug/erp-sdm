@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Transaction, TransactionType, FinancialAccountDef, TransactionCategory, BusinessUnit } from '../../types';
-import { Landmark, Plus, Search, ImageIcon, Trash2, CreditCard } from 'lucide-react';
+import { Transaction, TransactionType, FinancialAccountDef, TransactionCategory, BusinessUnit, ChartOfAccount } from '../../types';
+import { Landmark, Plus, Search, ImageIcon, Trash2, CreditCard, Calendar, User as UserIcon } from 'lucide-react';
 import { useToast } from '../Toast';
 
 interface TransactionModalProps {
@@ -10,7 +10,8 @@ interface TransactionModalProps {
   initialData: Transaction;
   
   financialAccounts: FinancialAccountDef[];
-  categories: TransactionCategory[];
+  categories: TransactionCategory[]; // Legacy support
+  coaList?: ChartOfAccount[]; // New
   businessUnits: BusinessUnit[];
 
   onSave: (data: Transaction) => Promise<void>;
@@ -23,62 +24,134 @@ interface TransactionModalProps {
   toast: ReturnType<typeof useToast>;
 }
 
+// Helper for currency formatting
+const formatCurrency = (amount: number) => {
+  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(amount);
+};
+
 export const TransactionModal: React.FC<TransactionModalProps> = ({
   isOpen, onClose, isEditing, initialData,
-  financialAccounts, categories, businessUnits,
+  financialAccounts, categories, coaList = [], businessUnits,
   onSave, onAddAccount, onAddCategory,
   uploadFile, toast
 }) => {
   const [formData, setFormData] = useState<Transaction>(initialData);
   const [accountSearch, setAccountSearch] = useState('');
   const [showAccountDropdown, setShowAccountDropdown] = useState(false);
-  const [categorySearch, setCategorySearch] = useState('');
-  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+  
+  // COA Search State (Single Mode)
+  const [coaSearch, setCoaSearch] = useState('');
+  const [showCoaDropdown, setShowCoaDropdown] = useState(false);
+  const [isGeneralMode, setIsGeneralMode] = useState(false); // New: General Journal Mode
+
+  // SPLIT MODE STATE
+  const [isSplit, setIsSplit] = useState(false);
+  const [splitItems, setSplitItems] = useState<{coaId: string, coaName: string, amount: number, description: string, type: TransactionType}[]>([
+      { coaId: '', coaName: '', amount: 0, description: '', type: TransactionType.OUT }
+  ]);
+  const [activeSplitIndex, setActiveSplitIndex] = useState<number | null>(null);
 
   // Initialize state when modal opens
   useEffect(() => {
     if (isOpen) {
-      setFormData(initialData);
+      setFormData({
+        ...initialData,
+        status: initialData.status || 'PAID',
+        date: initialData.date ? initialData.date : new Date().toISOString()
+      });
       setAccountSearch(initialData.account || '');
-      setCategorySearch(initialData.category || '');
+      setIsSplit(false);
+      setSplitItems([{ coaId: '', coaName: '', amount: 0, description: '', type: initialData.type }]);
+      
+      // COA Search Pre-fill Logic
+      const linkedCoa = coaList.find(c => c.id === initialData.coaId);
+      if (linkedCoa) {
+          setCoaSearch(`${linkedCoa.code} - ${linkedCoa.name}`);
+      } else {
+          setCoaSearch(initialData.category || '');
+      }
     }
-  }, [isOpen, initialData]);
+  }, [isOpen, initialData, coaList]);
 
-  // Group Categories Data used for Search
-  const groupedCategories = React.useMemo(() => {
-     const income = categories.filter(c => c.type === TransactionType.IN && !c.parentId);
-     const expense = categories.filter(c => c.type === TransactionType.OUT && !c.parentId);
-     const getChildren = (parentId: string) => categories.filter(c => c.parentId === parentId);
-
-     return {
-         IN: income.map(c => ({ ...c, children: getChildren(c.id) })),
-         OUT: expense.map(c => ({ ...c, children: getChildren(c.id) }))
-     };
-  }, [categories]);
+  // Helper: auto-detect type from COA
+  const getCoaType = (coa: ChartOfAccount) => {
+     // Default heuristic
+     if (coa.type === 'REVENUE' || coa.normalPos === 'CREDIT') return TransactionType.IN;
+     return TransactionType.OUT;
+  }
 
   const handleSubmit = async () => {
+    // COMMON VALIDATION
     if (formData.amount <= 0) {
-      toast.warning("Nominal harus lebih dari 0");
+      toast.warning("Nominal Total harus lebih dari 0");
       return;
     }
+    const finalAccountName = accountSearch || formData.account;
+    if (!finalAccountName) {
+        toast.warning("Pilih atau ketik nama akun keuangan (Bank/Kas)");
+        return;
+    }
+
+    // --- SPLIT MODE SAVE LOGIC ---
+    if (isSplit) {
+        // 1. Validate Totals
+        const totalSplit = splitItems.reduce((sum, item) => sum + item.amount, 0);
+        if (Math.abs(totalSplit - formData.amount) > 100) { // Tolerance 100 rupiah
+            toast.warning(`Total Pecahan (${totalSplit}) tidak klop dengan Total Nominal (${formData.amount})`);
+            return;
+        }
+        
+        // 2. Validate Items
+        for (const item of splitItems) {
+            if (!item.coaId) {
+                toast.warning("Semua baris pecahan wajib pilih Akun Lawan (COA)");
+                return;
+            }
+        }
+
+        toast.info(`Menyimpan ${splitItems.length} transaksi pecahan...`);
+
+        // 3. Save Multiple Transactions
+        const baseId = isEditing ? formData.id : Math.random().toString(36).substr(2, 9);
+        
+        for (let i = 0; i < splitItems.length; i++) {
+            const item = splitItems[i];
+            const payload: Transaction = {
+                ...formData,
+                id: i === 0 && isEditing ? baseId : `${baseId}_split_${i+1}`, // Keep original ID for first one if editing
+                account: finalAccountName,
+                
+                // Per-Item Overrides
+                amount: item.amount, // Part Amount
+                type: item.type,     // Allow mix IN/OUT? Usually split is same direction. But let's respect item type.
+                
+                // COA & Category
+                category: item.coaName, // Legacy
+                coaId: item.coaId,
+                description: `${formData.description} (${item.description || item.coaName})`, // Append detail
+                
+                // Ensure Date is same
+                date: formData.date ? new Date(formData.date).toISOString() : new Date().toISOString()
+            };
+            
+            await onSave(payload);
+        }
+        
+        onClose();
+        return;
+    }
+
+    // --- NORMAL MODE SAVE LOGIC ---
     if (!formData.description) {
       toast.warning("Deskripsi wajib diisi");
       return;
     }
-
-    // --- ACCOUNT LOGIC ---
-    const finalAccountName = accountSearch || formData.account;
-    if (!finalAccountName) {
-        toast.warning("Pilih atau ketik nama akun keuangan");
-        return;
-    }
     
-    // Auto-Create Account
-    const accountExists = financialAccounts.some(acc => acc.name.toLowerCase() === finalAccountName.toLowerCase());
-    if (!accountExists) {
-         if (!confirm(`Akun "${finalAccountName}" belum ada. Buat baru otomatis?`)) return;
-
-         try {
+    // Auto-Create Account Logic CHECK (Only for Cash Mode)
+    if (!isGeneralMode) {
+        const accountExists = financialAccounts.some(acc => acc.name.toLowerCase() === finalAccountName.toLowerCase());
+        if (!accountExists) {
+             if (!confirm(`Akun Keuangan "${finalAccountName}" belum ada. Buat baru otomatis?`)) return;
              if (onAddAccount) {
                  await onAddAccount({
                      id: Math.random().toString(36).substr(2, 9),
@@ -88,51 +161,25 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                      description: 'Auto-created from transaction entry',
                      isActive: true
                  });
-                 toast.success(`Akun "${finalAccountName}" berhasil dibuat.`);
-             } else {
-                 toast.error("Fungsi tambah akun tidak tersedia.");
-                 return;
              }
-         } catch(e) {
-             toast.error("Gagal membuat akun baru otomatis.");
-             return;
-         }
-    }
-
-    // --- CATEGORY LOGIC ---
-    let finalCategory = formData.category;
-    if (categorySearch && categorySearch !== formData.category) {
-        finalCategory = categorySearch; 
-    }
-    
-    // Auto-Create Category
-    if (finalCategory && !categories.some(c => c.name.toLowerCase() === finalCategory.toLowerCase())) {
-        if (!confirm(`Kategori "${finalCategory}" belum ada. Buat otomatis?`)) return;
-
-        try {
-            if (onAddCategory) {
-                await onAddCategory({
-                    id: Math.random().toString(36).substr(2, 9),
-                    name: finalCategory,
-                    type: formData.type, 
-                    parentId: null
-                });
-                toast.success(`Kategori "${finalCategory}" dibuat otomatis.`);
-            }
-        } catch (e) {
-            toast.error("Gagal membuat kategori baru otomatis.");
-            return;
         }
     }
 
-    // Final Payload
+    if (!formData.coaId && !coaSearch) {
+        toast.warning("Wajib pilih Akun (COA)");
+        return;
+    }
+
+    // Accrual Validation
+    if (formData.status === 'PENDING' && !formData.contactName) {
+        toast.warning("Wajib isi Nama Kontak untuk transaksi hutang/piutang");
+        return;
+    }
+
     const payload: Transaction = {
         ...formData,
         account: finalAccountName,
-        category: finalCategory,
-        // Ensure ID is passed if editing, else new ID is handled by Parent or API (Here parent expects ID in payload usually if we look at legacy code)
-        // Actually, the legacy code generated ID in HandleSubmit if not editing.
-        // We will respect that logic.
+        category: coaSearch, 
         id: isEditing ? formData.id : (formData.id || Math.random().toString(36).substr(2, 9)),
         date: formData.date ? new Date(formData.date).toISOString() : new Date().toISOString()
     };
@@ -143,269 +190,371 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast.warning("Ukuran file maksimal 5MB");
-        return;
-      }
-      if (uploadFile) {
+    if (file && uploadFile) {
         try {
-          toast.info("Mengupload bukti...");
           const url = await uploadFile(file);
           setFormData(prev => ({ ...prev, imageUrl: url }));
-          toast.success("Bukti berhasil diupload!");
-        } catch(err) {
-          toast.error("Gagal upload gambar.");
-        }
-      } else {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setFormData(prev => ({ ...prev, imageUrl: reader.result as string }));
-        };
-        reader.readAsDataURL(file);
-      }
+        } catch(err) {} 
     }
   };
+
+  const handleSplitCoaSelect = (coa: ChartOfAccount) => {
+      if (activeSplitIndex === null) return;
+      const newItems = [...splitItems];
+      newItems[activeSplitIndex] = {
+          ...newItems[activeSplitIndex],
+          coaId: coa.id,
+          coaName: `${coa.code} - ${coa.name}`,
+          type: getCoaType(coa)
+      };
+      setSplitItems(newItems);
+      setActiveSplitIndex(null); // Close dropdown
+      setShowCoaDropdown(false); // Close dropdown UI
+  }
+
+  // Calculate Remaining for Split
+  const splitTotal = splitItems.reduce((s, i) => s + (i.amount || 0), 0);
+  const splitRemaining = (formData.amount || 0) - splitTotal;
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4 animate-in fade-in duration-200">
-        <div className="bg-white rounded-[3.5rem] w-full max-w-2xl p-12 shadow-2xl border border-white/20 animate-in zoom-in duration-300 overflow-y-auto max-h-[90vh]">
+        <div className="bg-white rounded-[3.5rem] w-full max-w-3xl p-10 shadow-2xl border border-white/20 animate-in zoom-in duration-300 overflow-y-auto max-h-[90vh] custom-scrollbar">
             {/* Header */}
-            <div className="flex justify-between items-center mb-10">
-            <div>
-                <h3 className="text-3xl font-black text-slate-800 leading-tight italic uppercase tracking-tighter">{isEditing ? 'Edit Transaksi' : 'Input Transaksi'}</h3>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">{formData.type === TransactionType.IN ? 'DANA MASUK (IN)' : 'DANA KELUAR (OUT)'}</p>
-            </div>
-            <button onClick={onClose} className="p-4 bg-slate-100 rounded-2xl text-slate-400 hover:text-rose-500 transition">✕</button>
+            <div className="flex justify-between items-center mb-8">
+                <div>
+                    <h3 className="text-2xl font-black text-slate-800 leading-tight italic uppercase tracking-tighter">
+                        {isEditing ? 'Edit Transaksi' : 'Input Jurnal'}
+                        {isSplit && <span className="text-blue-600 ml-2 not-italic bg-blue-50 px-3 py-1 rounded-full text-xs">/ MODE SPLIT</span>}
+                    </h3>
+                    <div className="mt-4">
+                        {!isGeneralMode && (
+                        <>
+                        <div className="flex gap-2 mb-2">
+                             <button 
+                                onClick={() => setFormData({...formData, type: TransactionType.IN})}
+                                className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border-2 ${formData.type === TransactionType.IN ? 'bg-emerald-50 border-emerald-500 text-emerald-600 shadow-emerald-100 shadow-lg scale-105' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-300'}`}
+                            >
+                                DANA MASUK (IN)
+                            </button>
+                            <button 
+                                onClick={() => setFormData({...formData, type: TransactionType.OUT})}
+                                className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border-2 ${formData.type === TransactionType.OUT ? 'bg-rose-50 border-rose-500 text-rose-600 shadow-rose-100 shadow-lg scale-105' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-300'}`}
+                            >
+                                DANA KELUAR (OUT)
+                            </button>
+                        </div>
+                        <p className="text-[9px] font-bold text-slate-400 font-mono pl-1">
+                            {formData.type === TransactionType.IN 
+                                ? 'JURNAL: BANK (DEBIT)  <--  LAWAN (KREDIT)' 
+                                : 'JURNAL: BANK (KREDIT) -->  LAWAN (DEBIT)'}
+                        </p>
+                        </>
+                        )}
+                        {isGeneralMode && (
+                             <p className="text-[9px] font-bold text-blue-500 font-mono pl-1">
+                                JURNAL: AKUN KIRI (DEBIT)  &lt;--  AKUN KANAN (KREDIT)
+                            </p>
+                        )}
+                    </div>
+                </div>
+                <button onClick={onClose} className="p-4 bg-slate-100 rounded-2xl text-slate-400 hover:text-rose-500 transition">✕</button>
             </div>
             
-            <div className="space-y-8">
-            {/* Type Toggle */}
-            <div className="flex bg-slate-50 p-2 rounded-[1.5rem] border border-slate-100">
-                <button 
-                onClick={() => setFormData({...formData, type: TransactionType.IN, category: ''})}
-                className={`flex-1 py-4 text-xs font-black uppercase tracking-widest rounded-2xl transition-all ${formData.type === TransactionType.IN ? 'bg-slate-900 shadow-xl text-emerald-400' : 'text-slate-400'}`}
-                >DANA MASUK (IN)</button>
-                <button 
-                onClick={() => setFormData({...formData, type: TransactionType.OUT, category: ''})}
-                className={`flex-1 py-4 text-xs font-black uppercase tracking-widest rounded-2xl transition-all ${formData.type === TransactionType.OUT ? 'bg-slate-900 shadow-xl text-rose-500' : 'text-slate-400'}`}
-                >DANA KELUAR (OUT)</button>
-            </div>
+            <div className="space-y-6">
+            
+            {/* 1. STATUS & REKENING / JOURNAL MODE */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* MODE TOGGLE & STATUS */}
+                <div className="space-y-4">
+                     <div className="flex justify-between items-center">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">MODE INPUT</label>
+                        <div className="flex bg-slate-100 rounded-lg p-1">
+                            <button 
+                                onClick={() => { setFormData({...formData, account: ''}); setIsGeneralMode(false); }}
+                                className={`px-3 py-1 text-[9px] font-bold rounded-md transition ${!isGeneralMode ? 'bg-white shadow text-slate-800' : 'text-slate-400'}`}
+                            >KAS/BANK</button>
+                            <button 
+                                onClick={() => { setFormData({...formData, account: ''}); setIsGeneralMode(true); }}
+                                className={`px-3 py-1 text-[9px] font-bold rounded-md transition ${isGeneralMode ? 'bg-white shadow text-slate-800' : 'text-slate-400'}`}
+                            >JURNAL UMUM</button>
+                        </div>
+                     </div>
 
-            {/* Date Input */}
-            <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">TANGGAL TRANSAKSI</label>
-                <input 
-                type="date"
-                className="w-full p-5 bg-slate-50 border-2 border-transparent rounded-[1.5rem] text-xs font-bold outline-none focus:border-blue-600 focus:bg-white transition shadow-sm text-slate-800"
-                placeholder="YYYY-MM-DD"
-                value={formData.date ? formData.date.split('T')[0] : ''} // Ensure format
-                onChange={e => setFormData({...formData, date: e.target.value})}
-                />
-            </div>
-
-            {/* Amount Input */}
-            <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">NOMINAL TRANSAKSI (IDR)</label>
-                <div className="relative">
-                <span className="absolute left-6 top-1/2 -translate-y-1/2 text-2xl font-black text-slate-300">Rp</span>
-                <input 
-                    type="number" 
-                    className="w-full text-5xl font-black pl-20 pr-8 py-6 bg-slate-50 border-4 border-transparent focus:border-blue-600 focus:bg-white rounded-[2rem] outline-none transition placeholder:text-slate-200"
-                    placeholder="0"
-                    value={formData.amount || ''}
-                    onChange={e => setFormData({...formData, amount: parseFloat(e.target.value)})}
-                />
+                     {!isGeneralMode ? (
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">STATUS PEMBAYARAN</label>
+                            <div className="flex bg-slate-50 p-1.5 rounded-[1.2rem] border border-slate-100">
+                                <button 
+                                onClick={() => setFormData({...formData, status: 'PAID'})}
+                                className={`flex-1 py-3 text-[9px] font-black uppercase tracking-widest rounded-2xl transition-all ${formData.status !== 'PENDING' ? 'bg-emerald-500 shadow-md text-white' : 'text-slate-400 hover:text-slate-600'}`}
+                                >LUNAS (CASH)</button>
+                                <button 
+                                onClick={() => setFormData({...formData, status: 'PENDING'})}
+                                className={`flex-1 py-3 text-[9px] font-black uppercase tracking-widest rounded-2xl transition-all ${formData.status === 'PENDING' ? 'bg-orange-500 shadow-md text-white' : 'text-slate-400 hover:text-slate-600'}`}
+                                >BELUM LUNAS</button>
+                            </div>
+                        </div>
+                     ) : (
+                        <div className="p-3 bg-blue-50 text-blue-700 rounded-xl text-[10px] font-bold border border-blue-100 leading-relaxed">
+                            <span className="font-black block mb-1">INFO JURNAL UMUM:</span>
+                            Transaksi ini tidak melibatkan Kas/Bank. Digunakan untuk penyusutan, pengakuan piutang/hutang awal, atau koreksi pembukuan.
+                        </div>
+                     )}
                 </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-6">
-                {/* Account Search */}
-                <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">PILIH REKENING AKUN</label>
+                {/* ACCOUNT SELECTOR (DEBIT SIDE) */}
+                <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        {isGeneralMode ? 'AKUN POSISI DEBIT' : 'REKENING KAS / BANK'}
+                    </label>
                     <div className="relative">
-                    <div className="relative">
-                        <Landmark size={16} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" />
                         <input 
-                        className="w-full pl-12 pr-5 py-5 bg-slate-50 border-2 border-transparent rounded-[1.5rem] text-xs font-black uppercase tracking-widest outline-none focus:border-blue-600 focus:bg-white transition shadow-sm"
-                        placeholder="Cari / Ketik Akun Baru..."
+                        className="w-full pl-4 pr-4 py-3.5 bg-slate-50 border-2 border-transparent rounded-[1.2rem] text-xs font-bold uppercase outline-none focus:border-blue-600 transition shadow-sm"
+                        placeholder={isGeneralMode ? "Cari Akun Debit (COA)..." : "Pilih Akun Bank..."}
                         value={accountSearch}
-                        onChange={(e) => {
-                            setAccountSearch(e.target.value);
-                            setFormData({...formData, account: e.target.value});
-                            setShowAccountDropdown(true);
+                        onChange={(e) => { 
+                            setAccountSearch(e.target.value); 
+                            setFormData({...formData, account: e.target.value}); 
+                            setShowAccountDropdown(true); 
                         }}
                         onFocus={() => setShowAccountDropdown(true)}
                         />
-                    </div>
-                    {showAccountDropdown && (accountSearch.length > 0 || true) && (
-                        <div className="absolute z-10 mt-2 w-full bg-white rounded-[1.5rem] shadow-2xl border border-slate-100 max-h-60 overflow-y-auto custom-scrollbar p-2">
-                            {(() => {
-                                const filteredAccs = financialAccounts.filter(a => a.name.toLowerCase().includes(accountSearch.toLowerCase()));
-                                const exactMatch = filteredAccs.some(a => a.name.toLowerCase() === accountSearch.toLowerCase());
-                                
-                                return (
-                                    <>
-                                        {filteredAccs.map(acc => (
-                                            <button 
-                                                key={acc.id}
-                                                onClick={() => {
-                                                    setAccountSearch(acc.name);
-                                                    setFormData({...formData, account: acc.name});
-                                                    setShowAccountDropdown(false);
-                                                }}
-                                                className="w-full text-left px-5 py-3 rounded-xl hover:bg-slate-50 transition text-[10px] font-black uppercase tracking-widest text-slate-600 flex justify-between"
-                                            >
-                                                <span>{acc.name}</span>
-                                                <span className="text-[8px] bg-slate-100 px-2 py-0.5 rounded text-slate-400">{acc.bankName}</span>
-                                            </button>
-                                        ))}
-                                        {accountSearch && !exactMatch && (
-                                            <button 
-                                                onClick={() => {
-                                                    setShowAccountDropdown(false);
-                                                }}
-                                                className="w-full text-left px-5 py-3 rounded-xl hover:bg-emerald-50 bg-blue-50/50 mt-1 transition text-[10px] font-black uppercase tracking-widest text-blue-600 border border-blue-100 flex items-center gap-2"
-                                            >
-                                                <Plus size={14} /> <span>BUAT AKUN BARU: "{accountSearch}"</span>
-                                            </button>
-                                        )}
-                                    </>
-                                );
-                            })()}
-                        </div>
-                    )}
-                    {showAccountDropdown && <div className="fixed inset-0 z-0" onClick={() => setShowAccountDropdown(false)} style={{ display: 'none' }}></div>}
+                         {showAccountDropdown && (
+                             <div className="absolute z-10 mt-2 w-full bg-white rounded-2xl shadow-xl border border-slate-100 max-h-40 overflow-y-auto p-2">
+                                {!isGeneralMode ? (
+                                    // LIST BANK
+                                    financialAccounts.filter(a => a.name.toLowerCase().includes(accountSearch.toLowerCase())).map(acc => (
+                                        <button key={acc.id} onClick={() => { setAccountSearch(acc.name); setFormData(p => ({...p, account: acc.name})); setShowAccountDropdown(false); }} className="w-full text-left p-3 hover:bg-slate-50 rounded-xl text-[10px] font-bold text-slate-600 block">{acc.name}</button>
+                                    ))
+                                ) : (
+                                    // LIST COA (For Debit Side)
+                                    coaList.filter(c => c.code.includes(accountSearch) || c.name.toLowerCase().includes(accountSearch.toLowerCase())).slice(0, 50).map(coa => (
+                                        <button key={coa.id} 
+                                        onClick={() => {
+                                            setAccountSearch(`${coa.code} - ${coa.name}`);
+                                            // IN Jurnal Umum: Account Field stores Debit Name. type=IN implies Account is Debit.
+                                            setFormData(p => ({ ...p, account: `${coa.code} - ${coa.name}`, type: TransactionType.IN }));
+                                            setShowAccountDropdown(false);
+                                        }} 
+                                        className="w-full text-left p-3 hover:bg-slate-50 rounded-xl text-[10px] font-bold text-slate-600 flex justify-between group"
+                                        >
+                                            <span><span className="font-mono text-slate-400 mr-2">{coa.code}</span> {coa.name}</span>
+                                            {/* Hint for correctness */}
+                                            <span className="opacity-0 group-hover:opacity-100 text-[8px] bg-slate-200 px-1 rounded">Pilih sbg Debit</span>
+                                        </button>
+                                    ))
+                                )}
+                             </div>
+                        )}
+                        {showAccountDropdown && <div className="fixed inset-0 z-0" onClick={() => setShowAccountDropdown(false)}></div>}
                     </div>
                 </div>
+            </div>
 
-                {/* Business Unit Select */}
+            {/* 2. TOTAL NOMINAL */}
+            <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex justify-between">
+                    <span>TOTAL NOMINAL (IDR)</span>
+                    <button onClick={() => setIsSplit(!isSplit)} className="text-blue-500 hover:underline cursor-pointer">{isSplit ? 'Batal Split' : 'Pecah Akun (Split)?'}</button>
+                </label>
+                <div className="relative">
+                    <span className="absolute left-5 top-1/2 -translate-y-1/2 text-sm font-black text-slate-300">Rp</span>
+                    <input 
+                        type="number" 
+                        className="w-full text-2xl font-black pl-12 pr-5 py-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[1.8rem] outline-none transition"
+                        placeholder="0"
+                        value={formData.amount || ''}
+                        onChange={e => setFormData({...formData, amount: parseFloat(e.target.value)})}
+                    />
+                </div>
+                {isSplit && (
+                    <div className="flex justify-between px-2">
+                        <span className="text-[10px] font-bold text-slate-400">Terbagi: <span className="text-slate-700">{formatCurrency(splitTotal)}</span></span>
+                        <span className={`text-[10px] font-bold ${splitRemaining === 0 ? 'text-emerald-500' : 'text-rose-500'}`}>Sisa: {formatCurrency(splitRemaining)}</span>
+                    </div>
+                )}
+            </div>
+
+            {/* 3. COA SELECTION (NORMAL vs SPLIT) */}
+            {!isSplit ? (
+                // NORMAL MODE
                 <div className="space-y-3">
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex justify-between">
+                        <span>{isGeneralMode ? 'AKUN POSISI KREDIT' : 'AKUN LAWAN (COA)'}</span>
+                        {!isGeneralMode && <span className="text-blue-500 cursor-pointer text-[9px]" onClick={() => toast.info('Fitur Request Akun segera aktif')}>+ REQUEST AKUN</span>}
+                     </label>
+                     <div className="relative">
+                        <Search size={16} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" />
+                        <input 
+                            className="w-full pl-12 pr-5 py-4 bg-indigo-50 border-2 border-indigo-100 rounded-[1.5rem] text-sm font-bold outline-none focus:border-indigo-600 focus:bg-white transition shadow-sm text-indigo-900 placeholder:text-indigo-300"
+                            placeholder="Cari Kode atau Nama Akun..."
+                            value={coaSearch}
+                            onChange={(e) => { setCoaSearch(e.target.value); setShowCoaDropdown(true); setFormData(p => ({ ...p, coaId: undefined })); }}
+                            onFocus={() => setShowCoaDropdown(true)}
+                        />
+                         {showCoaDropdown && (
+                            <div className="absolute z-20 mt-2 w-full bg-white rounded-[1.5rem] shadow-2xl border border-slate-100 max-h-60 overflow-y-auto custom-scrollbar p-2">
+                                {coaList.filter(c => c.code.includes(coaSearch) || c.name.toLowerCase().includes(coaSearch.toLowerCase())).slice(0, 50).map(coa => (
+                                    <button key={coa.id} 
+                                    onClick={() => {
+                                        setCoaSearch(`${coa.code} - ${coa.name}`);
+                                        setFormData(p => ({ ...p, coaId: coa.id, type: getCoaType(coa) }));
+                                        setShowCoaDropdown(false);
+                                    }}
+                                    className="w-full text-left px-5 py-3 rounded-xl hover:bg-indigo-50 transition text-xs font-bold text-slate-700 flex justify-between items-center"
+                                    >
+                                        <span><span className="font-mono text-slate-400 mr-2">{coa.code}</span> {coa.name}</span>
+                                        <span className={`text-[8px] px-2 py-1 rounded uppercase tracking-widest ${['ASSET','EXPENSE'].includes(coa.type)?'bg-orange-100 text-orange-600':'bg-emerald-100 text-emerald-600'}`}>{coa.type}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                        {showCoaDropdown && <div className="fixed inset-0 z-10" onClick={() => setShowCoaDropdown(false)}></div>}
+                     </div>
+                </div>
+            ) : (
+                // SPLIT MODE UI
+                <div className="bg-slate-50 rounded-[2rem] p-6 space-y-4 border border-slate-200">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">RINCIAN PECAHAN (SPLIT)</label>
+                    {splitItems.map((item, idx) => (
+                        <div key={idx} className="flex gap-3 items-start animate-in slide-in-from-left-2">
+                             <div className="flex-1 space-y-1">
+                                <div className="relative">
+                                    <input 
+                                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-blue-500"
+                                        placeholder="Pilih atau Ketik Akun..."
+                                        value={item.coaName}
+                                        onFocus={() => { setActiveSplitIndex(idx); setShowCoaDropdown(true); }}
+                                        onChange={(e) => {
+                                            const newItems = [...splitItems];
+                                            newItems[idx].coaName = e.target.value;
+                                            newItems[idx].coaId = ''; // Reset ID if typing
+                                            setSplitItems(newItems);
+                                            setActiveSplitIndex(idx); // Ensure active
+                                            setShowCoaDropdown(true);
+                                        }}
+                                    />
+                                    {/* Inline Dropdown for Split Item */}
+                                    {showCoaDropdown && activeSplitIndex === idx && (
+                                        <>
+                                        <div className="fixed inset-0 z-10 cursor-default" onClick={(e) => { e.stopPropagation(); setShowCoaDropdown(false); setActiveSplitIndex(null); }}></div>
+                                        <div className="absolute z-20 top-full mt-1 w-full bg-white rounded-xl shadow-xl border border-slate-200 max-h-48 overflow-y-auto p-1 custom-scrollbar">
+                                            {/* FILTERED LIST */}
+                                            {coaList
+                                                .filter(c => 
+                                                    !item.coaName || 
+                                                    c.code.includes(item.coaName) || 
+                                                    c.name.toLowerCase().includes(item.coaName.toLowerCase()) ||
+                                                    `${c.code} - ${c.name}`.toLowerCase().includes(item.coaName.toLowerCase())
+                                                )
+                                                .slice(0, 50)
+                                                .map(c => (
+                                                <button key={c.id} onClick={() => handleSplitCoaSelect(c)} className="w-full text-left p-2 hover:bg-slate-100 text-xs rounded-lg flex justify-between group">
+                                                    <span><span className="font-mono text-slate-400 pr-2">{c.code}</span>{c.name}</span>
+                                                    {['ASSET','EXPENSE'].includes(c.type) ? <span className="text-[9px] text-orange-400 font-bold bg-orange-50 px-1 rounded">DEBIT</span> : <span className="text-[9px] text-emerald-400 font-bold bg-emerald-50 px-1 rounded">KREDIT</span>}
+                                                </button>
+                                            ))}
+                                            {coaList.filter(c => !item.coaName || c.code.includes(item.coaName) || c.name.toLowerCase().includes(item.coaName.toLowerCase())).length === 0 && (
+                                                <div className="p-3 text-center text-slate-400 text-[10px] italic">Tidak ada akun cocok</div>
+                                            )}
+                                        </div>
+                                        </>
+                                    )}
+                                </div>
+                                <input 
+                                    className="w-full px-4 py-2 bg-transparent border-b border-dashed border-slate-300 text-[10px] font-medium outline-none placeholder:text-slate-400"
+                                    placeholder="Keterangan tambahan item ini..."
+                                    value={item.description}
+                                    onChange={(e) => {
+                                        const newItems = [...splitItems];
+                                        newItems[idx].description = e.target.value;
+                                        setSplitItems(newItems);
+                                    }}
+                                />
+                             </div>
+                             <div className="w-32">
+                                <input 
+                                    type="number"
+                                    className="w-full px-3 py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none text-right"
+                                    placeholder="0"
+                                    value={item.amount || ''}
+                                    onChange={(e) => {
+                                        const newItems = [...splitItems];
+                                        newItems[idx].amount = parseFloat(e.target.value);
+                                        setSplitItems(newItems);
+                                    }}
+                                />
+                             </div>
+                             <button onClick={() => {
+                                 const newItems = splitItems.filter((_, i) => i !== idx);
+                                 setSplitItems(newItems);
+                             }} className="p-3 text-slate-300 hover:text-rose-500"><Trash2 size={16}/></button>
+                        </div>
+                    ))}
+                    <button 
+                        onClick={() => setSplitItems([...splitItems, { coaId: '', coaName: '', amount: 0, description: '', type: TransactionType.OUT }])}
+                        className="w-full py-3 border-2 border-dashed border-slate-200 rounded-xl text-xs font-bold text-slate-400 hover:border-blue-400 hover:text-blue-500 transition"
+                    >
+                        + TAMBAH BARIS
+                    </button>
+                </div>
+            )}
+
+            {/* 4. DETAILS (Date, Desc, Contact) */}
+            <div className="grid grid-cols-2 gap-6">
+                <div className="space-y-3">
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">TANGGAL</label>
+                     <input type="date" className="w-full p-4 bg-slate-50 rounded-[1.5rem] text-xs font-bold outline-none"
+                        value={formData.date ? formData.date.split('T')[0] : ''}
+                        onChange={e => setFormData({...formData, date: e.target.value})}
+                     />
+                </div>
+                <div className="space-y-3">
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">KONTAK</label>
+                     <input className="w-full p-4 bg-slate-50 rounded-[1.5rem] text-xs font-bold outline-none"
+                        placeholder="Nama Orang/PT"
+                        value={formData.contactName || ''}
+                        onChange={e => setFormData({...formData, contactName: e.target.value})}
+                     />
+                </div>
+            </div>
+
+            {!isSplit && (
+                <div className="space-y-3">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">DESKRIPSI UMUM</label>
+                    <textarea 
+                    className="w-full p-5 bg-slate-50 rounded-[1.5rem] text-xs font-bold outline-none resize-none h-20"
+                    placeholder="Keterangan transaksi..."
+                    value={formData.description || ''}
+                    onChange={e => setFormData({...formData, description: e.target.value})}
+                    />
+                </div>
+            )}
+
+            {/* New: Business Unit (Shared) */}
+             <div className="space-y-3">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ALOKASI UNIT (KB POS)</label>
                     <select 
-                    className="w-full p-5 bg-indigo-50 border-2 border-transparent rounded-[1.5rem] text-xs font-black uppercase tracking-widest outline-none focus:border-indigo-500 focus:bg-white transition shadow-sm text-indigo-900"
+                    className="w-full p-4 bg-slate-50 border-none rounded-[1.5rem] text-xs font-bold uppercase outline-none"
                     value={formData.businessUnitId || ''}
                     onChange={e => setFormData({...formData, businessUnitId: e.target.value})}
                     >
                     <option value="">-- ILUSTRASI UMUM / SHARED --</option>
                     {businessUnits.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                     </select>
-                </div>
-
-                {/* Category Search */}
-                <div className="space-y-3 col-span-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">KATEGORI AKUNTANSI (SEARCH)</label>
-                <div className="relative">
-                    <div className="relative">
-                        <Search size={16} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" />
-                        <input 
-                            className="w-full pl-12 pr-5 py-5 bg-slate-50 border-2 border-transparent rounded-[1.5rem] text-xs font-black uppercase tracking-widest outline-none focus:border-blue-600 focus:bg-white transition shadow-sm"
-                            placeholder="Ketik untuk mencari kategori..."
-                            value={categorySearch}
-                            onChange={(e) => {
-                            setCategorySearch(e.target.value);
-                            setFormData({...formData, category: e.target.value}); 
-                            setShowCategoryDropdown(true);
-                            }}
-                            onFocus={() => setShowCategoryDropdown(true)}
-                        />
-                    </div>
-                    {showCategoryDropdown && (categorySearch.length > 0 || true) && (
-                        <div className="absolute z-10 mt-2 w-full bg-white rounded-[1.5rem] shadow-2xl border border-slate-100 max-h-60 overflow-y-auto custom-scrollbar p-2">
-                            {(() => {
-                                const availableCats = formData.type === TransactionType.IN ? groupedCategories.IN : groupedCategories.OUT;
-                                let allOptions: TransactionCategory[] = [];
-                                
-                                availableCats.forEach(c => {
-                                    if (c.name.toLowerCase().includes(categorySearch.toLowerCase())) allOptions.push(c);
-                                    if (c.children) {
-                                        c.children.forEach(child => {
-                                            if (child.name.toLowerCase().includes(categorySearch.toLowerCase())) allOptions.push(child);
-                                        });
-                                    }
-                                });
-                                // Deduplicate
-                                const uniqueOptions = Array.from(new Map(allOptions.map(item => [item.id, item])).values());
-                                const exactMatch = uniqueOptions.some(c => c.name.toLowerCase() === categorySearch.toLowerCase());
-
-                                return (
-                                    <>
-                                        {uniqueOptions.map(cat => (
-                                            <button 
-                                            key={cat.id}
-                                            onClick={() => {
-                                                setCategorySearch(cat.name);
-                                                setFormData({...formData, category: cat.name});
-                                                setShowCategoryDropdown(false);
-                                            }}
-                                            className="w-full text-left px-5 py-3 rounded-xl hover:bg-slate-50 transition text-[10px] font-black uppercase tracking-widest text-slate-600 flex justify-between group"
-                                            >
-                                                <span>{cat.name}</span>
-                                                {cat.parentId && <span className="text-[8px] bg-slate-100 px-2 py-0.5 rounded text-slate-400">Sub</span>}
-                                            </button>
-                                        ))}
-                                        
-                                        {categorySearch && !exactMatch && (
-                                            <button 
-                                            onClick={() => {
-                                                setFormData({...formData, category: categorySearch});
-                                                setShowCategoryDropdown(false);
-                                            }}
-                                            className="w-full text-left px-5 py-3 rounded-xl hover:bg-emerald-50 bg-blue-50/50 mt-1 transition text-[10px] font-black uppercase tracking-widest text-blue-600 border border-blue-100 flex items-center gap-2"
-                                            >
-                                                <Plus size={14} /> <span>PAKAI & BUAT BARU: "{categorySearch}"</span>
-                                            </button>
-                                        )}
-                                        {uniqueOptions.length === 0 && !categorySearch && (
-                                            <div className="p-4 text-center text-[10px] text-slate-400 italic">Mulai ketik untuk mencari kategori...</div>
-                                        )}
-                                    </>
-                                );
-                            })()}
-                        </div>
-                    )}
-                    {showCategoryDropdown && <div className="fixed inset-0 z-0" onClick={() => setShowCategoryDropdown(false)} style={{ display: 'none' }}></div>}
-                </div>
-                </div>
-            </div>
-
-            {/* Description Input */}
-            <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">DESKRIPSI / CATATAN TRANSAKSI</label>
-                <input 
-                className="w-full p-5 bg-slate-50 border-2 border-transparent rounded-[1.5rem] text-xs font-bold outline-none focus:border-blue-600 focus:bg-white transition shadow-sm"
-                placeholder="Contoh: Pembayaran Pelunasan Project X..."
-                value={formData.description}
-                onChange={e => setFormData({...formData, description: e.target.value})}
-                />
-            </div>
-
-            {/* Evidence Upload */}
-            <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">LAMPIRAN BUKTI (OPSIONAL)</label>
-                {!formData.imageUrl ? (
-                <label className="w-full h-40 bg-slate-50 border-4 border-dashed border-slate-100 rounded-[2rem] flex flex-col items-center justify-center cursor-pointer hover:border-blue-300 hover:bg-blue-50 transition group">
-                    <ImageIcon size={40} className="text-slate-200 group-hover:text-blue-500 mb-3 transition" />
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">UPLOAD BUKTI TF / KWITANSI</span>
-                    <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
-                </label>
-                ) : (
-                <div className="relative rounded-[2rem] overflow-hidden group h-40 border-4 border-slate-50 shadow-inner">
-                    <img src={formData.imageUrl} alt="Bukti" className="w-full h-full object-cover" />
-                    <button onClick={() => setFormData({...formData, imageUrl: ''})} className="absolute top-4 right-4 p-3 bg-rose-500 text-white rounded-xl shadow-xl opacity-0 group-hover:opacity-100 transition"><Trash2 size={18} /></button>
-                </div>
-                )}
             </div>
 
             {/* Actions */}
-            <div className="flex gap-6 pt-10 border-t border-slate-50">
-                <button onClick={onClose} className="flex-1 py-5 text-slate-400 font-black uppercase tracking-widest hover:bg-slate-50 rounded-[1.5rem] transition text-[10px]">BATAL</button>
-                <button onClick={handleSubmit} className="flex-1 py-5 bg-slate-900 text-white rounded-[2rem] font-black uppercase tracking-[0.2em] hover:bg-blue-600 transition text-[10px] shadow-2xl shadow-slate-200">
-                {isEditing ? 'UPDATE TRANSAKSI' : 'SIMPAN TRANSAKSI'}
+            <div className="flex gap-6 pt-6 border-t border-slate-50">
+                <button onClick={onClose} className="flex-1 py-4 text-slate-400 font-bold uppercase tracking-widest hover:bg-slate-50 rounded-[1.5rem] transition text-xs">BATAL</button>
+                <button onClick={handleSubmit} className="flex-1 py-4 bg-slate-900 text-white rounded-[2rem] font-bold uppercase tracking-widest hover:bg-blue-600 transition text-xs shadow-xl">
+                {isEditing ? 'UPDATE' : 'SIMPAN'}
                 </button>
             </div>
+            
             </div>
         </div>
     </div>
