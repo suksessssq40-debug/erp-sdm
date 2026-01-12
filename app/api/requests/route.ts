@@ -17,7 +17,7 @@ export async function POST(request: Request) {
         endDate: r.endDate ? new Date(r.endDate) : new Date(r.startDate),
         attachmentUrl: r.attachmentUrl || null,
         status: r.status,
-        createdAt: r.createdAt ? new Date(r.createdAt) : new Date()
+        createdAt: r.createdAt ? BigInt(new Date(r.createdAt).getTime()) : BigInt(Date.now())
       }
     });
 
