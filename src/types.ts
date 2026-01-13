@@ -161,7 +161,8 @@ export interface Transaction {
   type: TransactionType;
   category: string;
   description: string;
-  account: FinancialAccount;
+  account: string; // Legacy Name (e.g., 'BCA', 'Cash')
+  accountId?: string; // Relation ID
   businessUnitId?: string; // Optional: Link transaction to a specific business unit (KB Pos)
   imageUrl?: string; // New field for payment proof
   
