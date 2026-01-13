@@ -1049,6 +1049,78 @@ export const useStore = () => {
     addFinancialAccount,
     updateFinancialAccount,
     deleteFinancialAccount,
+    fetchProjects: async () => {
+        try {
+            const res = await fetch(`${API_BASE}/api/projects`, { headers: authHeaders });
+            if (res.ok) {
+                const data = await res.json();
+                setState(prev => ({ ...prev, projects: data }));
+            }
+        } catch(e) { console.error("Fetch Projects Failed", e); }
+    },
+    fetchTransactions: async () => {
+         try {
+            const res = await fetch(`${API_BASE}/api/transactions`, { headers: authHeaders });
+            if (res.ok) {
+                const data = await res.json();
+                setState(prev => ({ ...prev, transactions: data }));
+            }
+        } catch(e) { console.error("Fetch Transactions Failed", e); }
+    },
+    fetchAttendance: async () => {
+         try {
+            const res = await fetch(`${API_BASE}/api/attendance`, { headers: authHeaders });
+            if (res.ok) {
+                const data = await res.json();
+                setState(prev => ({ ...prev, attendance: data }));
+            }
+        } catch(e) { console.error("Fetch Attendance Failed", e); }
+    },
+    fetchRequests: async () => {
+         try {
+            const res = await fetch(`${API_BASE}/api/requests`, { headers: authHeaders });
+            if (res.ok) {
+                const data = await res.json();
+                setState(prev => ({ ...prev, requests: data }));
+            }
+        } catch(e) { console.error("Fetch Requests Failed", e); }
+    },
+    fetchDailyReports: async () => {
+         try {
+            const res = await fetch(`${API_BASE}/api/daily-reports`, { headers: authHeaders });
+            if (res.ok) {
+                const data = await res.json();
+                setState(prev => ({ ...prev, dailyReports: data }));
+            }
+        } catch(e) { console.error("Fetch DailyReports Failed", e); }
+    },
+    fetchLogs: async () => {
+         try {
+            const res = await fetch(`${API_BASE}/api/system-logs`, { headers: authHeaders });
+            if (res.ok) {
+                const data = await res.json();
+                setState(prev => ({ ...prev, logs: data }));
+            }
+        } catch(e) { console.error("Fetch Logs Failed", e); }
+    },
+    fetchPayrollRecords: async () => {
+         try {
+            const res = await fetch(`${API_BASE}/api/payroll-records`, { headers: authHeaders });
+            if (res.ok) {
+                const data = await res.json();
+                setState(prev => ({ ...prev, payrollRecords: data }));
+            }
+        } catch(e) { console.error("Fetch Payroll Failed", e); }
+    },
+    fetchSalaryConfigs: async () => {
+         try {
+            const res = await fetch(`${API_BASE}/api/salary-configs`, { headers: authHeaders });
+            if (res.ok) {
+                const data = await res.json();
+                setState(prev => ({ ...prev, salaryConfigs: data }));
+            }
+        } catch(e) { console.error("Fetch SalaryConfigs Failed", e); }
+    },
     addCategory,
     updateCategory,
     deleteCategory,

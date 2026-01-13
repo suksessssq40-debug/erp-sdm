@@ -1,5 +1,5 @@
 'use client';
-import React from 'react';
+import React, { useEffect } from 'react';
 import FinanceModule from '@/components/Finance';
 import { useAppStore } from '@/context/StoreContext';
 import { useToast } from '@/components/Toast';
@@ -7,6 +7,11 @@ import { useToast } from '@/components/Toast';
 export default function FinancePage() {
   const store = useAppStore();
   const toast = useToast();
+
+  useEffect(() => {
+    store.fetchTransactions();
+  }, []);
+
   return (
     <FinanceModule 
       transactions={store.transactions} 

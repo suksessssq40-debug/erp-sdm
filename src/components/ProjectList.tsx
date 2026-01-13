@@ -8,9 +8,14 @@ import { useToast } from './Toast';
 import { sendTelegramNotification, escapeHTML } from '../utils';
 
 export const ProjectList = () => {
-  const { projects, users, currentUser, settings, addProject, updateProject } = useAppStore();
+  const { projects, users, currentUser, settings, addProject, updateProject, fetchProjects } = useAppStore();
   const router = useRouter();
   const toast = useToast();
+  
+  // Lazy Load on Mount
+  React.useEffect(() => {
+     if (fetchProjects) fetchProjects();
+  }, []);
   
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [filterPriority, setFilterPriority] = useState<string>('ALL');

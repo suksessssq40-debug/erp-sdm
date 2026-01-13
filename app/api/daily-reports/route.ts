@@ -2,6 +2,33 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
 
+export async function GET(request: Request) {
+  try {
+    const user = await authorize();
+    
+    const isAdmin = ['OWNER', 'MANAGER', 'FINANCE'].includes(user.role);
+    const where = isAdmin ? {} : { userId: user.id };
+
+    const reports = await prisma.dailyReport.findMany({
+       where,
+       orderBy: { date: 'desc' },
+       take: 100 
+    });
+
+    const formatted = reports.map(r => ({
+        id: r.id,
+        userId: r.userId,
+        date: r.date,
+        activities: typeof r.activitiesJson === 'string' ? JSON.parse(r.activitiesJson) : []
+    }));
+
+    return NextResponse.json(formatted);
+  } catch(e) {
+      console.error(e);
+      return NextResponse.json({ error: 'Failed' }, { status: 500 });
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const user = await authorize();

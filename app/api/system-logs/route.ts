@@ -1,6 +1,34 @@
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
 
+import { prisma } from '@/lib/prisma';
+
+export async function GET(request: Request) {
+    try {
+        const logs = await prisma.systemLog.findMany({
+            orderBy: { timestamp: 'desc' },
+            take: 50
+        });
+
+        const formatted = logs.map(l => ({
+          id: l.id,
+          timestamp: Number(l.timestamp), // Convert BigInt
+          actorId: l.actorId,
+          actorName: l.actorName,
+          actorRole: l.actorRole,
+          actionType: l.actionType,
+          details: l.details,
+          target: l.targetObj || undefined,
+          metadata: l.metadataJson ? JSON.parse(l.metadataJson) : undefined
+        }));
+
+        return NextResponse.json(formatted);
+    } catch(e) {
+        console.error(e);
+        return NextResponse.json({ error: 'Failed' }, { status: 500 });
+    }
+}
+
 export async function POST(request: Request) {
   try {
     const log = await request.json();

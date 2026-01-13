@@ -4,6 +4,41 @@ import { authorize } from '@/lib/auth';
 import { calculateDistance } from '@/utils';
 import { OFFICE_RADIUS_METERS } from '@/constants';
 
+export async function GET(request: Request) {
+  try {
+    const user = await authorize();
+    
+    // Admin sees all, Staff sees own
+    const isAdmin = ['OWNER', 'MANAGER', 'FINANCE', 'SUPERADMIN'].includes(user.role);
+    const where = isAdmin ? {} : { userId: user.id };
+
+    const records = await prisma.attendance.findMany({
+        where,
+        orderBy: [{ date: 'desc' }, { timeIn: 'desc' }],
+        take: 100 // Optimization: Only load recent 100
+    });
+
+    // Format for Frontend
+    const formatted = records.map(a => ({
+        id: a.id,
+        userId: a.userId,
+        date: a.date,
+        timeIn: a.timeIn,
+        timeOut: a.timeOut || undefined,
+        isLate: !!a.isLate,
+        lateReason: a.lateReason || undefined,
+        selfieUrl: a.selfieUrl,
+        checkOutSelfieUrl: a.checkoutSelfieUrl || undefined,
+        location: { lat: Number(a.locationLat), lng: Number(a.locationLng) }
+    }));
+
+    return NextResponse.json(formatted);
+  } catch(e) {
+      console.error(e);
+      return NextResponse.json({ error: 'Failed to fetch attendance' }, { status: 500 });
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const payload = await authorize();

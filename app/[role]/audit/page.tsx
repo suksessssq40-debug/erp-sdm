@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAppStore } from '../../../src/context/StoreContext';
 import { UserRole, SystemLog, SystemActionType } from '../../../src/types';
 import { useRouter } from 'next/navigation';
@@ -9,6 +9,10 @@ import { Search, Filter, ShieldAlert, ArrowDownUp, RefreshCw } from 'lucide-reac
 export default function AuditTrailPage() {
   const store = useAppStore();
   const router = useRouter();
+
+  useEffect(() => {
+    store.fetchLogs();
+  }, []);
 
   const [dateStart, setDateStart] = useState('');
   const [dateEnd, setDateEnd] = useState('');

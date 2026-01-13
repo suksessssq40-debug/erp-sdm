@@ -2,6 +2,37 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
 
+export async function GET(request: Request) {
+    try {
+        await authorize(['OWNER', 'FINANCE', 'MANAGER']);
+        
+        const records = await prisma.payrollRecord.findMany({
+            orderBy: { processedAt: 'desc' },
+            take: 50
+        });
+
+        const formatted = records.map(pr => ({
+          id: pr.id,
+          userId: pr.userId,
+          month: pr.month,
+          basicSalary: Number(pr.basicSalary),
+          allowance: Number(pr.allowance),
+          totalMealAllowance: Number(pr.totalMealAllowance),
+          bonus: Number(pr.bonus),
+          deductions: Number(pr.deductions),
+          netSalary: Number(pr.netSalary),
+          isSent: !!pr.isSent,
+          processedAt: pr.processedAt ? Number(pr.processedAt) : Date.now(),
+          metadata: typeof pr.metadataJson === 'string' ? JSON.parse(pr.metadataJson) : undefined
+        }));
+
+        return NextResponse.json(formatted);
+    } catch(e) {
+        console.error(e);
+        return NextResponse.json({ error: 'Failed' }, { status: 500 });
+    }
+}
+
 export async function POST(request: Request) {
   try {
     await authorize(['OWNER', 'FINANCE']);
