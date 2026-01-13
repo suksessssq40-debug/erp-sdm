@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../context/StoreContext';
 import { 
@@ -7,59 +8,16 @@ import {
   AlertTriangle, 
   Wallet, 
   CheckCircle2, 
-  Clock,
-  ArrowUpRight,
-  ArrowDownRight,
-  Activity
+  Activity,
+  Zap
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 export const OwnerDashboard = () => {
-    const { currentUser, attendance, projects, requests, users } = useAppStore();
+    const { currentUser, attendance, projects, requests, users, dailyReports } = useAppStore();
     const router = useRouter();
     
-    // --- 1. PERSONAL TIMER LOGIC ---
-    const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
-    const todayStr = new Date().toDateString();
-    const myAttendance = attendance.find(a => new Date(a.date!).toDateString() === todayStr && a.userId === currentUser?.id);
-    const isCheckedIn = !!myAttendance;
-    const isCheckedOut = !!myAttendance?.timeOut;
-
-    useEffect(() => {
-        const updateTimer = () => {
-            if (myAttendance && myAttendance.timeIn) {
-                try {
-                const now = new Date();
-                const [hrs, mins, secs] = myAttendance.timeIn.split(':').map(Number);
-                const startTime = new Date();
-                startTime.setHours(hrs || 0, mins || 0, secs || 0, 0);
-
-                const end = isCheckedOut && myAttendance.timeOut 
-                    ? (() => {
-                        const [outHrs, outMins, outSecs] = myAttendance.timeOut.split(':').map(Number);
-                        const endTime = new Date();
-                        endTime.setHours(outHrs || 0, outMins || 0, outSecs || 0, 0);
-                        return endTime.getTime();
-                    })()
-                    : now.getTime();
-
-                let diff = end - startTime.getTime();
-                if (diff < 0) diff = 0;
-                
-                const h = Math.floor(diff / 3600000);
-                const m = Math.floor((diff % 3600000) / 60000);
-                const s = Math.floor((diff % 60000) / 1000);
-                setElapsedTime(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`);
-                } catch(e) { console.error(e) }
-            }
-        };
-        const interval = setInterval(updateTimer, 1000);
-        updateTimer();
-        return () => clearInterval(interval);
-    }, [myAttendance, isCheckedOut]);
-
-
-    // --- 2. FINANCIAL REAL-TIME STATS ---
+    // --- 1. FINANCIAL REAL-TIME STATS ---
     const [finStats, setFinStats] = useState({ totalBalance: 0, monthlyIn: 0, monthlyOut: 0, isLoading: true });
     
     useEffect(() => {
@@ -77,72 +35,100 @@ export const OwnerDashboard = () => {
         fetchStats();
     }, []);
 
-    // --- 3. SDM & OPS INTELLIGENCE ---
+    // --- 2. INTELLIGENCE & HEALTH CHECK ---
+    const todayStr = new Date().toDateString();
     const activeStaff = users.filter(u => u.role !== 'OWNER' && u.role !== 'SUPERADMIN');
+    
+    // Attendance Stats
     const todayTeamAttendance = attendance.filter(a => {
         const isToday = new Date(a.date!).toDateString() === todayStr;
         const isStaff = activeStaff.some(u => u.id === a.userId);
         return isToday && isStaff; 
     });
     const lateCount = todayTeamAttendance.filter(a => a.isLate).length;
-    const absentCount = activeStaff.length - todayTeamAttendance.length;
+    // const absentCount = activeStaff.length - todayTeamAttendance.length;
 
+    // Operational Stats
     const overdueProjects = projects.filter(p => p.deadline && new Date(p.deadline) < new Date() && p.status !== 'DONE');
     const pendingApprovals = requests.filter(r => r.status === 'PENDING').length;
+    
+    // Profit Calculation (Cash Basis)
+    const netCashFlow = finStats.monthlyIn - finStats.monthlyOut;
+
+    // Health Score Logic
+    let healthStatus = { label: 'EXCELLENT', color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' };
+    if (overdueProjects.length > 0 || lateCount > 3) {
+        healthStatus = { label: 'ATTENTION NEEDED', color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/30' };
+    }
+    if (netCashFlow < 0 && !finStats.isLoading) {
+        healthStatus = { label: 'CRITICAL', color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/30' };
+    }
 
     const formatIDR = (n: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n);
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500 pb-20">
-            {/* ROW 1: GOD MODE HEADER (Timer + Quick Status) */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-2xl">
-                     <div className="absolute right-0 top-0 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl translate-x-10 -translate-y-10"></div>
-                     <div className="relative z-10 flex justify-between items-center">
-                         <div>
-                             <div className="flex items-center gap-2 mb-2 text-blue-400 font-bold uppercase tracking-widest text-xs">
-                                 <Activity size={14} /> COMMAND CENTER
+            {/* ROW 1: THE BUSINESS PULSE (EXECUTIVE BANNER) */}
+            <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 rounded-[2.5rem] p-8 md:p-10 text-white relative overflow-hidden shadow-2xl border border-slate-700/50">
+                 {/* Background Effects */}
+                 <div className="absolute right-0 top-0 w-[500px] h-[500px] bg-blue-600/10 rounded-full blur-[120px] translate-x-1/3 -translate-y-1/3"></div>
+                 <div className="absolute left-0 bottom-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl -translate-x-10 translate-y-10"></div>
+                 
+                 <div className="relative z-10 grid grid-cols-1 md:grid-cols-3 gap-8 items-center">
+                     {/* 1. Health Status */}
+                     <div className="space-y-4">
+                         <div className="flex items-center gap-3">
+                             <div className="h-12 w-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
+                                 <Activity className={healthStatus.color} size={24} />
                              </div>
-                             <h1 className="text-5xl font-black font-mono tracking-tight mb-2">
-                                {isCheckedIn ? elapsedTime : '00:00:00'}
-                             </h1>
-                             <div className="flex items-center gap-4 text-sm text-slate-400 font-medium">
-                                 <span>{new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
-                                 <span>•</span>
-                                 <span className={isCheckedIn ? 'text-emerald-400' : 'text-slate-500'}>
-                                     {isCheckedIn ? 'Logged In' : 'Not Logged In'}
-                                 </span>
+                             <div>
+                                 <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Operational Health</p>
+                                 <div className={`mt-1 inline-flex items-center px-3 py-1 rounded-full border ${healthStatus.bg} ${healthStatus.border}`}>
+                                     <span className={`text-[10px] font-black tracking-widest ${healthStatus.color}`}>{healthStatus.label}</span>
+                                 </div>
                              </div>
                          </div>
-                         <div>
-                             {!isCheckedIn ? (
-                                <button onClick={() => router.push(`/${currentUser?.role.toLowerCase()}/attendance`)} className="h-14 w-14 rounded-full bg-blue-600 hover:bg-blue-500 flex items-center justify-center shadow-lg shadow-blue-600/20 transition">
-                                    <Clock size={24} />
-                                </button>
-                             ) : (
-                                <div className="h-14 w-14 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-                                    <CheckCircle2 size={24} />
-                                </div>
-                             )}
+                         <div className="pl-1">
+                            <p className="text-slate-400 text-sm leading-relaxed">
+                                {activeStaff.length} Active Staff • {todayTeamAttendance.length} Checked In • {overdueProjects.length} Issues
+                            </p>
                          </div>
                      </div>
-                </div>
 
-                {/* Quick SDM Health */}
-                <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col justify-center">
-                    <div className="mb-4 flex items-center gap-2 text-slate-400 font-bold text-xs uppercase tracking-widest">
-                        <Users size={16} /> Kehadiran Tim
-                    </div>
-                    <div className="flex items-end gap-3">
-                        <div className="text-4xl font-black text-slate-800">{todayTeamAttendance.length}<span className="text-lg text-slate-300">/{activeStaff.length}</span></div>
-                    </div>
-                    <div className="mt-4 flex gap-2">
-                        {lateCount > 0 && <span className="px-3 py-1 bg-rose-50 text-rose-600 rounded-lg text-xs font-bold">{lateCount} Terlambat</span>}
-                        {absentCount > 0 && <span className="px-3 py-1 bg-slate-50 text-slate-500 rounded-lg text-xs font-bold">{absentCount} Belum Hadir</span>}
-                        {lateCount === 0 && absentCount === 0 && <span className="px-3 py-1 bg-emerald-50 text-emerald-600 rounded-lg text-xs font-bold">Full Team!</span>}
-                        <button onClick={() => router.push('/manager/attendance')} className="ml-auto text-xs font-bold text-blue-600">Detail</button>
-                    </div>
-                </div>
+                     {/* 2. The Bottom Line (Net Cashflow) */}
+                     <div className="md:border-l md:border-r border-white/10 md:px-8 text-center space-y-2">
+                         <p className="text-slate-400 text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2">
+                             <TrendingUp size={14} className={netCashFlow >= 0 ? "text-emerald-400" : "text-rose-400"} />
+                             Net Kas Bulan Ini
+                         </p>
+                         <h2 className={`text-4xl lg:text-5xl font-black tracking-tight ${netCashFlow >= 0 ? 'text-white' : 'text-rose-400'}`}>
+                             {finStats.isLoading ? '...' : (netCashFlow >= 0 ? '+' : '') + formatIDR(netCashFlow)}
+                         </h2>
+                         <p className={`text-xs font-medium ${netCashFlow >= 0 ? 'text-emerald-400/80' : 'text-rose-400/80'}`}>
+                             {netCashFlow >= 0 ? 'Surplus Operasional' : 'Defisit - Perlu Perhatian'}
+                         </p>
+                     </div>
+
+                     {/* 3. Productivity Insight */}
+                     <div className="flex flex-col items-center md:items-end space-y-4">
+                         <div className="text-right">
+                             <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Total Saldo (Liquid)</p>
+                             <div className="text-2xl font-black">{finStats.isLoading ? '...' : formatIDR(finStats.totalBalance)}</div>
+                         </div>
+                         <div className="w-full bg-white/5 rounded-xl p-4 border border-white/10 flex items-center justify-between gap-4">
+                             <div className="flex items-center gap-3">
+                                 <div className="p-2 bg-blue-500/20 rounded-lg text-blue-400"><Zap size={18} /></div>
+                                 <div className="text-left">
+                                     <div className="text-xs text-slate-400 font-bold uppercase">Work Efficiency</div>
+                                     <div className="text-white font-bold">{Math.round((todayTeamAttendance.length / (activeStaff.length || 1)) * 100)}% Attendance</div>
+                                 </div>
+                             </div>
+                             <button onClick={() => router.push('/owner/finance')} className="h-8 w-8 rounded-full bg-white text-slate-900 flex items-center justify-center hover:bg-blue-50 transition">
+                                 <TrendingUp size={16} />
+                             </button>
+                         </div>
+                     </div>
+                 </div>
             </div>
 
             {/* ROW 2: FINANCIAL INTELLIGENCE */}
@@ -163,7 +149,7 @@ export const OwnerDashboard = () => {
                         <div className="flex items-center gap-2 text-slate-400 font-bold text-xs uppercase tracking-widest">
                             <TrendingUp size={16} className="text-emerald-500" /> Masuk Bln Ini
                         </div>
-                        <div className="bg-emerald-50 p-2 rounded-full text-emerald-600 opacity-0 group-hover:opacity-100 transition"><ArrowUpRight size={16} /></div>
+                        <div className="bg-emerald-50 p-2 rounded-full text-emerald-600 opacity-0 group-hover:opacity-100 transition"><TrendingUp size={16} /></div>
                     </div>
                     <div className="text-2xl font-black text-slate-800">{finStats.isLoading ? '...' : formatIDR(finStats.monthlyIn)}</div>
                 </div>
@@ -173,7 +159,7 @@ export const OwnerDashboard = () => {
                         <div className="flex items-center gap-2 text-slate-400 font-bold text-xs uppercase tracking-widest">
                             <TrendingDown size={16} className="text-rose-500" /> Keluar Bln Ini
                         </div>
-                        <div className="bg-rose-50 p-2 rounded-full text-rose-600 opacity-0 group-hover:opacity-100 transition"><ArrowDownRight size={16} /></div>
+                        <div className="bg-rose-50 p-2 rounded-full text-rose-600 opacity-0 group-hover:opacity-100 transition"><TrendingDown size={16} /></div>
                     </div>
                     <div className="text-2xl font-black text-rose-600">{finStats.isLoading ? '...' : formatIDR(finStats.monthlyOut)}</div>
                 </div>
