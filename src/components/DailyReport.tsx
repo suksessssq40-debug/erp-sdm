@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { User, DailyReport, UserRole } from '../types';
 import { Plus, CheckCircle2, History, Link as LinkIcon, Image as ImageIcon, Send, Eye, X, Pencil, Trash2, Calendar } from 'lucide-react';
 import { useToast } from './Toast';
-import { useAppStore } from '../context/StoreContext';
+
 
 interface DailyReportProps {
   currentUser: User;
@@ -15,7 +15,7 @@ interface DailyReportProps {
 }
 
 const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, reports, onAddReport, onUpdateReport, onDeleteReport, toast }) => {
-  const store = useAppStore(); // Access store for settings (Telegram Token)
+
   const [showAdd, setShowAdd] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingReport, setEditingReport] = useState<DailyReport | null>(null);
@@ -26,77 +26,7 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
   const handleAddActivity = () => setActivities([...activities, { task: '', quantity: 1, unit: '', link: '' }]);
   const handleRemoveActivity = (idx: number) => setActivities(activities.filter((_, i) => i !== idx));
 
-  const sendTelegramReport = async (report: DailyReport) => {
-    const { telegramBotToken, telegramOwnerChatId, telegramGroupId } = store.settings;
 
-    // DEBUG: Check what values are actually loaded
-    console.log("DailyReport Tele Debug:", { 
-        hasToken: !!telegramBotToken, 
-        hasOwner: !!telegramOwnerChatId, 
-        hasGroup: !!telegramGroupId,
-        botTokenHint: telegramBotToken ? telegramBotToken.substring(0,5) + '...' : 'NONE'
-    });
-
-    if (!telegramBotToken) {
-       console.log("Telegram Bot Token is MISSING.");
-       toast.warning("Gagal kirim Telegram: Bot Token belum diisi di Settings.");
-       return;
-    }
-
-    if (!telegramOwnerChatId && !telegramGroupId) {
-       console.log("No destination (Owner/Group) set.");
-       toast.warning("Gagal kirim Telegram: Belum ada tujuan (ID Owner / ID Group) di Settings.");
-       return;
-    }
-
-    const activityList = report.activities
-      .map((a, i) => `${i + 1}. ${a.task} — *${a.quantity} ${a.unit || 'x'}* ${a.link ? '[Link]' : ''}`)
-      .join('\n');
-
-    const message = `
-📝 *LAPORAN HARIAN BARU*
-📅 *Tanggal:* ${new Date(report.date).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-👤 *Oleh:* ${currentUser.name} (@${currentUser.username})
-
-*Rincian Aktivitas:*
-${activityList}
-
-_Dikirim dari Sistem ERP SDM_
-    `.trim();
-
-    try {
-      const promises = [];
-
-      // Priority 1: Send to Group (Shared visibility)
-      if (telegramGroupId) {
-         promises.push(
-             fetch(`https://api.telegram.org/bot${telegramBotToken}/sendMessage`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ chat_id: telegramGroupId, text: message, parse_mode: 'Markdown' })
-             })
-         );
-      }
-
-      // Priority 2: Send to Owner (Control)
-      // Only send to owner if explicitly set AND different from Group (to avoid double notif if Owner is testing in group)
-      if (telegramOwnerChatId && telegramOwnerChatId !== telegramGroupId) {
-         promises.push(
-             fetch(`https://api.telegram.org/bot${telegramBotToken}/sendMessage`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ chat_id: telegramOwnerChatId, text: message, parse_mode: 'Markdown' })
-             })
-         );
-      }
-
-      await Promise.all(promises);
-      console.log("Telegram notification sent successfully.");
-
-    } catch (e) {
-      console.error("Failed to send Telegram notification:", e);
-    }
-  };
 
   const submitReport = async () => {
     if (activities.some(a => !a.task)) {
@@ -130,8 +60,9 @@ _Dikirim dari Sistem ERP SDM_
       } else {
           await onAddReport(reportData);
           // Trigger Telegram only on Create (to avoid spam on edit)
-          toast.info("Memproses notifikasi...");
-          await sendTelegramReport(reportData);
+          // toast.info("Memproses notifikasi...");
+          // PER OWNER REQUEST: Disable Daily Report Telegram Notification (Only Daily Recap Cron remains)
+          // await sendTelegramReport(reportData);
           toast.success(`Laporan harian berhasil disimpan!`);
       }
 
