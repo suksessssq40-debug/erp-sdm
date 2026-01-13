@@ -91,15 +91,15 @@ export const OwnerDashboard = () => {
         <div className="p-4 md:p-8 space-y-8 bg-[#F8FAFC] min-h-screen animate-in fade-in duration-700">
             
             {/* --- TOP BANNER (GOD MODE PULSE) --- */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
                 
                 {/* 1. Operational Overview Card */}
-                <div className="lg:col-span-8 bg-slate-900 rounded-[2.5rem] p-6 md:p-10 text-white relative overflow-hidden shadow-2xl">
+                <div className="xl:col-span-8 bg-slate-900 rounded-[2.5rem] p-6 md:p-10 text-white relative overflow-hidden shadow-2xl">
                     {/* Background Accents */}
                     <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
                     <div className="absolute bottom-0 left-0 w-48 h-48 bg-emerald-500/5 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2"></div>
                     
-                    <div className="relative z-10 flex flex-col md:flex-row justify-between gap-10">
+                    <div className="relative z-10 flex flex-col lg:flex-row justify-between gap-8 xl:gap-10">
                         <div className="space-y-6">
                             <div className="flex items-center gap-3">
                                 <div className={`px-4 py-1.5 rounded-full text-[10px] font-black tracking-widest ${health.bg} ${health.color} border border-white/5`}>
@@ -108,9 +108,9 @@ export const OwnerDashboard = () => {
                                 <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></div>
                             </div>
                             
-                            <div>
-                                <p className="text-slate-400 text-xs font-bold uppercase tracking-[0.2em] mb-2">Net Arus Kas (Bulan Ini)</p>
-                                <div className={`text-4xl md:text-5xl font-black tracking-tighter ${netCashFlow >= 0 ? 'text-white' : 'text-rose-400'}`}>
+                            <div className="max-w-full overflow-hidden">
+                                <p className="text-slate-400 text-[10px] lg:text-xs font-bold uppercase tracking-[0.2em] mb-2">Net Arus Kas (Bulan Ini)</p>
+                                <div className={`text-3xl lg:text-4xl xl:text-5xl font-black tracking-tighter truncate ${netCashFlow >= 0 ? 'text-white' : 'text-rose-400'}`}>
                                     {finStats.isLoading ? 'Calculating...' : (netCashFlow >= 0 ? '+' : '') + formatIDR(netCashFlow)}
                                 </div>
                                 <p className={`mt-2 text-sm font-bold flex items-center gap-2 ${netCashFlow >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -131,19 +131,19 @@ export const OwnerDashboard = () => {
                             </div>
                         </div>
 
-                        <div className="flex flex-col justify-between items-end text-right">
-                             <div className="hidden md:block">
-                                <div className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Total Saldo (Liquid)</div>
-                                <div className="text-2xl font-black tracking-tight">{finStats.isLoading ? '...' : formatIDR(finStats.totalBalance)}</div>
+                        <div className="flex flex-col justify-between items-start lg:items-end lg:text-right">
+                             <div className="mb-6 lg:mb-0">
+                                <div className="text-slate-400 text-[10px] lg:text-xs font-bold uppercase tracking-widest mb-1">Total Saldo (Liquid)</div>
+                                <div className="text-xl xl:text-2xl font-black tracking-tight">{finStats.isLoading ? '...' : formatIDR(finStats.totalBalance)}</div>
                              </div>
 
-                             <div className="bg-white/5 backdrop-blur-md rounded-3xl p-6 border border-white/10 w-full md:w-64 space-y-4">
+                             <div className="bg-white/5 backdrop-blur-md rounded-3xl p-5 xl:p-6 border border-white/10 w-full sm:max-w-[240px] xl:max-w-[256px] space-y-4">
                                 <div className="flex items-center justify-between">
                                     <div className="p-2 bg-blue-500/20 rounded-xl text-blue-400"><Users size={20} /></div>
-                                    <div className="text-xs font-black text-blue-400">TEAM STATUS</div>
+                                    <div className="text-[10px] font-black text-blue-400">TEAM STATUS</div>
                                 </div>
                                 <div>
-                                    <div className="text-3xl font-black">{Math.round((todayTeamAttendance.length / (activeStaff.length || 1)) * 100)}%</div>
+                                    <div className="text-2xl xl:text-3xl font-black">{Math.round((todayTeamAttendance.length / (activeStaff.length || 1)) * 100)}%</div>
                                     <div className="text-[10px] text-slate-400 font-bold uppercase">Attendance Today</div>
                                 </div>
                                 <div className="w-full bg-white/10 h-1.5 rounded-full overflow-hidden">
@@ -158,18 +158,18 @@ export const OwnerDashboard = () => {
                 </div>
 
                 {/* 2. Quick Action / Asset Distribution */}
-                <div className="lg:col-span-4 grid grid-cols-1 gap-6">
-                    <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100 flex flex-col justify-between group hover:border-blue-200 transition-all duration-300">
+                <div className="xl:col-span-4 grid grid-cols-1 gap-6">
+                    <div className="bg-white rounded-[2.5rem] p-6 xl:p-8 shadow-sm border border-slate-100 flex flex-col justify-between group hover:border-blue-200 transition-all duration-300">
                         <div>
                              <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600 mb-6 group-hover:scale-110 transition-transform">
                                 <Wallet size={24} />
                              </div>
                              <h3 className="text-lg font-black text-slate-800 tracking-tight">Financial Intelligence</h3>
-                             <p className="text-slate-400 text-sm mt-2 leading-relaxed">Kelola arus kas perusahaaan secara menyeluruh di modul finansial.</p>
+                             <p className="text-slate-400 text-xs xl:text-sm mt-2 leading-relaxed">Kelola arus kas perusahaaan secara menyeluruh di modul finansial.</p>
                         </div>
                         <button 
                             onClick={() => router.push('/owner/finance')}
-                            className="bg-slate-900 text-white w-full py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-blue-600 transition shadow-lg mt-6"
+                            className="bg-slate-900 text-white w-full py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-blue-600 transition shadow-lg mt-6 text-sm"
                         >
                             Open Finance <ArrowRight size={18} />
                         </button>
