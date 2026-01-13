@@ -1,3 +1,4 @@
+'use client';
 import React, { useEffect } from 'react';
 import { OwnerDashboard } from '@/components/OwnerDashboard';
 import { StaffDashboard } from '@/components/StaffDashboard';
