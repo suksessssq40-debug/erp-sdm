@@ -17,12 +17,37 @@ interface AttendanceProps {
   uploadFile?: (file: File) => Promise<string>;
 }
 
+const CHECK_IN_QUOTES = [
+  "Semangat pagi! Jangan lupa senyum, biar kerjanya nggak berasa beban. 😊",
+  "Datang tepat waktu? Wah, calon orang sukses nih! 🚀",
+  "Selamat bertarung dengan deadline! Tenang, pasti menang. 💪",
+  "Pintu rezeki sudah dibuka, yuk masuk dengan bismillah. ✨",
+  "Kehadiranmu hari ini adalah kunci sukses tim kita. Welcome back! 👑",
+  "Oit! Semangat ya hari ini, kopi sudah menanti di meja. ☕"
+];
+
+const CHECK_OUT_QUOTES = [
+  "Pekerjaan selesai! Saatnya mode 'healing' diaktifkan. 🧘‍♂️",
+  "Terima kasih untuk kerja keras hari ini. Tidur nyenyak ya! 😴",
+  "Hati-hati di jalan, jangan kebut-kebutan, ada yang nunggu di rumah. 🏠",
+  "Besok kita guncang dunia lagi! Selamat beristirahat, Champion. 🏆",
+  "Jangan lupa bahagia ya, kerjaan mah nggak ada habisnya. See you! 👋",
+  "Bye-bye kantor! Jangan bawa kerjaan ke dalam mimpi ya. ✨"
+];
+
+const LATE_CHECK_IN_QUOTES = [
+  "Wah, macet ya? Atau bantalnya posesif banget pagi ini? 😂 Tenang, yang penting selamat sampai kantor!",
+  "Jam dindingnya lari ya? Semangat ya, telat dikit nggak apa-apa asal kerja pol-polan. 🔥",
+  "Telat itu manusiawi, tapi kalau tiap hari itu hobi. 😂 Semangat, yuk mulai kerjanya!",
+  "Matahari sudah tinggi, semangat juga harus tinggi! Telat dicatat, prestasi jangan sampai lewat. 💪",
+  "Otw-nya kelamaan ya? 😂 Lain kali pakai pesawat pribadi aja. Semangat kerjanya!"
+];
+
 const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, attendanceLog, onAddAttendance, onUpdateAttendance, onUpdateSettings, toast, uploadFile }) => {
   const [stage, setStage] = useState<'IDLE' | 'CHECKING_LOCATION' | 'SELFIE' | 'LATE_REASON' | 'SUCCESS'>('IDLE');
   const [isCheckOut, setIsCheckOut] = useState(false);
   const [location, setLocation] = useState<{lat: number, lng: number} | null>(null);
   const [isLate, setIsLate] = useState(false);
-  /* Removed duplicate lateReason */
   const [lateReason, setLateReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -31,13 +56,12 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
   const [currentDate, setCurrentDate] = useState(new Date());
   const [serverOffset, setServerOffset] = useState(0);
 
-  // CLOCK SYNC: Fetch Server Time on Mount
+  // CLOCK SYNC
   useEffect(() => {
     const syncTime = async () => {
        try {
-         // Using a lightweight endpoint to get server Date header
          const start = Date.now();
-         const res = await fetch(`${settings.officeHours ? '' : ''}/api/chat/messages?roomId=ping`, { method: 'HEAD' });
+         const res = await fetch(`/api/chat/messages?roomId=ping`, { method: 'HEAD' });
          const end = Date.now();
          const latency = (end - start) / 2;
          
@@ -47,45 +71,37 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
             const estimatedServerTime = serverByHeader + latency;
             const offset = estimatedServerTime - Date.now();
             setServerOffset(offset);
-            
-            // Initial tick
             setCurrentDate(new Date(Date.now() + offset));
          }
        } catch (e) {
-         console.warn("Failed to sync server time, falling back to device time", e);
+         console.warn("Failed to sync server time", e);
        }
     };
     syncTime();
-  }, []);
+  }, [settings.officeHours]);
 
-  // AUTO-REFRESH DATE LOGIC (With Server Offset)
   useEffect(() => {
     const timer = setInterval(() => {
-        // Always add offset to current device time
         setCurrentDate(new Date(Date.now() + serverOffset));
-    }, 1000); // Update every second for accurate clock
+    }, 1000);
     return () => clearInterval(timer);
   }, [serverOffset]);
 
-  const todayStr = new Date(Date.now() + serverOffset).toDateString(); // Use server-aligned date for filtering
-  const myAttendanceToday = attendanceLog.find(a => a.userId === currentUser.id && a.date === todayStr); // This matches valid server date format "Wed Dec 27 2023"
+  const todayStr = new Date(Date.now() + serverOffset).toDateString();
+  const myAttendanceToday = attendanceLog.find(a => a.userId === currentUser.id && a.date === todayStr);
 
-  // LIVE GPS TRACKING STATE
   const [gpsLoading, setGpsLoading] = useState(true);
   const [currentDistance, setCurrentDistance] = useState<number | null>(null);
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const [liveLocation, setLiveLocation] = useState<{lat: number, lng: number} | null>(null);
 
-  // Start Watching GPS on Mount
   useEffect(() => {
     if (!navigator.geolocation) return;
-    
     const watcher = navigator.geolocation.watchPosition(
       (pos) => {
         const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         setLiveLocation(coords);
         setGpsAccuracy(pos.coords.accuracy);
-        
         const dist = calculateDistance(coords.lat, coords.lng, settings.officeLocation.lat, settings.officeLocation.lng);
         setCurrentDistance(dist);
         setGpsLoading(false);
@@ -96,46 +112,33 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
       },
       { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
     );
-
     return () => navigator.geolocation.clearWatch(watcher);
   }, [settings.officeLocation]);
 
   const handleStartCheckIn = () => {
     setIsCheckOut(false);
-    
-    // Fallback: If live tracking failed but they clicked anyway (or first load), rely on state
     if (!liveLocation && !currentUser.isFreelance) {
       toast.error("Sedang mencari lokasi... Tunggu indikator jarak muncul.");
       return;
     }
-
     const dist = currentDistance || 0;
     const now = new Date();
-    const startHms = settings.officeHours?.start || '08:00';
-    const [h, m] = startHms.split(':').map(Number);
+    const [h, m] = (settings.officeHours?.start || '08:00').split(':').map(Number);
     const startTime = new Date();
     startTime.setHours(h, m, 0);
-    
     const isLateCheck = now > startTime;
     setIsLate(isLateCheck);
     setLocation(liveLocation as any);
 
-    // Geofencing Logic
     if (!currentUser.isFreelance && dist > OFFICE_RADIUS_METERS) {
-      toast.error(`Gagal: Lokasi masih terlalu jauh (${Math.round(dist)}m). Tunggu GPS stabil atau mendekat ke kantor.`);
+      toast.error(`Gagal: Lokasi masih terlalu jauh (${Math.round(dist)}m). Mendekatlah ke kantor.`);
       return;
     }
-
-    if (currentUser.isFreelance) {
-        toast.info(`Mode Freelance: Lokasi (${Math.round(dist)}m) dicatat.`);
-    }
-
     setStage(isLateCheck ? 'LATE_REASON' : 'SELFIE');
   };
 
   const handleStartCheckOut = () => {
     setIsCheckOut(true);
-    // Checkout is looser, just take whatever location we have
     setLocation(liveLocation || { lat: 0, lng: 0 });
     setStage('SELFIE');
   };
@@ -143,144 +146,116 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
   const startCamera = async () => {
     try {
       if (videoRef.current?.srcObject) return;
-      
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'user' },
-        audio: false 
-      });
-
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        // Atribut playsInline & muted sangat penting untuk Safari/Mobile Chrome
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play().catch(e => console.error("Video play error:", e));
-        };
+        videoRef.current.onloadedmetadata = () => videoRef.current?.play().catch(console.error);
       }
     } catch (e) {
-      console.error("Camera Access Error:", e);
-      toast.error("Akses kamera ditolak. Harap aktifkan izin kamera pada browser untuk absensi selfie. Periksa pengaturan privasi browser Anda.");
+      toast.error("Akses kamera ditolak.");
       setStage('IDLE');
     }
   };
 
   useEffect(() => {
-    if (stage === 'SELFIE') {
-      startCamera();
-    }
+    if (stage === 'SELFIE') startCamera();
     return () => {
-      if (videoRef.current?.srcObject) {
-        (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
-      }
+      if (videoRef.current?.srcObject) (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
     };
   }, [stage]);
 
   const capturePhoto = () => {
-    if (isSubmitting) return; // Prevent double submission
-    if (canvasRef.current && videoRef.current) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
-      
-      if (ctx && video.videoWidth > 0) {
-        setIsSubmitting(true); // Lock UI
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        
-        // Cermin kamera depan
-        ctx.translate(canvas.width, 0);
-        ctx.scale(-1, 1);
-        ctx.drawImage(video, 0, 0);
-        
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-        
-        if (video.srcObject) {
-          (video.srcObject as MediaStream).getTracks().forEach(t => t.stop());
-        }
+    if (isSubmitting || !canvasRef.current || !videoRef.current) return;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    
+    if (ctx && video.videoWidth > 0) {
+      setIsSubmitting(true);
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+      if (video.srcObject) (video.srcObject as MediaStream).getTracks().forEach(t => t.stop());
 
-        const submitAttendance = async (url: string) => {
-           try {
-             if (isCheckOut && myAttendanceToday) {
-               await onUpdateAttendance({
-                 ...myAttendanceToday,
-                 timeOut: new Date().toLocaleTimeString('id-ID'), // Note: Server should technically overwrite this
-                 checkOutSelfieUrl: url
-               });
-             } else {
-               const record: Attendance = {
-                 id: Math.random().toString(36).substr(2, 9),
-                 userId: currentUser.id,
-                 date: todayStr, 
-                 timeIn: new Date().toLocaleTimeString('id-ID'),
-                 isLate,
-                 lateReason: isLate ? lateReason : undefined,
-                 selfieUrl: url,
-                 location: location || { lat: 0, lng: 0 }
-               };
-               await onAddAttendance(record);
-             }
-             setStage('SUCCESS');
-             toast.success(isCheckOut ? 'Check-out berhasil! Selamat pulang.' : isLate ? 'Check-in berhasil! (Terlambat dicatat dengan alasan.)' : 'Check-in berhasil! Selamat bekerja.');
-           } catch (e) {
-             console.error(e);
-             toast.error("Gagal menyimpan data absensi. Silakan coba lagi.");
-             setStage('SELFIE'); // Return to selfie stage
-           } finally {
-             setIsSubmitting(false);
-           }
-        };
-
-        if (uploadFile) {
-           // Convert Base64 to File
-           const byteString = atob(dataUrl.split(',')[1]);
-           const ab = new ArrayBuffer(byteString.length);
-           const ia = new Uint8Array(ab);
-           for (let i = 0; i < byteString.length; i++) { ia[i] = byteString.charCodeAt(i); }
-           const blob = new Blob([ab], { type: 'image/jpeg' });
-           const file = new File([blob], `selfie_${currentUser.username}_${Date.now()}.jpg`, { type: 'image/jpeg' });
-           
-           toast.info("Mengupload selfie...");
-           uploadFile(file)
-            .then(submitAttendance)
-            .catch((e) => {
-              console.error(e);
-              toast.error("Gagal upload foto (Koneksi bermasalah). Mohon cari sinyal yg lebih baik dan coba lagi.");
-              setIsSubmitting(false);
-              setStage('SELFIE');
-              // REMOVED UNSAFE FALLBACK TO PREVENT DATABASE BLOAT/CRASH
-           });
-        } else {
-           submitAttendance(dataUrl);
+      const finalize = async (url: string) => {
+        try {
+          if (isCheckOut && myAttendanceToday) {
+            await onUpdateAttendance({
+              ...myAttendanceToday,
+              timeOut: new Date().toLocaleTimeString('id-ID'),
+              checkOutSelfieUrl: url
+            });
+          } else {
+            const record: Attendance = {
+              id: Math.random().toString(36).substr(2, 9),
+              userId: currentUser.id,
+              date: todayStr, 
+              timeIn: new Date().toLocaleTimeString('id-ID'),
+              isLate,
+              lateReason: isLate ? lateReason : undefined,
+              selfieUrl: url,
+              location: location || { lat: 0, lng: 0 }
+            };
+            await onAddAttendance(record);
+          }
+          setStage('SUCCESS');
+          
+          let quotes = CHECK_IN_QUOTES;
+          if (isCheckOut) {
+            quotes = CHECK_OUT_QUOTES;
+          } else if (isLate) {
+            quotes = LATE_CHECK_IN_QUOTES;
+          }
+          
+          toast.success(quotes[Math.floor(Math.random() * quotes.length)]);
+        } catch (e) {
+          toast.error("Gagal menyimpan data.");
+          setStage('SELFIE');
+        } finally {
+          setIsSubmitting(false);
         }
+      };
+
+      if (uploadFile) {
+        // Convert Base64 to Blob helper
+        const byteString = atob(dataUrl.split(',')[1]);
+        const ab = new ArrayBuffer(byteString.length);
+        const ia = new Uint8Array(ab);
+        for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+        const blob = new Blob([ab], { type: 'image/jpeg' });
+        const file = new File([blob], `selfie_${Date.now()}.jpg`, { type: 'image/jpeg' });
+
+        toast.info("Mengupload selfie...");
+        uploadFile(file).then(finalize).catch(() => {
+          toast.error("Upload gagal.");
+          setIsSubmitting(false);
+          setStage('SELFIE');
+        });
       } else {
-        toast.warning("Kamera belum siap, mohon tunggu sebentar dan coba lagi.");
+        finalize(dataUrl);
       }
     }
   };
 
   const handleSetOfficeLocation = () => {
-    if (!navigator.geolocation) {
-       toast.error("Browser tidak mendukung Geolocation");
-       return;
-    }
-    toast.info("Mencari titik koordinat presisi...");
+    if (!navigator.geolocation) return toast.error("Tidak didukung Geolocation");
+    toast.info("Mencari koordinat...");
     navigator.geolocation.getCurrentPosition(
        (pos) => {
-          const lat = pos.coords.latitude;
-          const lng = pos.coords.longitude;
-          if (window.confirm(`Set lokasi kantor ke posisi Anda saat ini?\nLat: ${lat}\nLng: ${lng}`)) {
+          const { latitude: lat, longitude: lng } = pos.coords;
+          if (window.confirm(`Set lokasi kantor?\nLat: ${lat}\nLng: ${lng}`)) {
              onUpdateSettings({ officeLocation: { lat, lng } });
-             toast.success("Lokasi kantor berhasil diperbarui ke posisi Anda!");
+             toast.success("Lokasi diperbarui!");
           }
        },
-       (err) => {
-          console.error(err);
-          toast.error("Gagal mendapatkan lokasi. Pastikan GPS aktif.");
-       },
+       () => toast.error("Gagal ambil lokasi."),
        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   };
 
-  // Clock Formatter
   const timeString = currentDate.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
   const dateString = currentDate.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
@@ -343,15 +318,10 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
                 )}
               </div>
 
-               {/* REPORT BUTTON: Visible for ALL Roles now, Responsive Styling */}
+               {/* REPORT BUTTON */}
                <button 
                 onClick={() => window.location.href = `/${currentUser.role.toLowerCase()}/attendance/report`}
-                className="
-                  md:absolute md:top-8 md:right-8
-                  w-full md:w-auto
-                  mt-6 md:mt-0
-                  bg-white border border-slate-200 text-slate-600 px-6 py-3 rounded-xl flex items-center justify-center space-x-2 text-[10px] font-black uppercase tracking-widest hover:border-blue-500 hover:text-blue-600 transition shadow-sm
-                "
+                className="md:absolute md:top-8 md:right-8 w-full md:w-auto mt-6 md:mt-0 bg-white border border-slate-200 text-slate-600 px-6 py-3 rounded-xl flex items-center justify-center space-x-2 text-[10px] font-black uppercase tracking-widest hover:border-blue-500 hover:text-blue-600 transition shadow-sm"
                >
                   <History size={14} /> <span>LAPORAN DETAIL</span>
                </button>
@@ -408,7 +378,7 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
                 <AlertCircle className="text-rose-500 flex-shrink-0" size={24} />
                 <div>
                   <h4 className="font-black text-rose-800 uppercase text-xs tracking-widest">ANDA TERLAMBAT</h4>
-                  <p className="text-sm text-rose-600 font-bold mt-1">Sistem mencatat keterlambatan (Batas: {settings.officeHours?.start}). Harap isi alasan.</p>
+                  <p className="text-sm text-rose-600 font-bold mt-1">Sistem mencatat keterlambatan. Harap isi alasan.</p>
                 </div>
               </div>
               <textarea 
@@ -430,13 +400,7 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
           {stage === 'SELFIE' && (
             <div className="w-full max-w-lg space-y-6 animate-in zoom-in duration-300">
               <div className="relative rounded-[3rem] overflow-hidden bg-slate-900 aspect-video shadow-2xl border-4 border-white">
-                <video 
-                  ref={videoRef} 
-                  autoPlay 
-                  playsInline 
-                  muted 
-                  className="w-full h-full object-cover scale-x-[-1]" 
-                />
+                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover scale-x-[-1]" />
                 <canvas ref={canvasRef} className="hidden" />
               </div>
               <button 
@@ -470,19 +434,45 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
             RIWAYAT HARI INI
           </h4>
           <div className="space-y-4">
-            {attendanceLog.filter(a => a.userId === currentUser.id).slice(-5).reverse().map(a => (
-              <div key={a.id} className="p-5 bg-slate-50 rounded-2xl flex justify-between items-center hover:bg-white hover:shadow-md transition">
-                <div>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{a.date}</p>
-                  <p className="text-xs font-black text-slate-700 mt-1">In: {a.timeIn} {a.timeOut ? `| Out: ${a.timeOut}` : ''}</p>
+            {attendanceLog.filter(a => a.userId === currentUser.id && a.date === todayStr).reverse().map(a => (
+              <div key={a.id} className="p-5 bg-slate-50 rounded-2xl flex flex-col gap-3 group hover:bg-white hover:shadow-md transition border border-slate-100">
+                <div className="flex justify-between items-center">
+                   <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${a.isLate ? 'bg-rose-500' : 'bg-emerald-500'}`}></div>
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">AKTIVITAS HARI INI</p>
+                   </div>
+                   {a.isLate ? (
+                     <span className="bg-rose-100 text-rose-600 text-[8px] font-black px-2 py-1 rounded-lg uppercase tracking-widest border border-rose-200">Terlambat</span>
+                   ) : (
+                     <span className="bg-emerald-100 text-emerald-600 text-[8px] font-black px-2 py-1 rounded-lg uppercase tracking-widest border border-emerald-200">On Time</span>
+                   )}
                 </div>
-                {a.isLate ? (
-                  <span className="bg-rose-100 text-rose-600 text-[8px] font-black px-2 py-1 rounded-lg uppercase tracking-widest">Terlambat</span>
-                ) : (
-                  <span className="bg-emerald-100 text-emerald-600 text-[8px] font-black px-2 py-1 rounded-lg uppercase tracking-widest">Hadir</span>
+
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="p-3 bg-white rounded-xl border border-slate-50">
+                        <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Masuk</p>
+                        <p className="text-sm font-black text-slate-800">{a.timeIn}</p>
+                    </div>
+                    <div className="p-3 bg-white rounded-xl border border-slate-50">
+                        <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Pulang</p>
+                        <p className="text-sm font-black text-slate-800">{a.timeOut || '--:--'}</p>
+                    </div>
+                </div>
+
+                {a.lateReason && (
+                    <div className="p-3 bg-rose-50 rounded-xl border border-rose-100">
+                         <p className="text-[9px] font-bold text-rose-400 uppercase mb-1">Alasan Terlambat:</p>
+                         <p className="text-[10px] text-rose-700 italic font-medium">{a.lateReason}</p>
+                    </div>
                 )}
               </div>
             ))}
+            {attendanceLog.filter(a => a.userId === currentUser.id && a.date === todayStr).length === 0 && (
+                <div className="py-10 text-center space-y-3 opacity-40">
+                    <Clock size={32} className="mx-auto text-slate-300" />
+                    <p className="text-[10px] font-black uppercase tracking-widest">Belum ada aktivitas hari ini</p>
+                </div>
+            )}
           </div>
         </div>
 
@@ -509,17 +499,16 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
                     />
                 </div>
                 <div className="pt-4 border-t border-white/5">
-                  <p className="text-[9px] font-black text-slate-600 uppercase tracking-[0.3em] mb-2">RADIUS AKTIF: {OFFICE_RADIUS_METERS}M</p>
-                  <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2">TITIK LOKASI KANTOR</p>
-                  <p className="text-[10px] font-mono text-blue-400 bg-blue-400/10 p-3 rounded-xl border border-blue-400/20 mb-3">{settings.officeLocation.lat.toFixed(6)}, {settings.officeLocation.lng.toFixed(6)}</p>
-                  
-                  <button 
+                   <p className="text-[9px] font-black text-slate-600 uppercase tracking-[0.3em] mb-2">RADIUS AKTIF: {OFFICE_RADIUS_METERS}M</p>
+                   <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2">TITIK LOKASI KANTOR</p>
+                   <p className="text-[10px] font-mono text-blue-400 bg-blue-400/10 p-3 rounded-xl border border-blue-400/20 mb-3">{settings.officeLocation.lat.toFixed(6)}, {settings.officeLocation.lng.toFixed(6)}</p>
+                   
+                   <button 
                     onClick={handleSetOfficeLocation}
                     className="w-full bg-blue-600 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 transition flex items-center justify-center gap-2"
-                  >
-                     <MapPin size={14} /> ATUR TITIK GPS SAAT INI
-                  </button>
-                  <p className="text-[9px] text-slate-500 mt-2 text-center leading-tight">Pastikan Anda berada di kantor saat menekan tombol ini.</p>
+                   >
+                      <MapPin size={14} /> ATUR TITIK GPS SAAT INI
+                   </button>
                 </div>
              </div>
           </div>
