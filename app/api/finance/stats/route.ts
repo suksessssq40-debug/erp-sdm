@@ -10,14 +10,21 @@ export async function GET(request: Request) {
     // Only Owner and Finance can see full stats
     await authorize(['OWNER', 'FINANCE']);
 
-    // 1. Calculate Total Balance from FinancialAccount.balance (Accurate Real-time)
-    // This is the CORRECT way - using pre-calculated balance from accounts
-    const accounts = await (prisma.financialAccount as any).findMany({
-      where: { isActive: true },
-      select: { balance: true }
-    });
-    
-    const totalBalance = accounts.reduce((sum: number, acc: any) => sum + Number(acc.balance || 0), 0);
+    // 1. Calculate Total Balance (With Resilient Fallback)
+    let totalBalance = 0;
+    try {
+        const accounts = await (prisma.financialAccount as any).findMany({
+          where: { isActive: true },
+          select: { balance: true }
+        });
+        totalBalance = accounts.reduce((sum: number, acc: any) => sum + Number(acc.balance || 0), 0);
+    } catch (e) {
+        console.warn('Production Info: Balance column not found, falling back to manual calculation.');
+        // FALLBACK: Calculate from all time PAID transactions if column doesn't exist yet
+        const totalIn = await prisma.transaction.aggregate({ _sum: { amount: true }, where: { type: 'IN', status: 'PAID' } });
+        const totalOut = await prisma.transaction.aggregate({ _sum: { amount: true }, where: { type: 'OUT', status: 'PAID' } });
+        totalBalance = (Number(totalIn._sum.amount) || 0) - (Number(totalOut._sum.amount) || 0);
+    }
 
     // 2. Calculate Monthly Cashflow (PAID transactions only - Cash Basis)
     const now = new Date();

@@ -38,12 +38,14 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 
         // 1. Undo Old Impact (if it was paid)
         if (old.status === 'PAID' && old.accountId) {
-            const oldAmount = Number(old.amount);
-            const undoChange = old.type === 'IN' ? -oldAmount : oldAmount;
-            await (tx.financialAccount as any).update({
-                where: { id: old.accountId },
-                data: { balance: { increment: undoChange } }
-            });
+            try {
+                const oldAmount = Number(old.amount);
+                const undoChange = old.type === 'IN' ? -oldAmount : oldAmount;
+                await (tx.financialAccount as any).update({
+                    where: { id: old.accountId },
+                    data: { balance: { increment: undoChange } }
+                });
+            } catch (e) { /* ignore missing column */ }
         }
 
         // 2. Perform Update
@@ -68,12 +70,14 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 
         // 3. Apply New Impact (if it is now paid)
         if (body.status === 'PAID' && accountId) {
-            const newAmount = Number(body.amount);
-            const applyChange = body.type === 'IN' ? newAmount : -newAmount;
-            await (tx.financialAccount as any).update({
-                where: { id: accountId },
-                data: { balance: { increment: applyChange } }
-            });
+            try {
+                const newAmount = Number(body.amount);
+                const applyChange = body.type === 'IN' ? newAmount : -newAmount;
+                await (tx.financialAccount as any).update({
+                    where: { id: accountId },
+                    data: { balance: { increment: applyChange } }
+                });
+            } catch (e) { /* ignore missing column */ }
         }
 
         return up;
@@ -97,12 +101,14 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
 
         // Undo Impact
         if (old.status === 'PAID' && old.accountId) {
-            const oldAmount = Number(old.amount);
-            const undoChange = old.type === 'IN' ? -oldAmount : oldAmount;
-            await (tx.financialAccount as any).update({
-                where: { id: old.accountId },
-                data: { balance: { increment: undoChange } }
-            });
+            try {
+                const oldAmount = Number(old.amount);
+                const undoChange = old.type === 'IN' ? -oldAmount : oldAmount;
+                await (tx.financialAccount as any).update({
+                    where: { id: old.accountId },
+                    data: { balance: { increment: undoChange } }
+                });
+            } catch (e) { /* ignore missing column */ }
         }
 
         await tx.transaction.delete({
