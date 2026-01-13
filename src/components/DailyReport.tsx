@@ -265,17 +265,22 @@ _Dikirim dari Sistem ERP SDM_
                        <button onClick={() => setSelectedReport(report)} className="p-2 bg-slate-100 text-slate-500 rounded-xl hover:bg-blue-600 hover:text-white transition group mr-2">
                           <Eye size={16} />
                        </button>
-                       {/* Edit/Delete if Own Report */}
-                       {report.userId === currentUser.id && (
-                           <>
-                             <button onClick={() => prepareEdit(report)} className="p-2 bg-slate-100 text-slate-500 rounded-xl hover:bg-amber-500 hover:text-white transition group mr-2">
+                       {/* Actions */}
+                       <div className="flex items-center gap-1">
+                           {/* Edit: Only Report Owner */}
+                           {report.userId === currentUser.id && (
+                             <button onClick={() => prepareEdit(report)} className="p-2 bg-slate-100 text-slate-500 rounded-xl hover:bg-amber-500 hover:text-white transition group">
                                 <Pencil size={16} />
                              </button>
+                           )}
+                           
+                           {/* Delete: Owner or Management */}
+                           {(report.userId === currentUser.id || canViewAll) && (
                              <button onClick={() => handleDelete(report.id)} className="p-2 bg-slate-100 text-slate-500 rounded-xl hover:bg-rose-600 hover:text-white transition group">
                                 <Trash2 size={16} />
                              </button>
-                           </>
-                       )}
+                           )}
+                       </div>
                     </td>
                   </tr>
                 );
