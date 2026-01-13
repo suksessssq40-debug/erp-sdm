@@ -14,7 +14,7 @@ import {
 import { useRouter } from 'next/navigation';
 
 export const OwnerDashboard = () => {
-    const { currentUser, attendance, projects, requests, users, dailyReports } = useAppStore();
+    const { currentUser, attendance, projects, requests, users, dailyReports, authToken } = useAppStore();
     const router = useRouter();
     
     // --- 1. FINANCIAL REAL-TIME STATS ---
@@ -22,8 +22,11 @@ export const OwnerDashboard = () => {
     
     useEffect(() => {
         const fetchStats = async () => {
+            if (!authToken) return;
             try {
-                const res = await fetch('/api/finance/stats');
+                const res = await fetch('/api/finance/stats', {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
                 const data = await res.json();
                 if (res.ok) {
                     setFinStats({ ...data, isLoading: false });
@@ -33,7 +36,7 @@ export const OwnerDashboard = () => {
             }
         };
         fetchStats();
-    }, []);
+    }, [authToken]);
 
     // --- 2. INTELLIGENCE & HEALTH CHECK ---
     const todayStr = new Date().toDateString();
