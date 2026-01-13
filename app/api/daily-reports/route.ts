@@ -4,8 +4,14 @@ import { authorize } from '@/lib/auth';
 
 export async function POST(request: Request) {
   try {
-    await authorize();
+    const user = await authorize();
     const r = await request.json();
+
+    // Security: Prevent User Spoofing
+    // If user is STAFF (not management), they can ONLY report for themselves.
+    if (user.role === 'STAFF' && r.userId !== user.id) {
+        return NextResponse.json({ error: 'Forbidden: Cannot submit report for others' }, { status: 403 });
+    }
 
     await prisma.dailyReport.create({
       data: {

@@ -99,8 +99,10 @@ _Dikirim dari Sistem ERP SDM_
       return;
     }
     try {
-      // FIX: Use standard ISO format YYYY-MM-DD for storage to prevent database errors and filter mismatches
-      const isoDate = new Date().toISOString().split('T')[0]; 
+      // FIX: Use Jakarta Timezone for Date String (YYYY-MM-DD)
+      // If we use toISOString(), 1 AM Jakarta (18 PM UTC) becomes Yesterday. We must adhere to Jakarta day.
+      const jakartaDateStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Jakarta' });
+      const isoDate = jakartaDateStr; 
       
       const report: DailyReport = {
         id: Math.random().toString(36).substr(2, 9),
