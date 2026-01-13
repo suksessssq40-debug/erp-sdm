@@ -1157,6 +1157,29 @@ export const useStore = () => {
           realUser: null
         }));
       }
+    },
+    syncFinancialBalances: async () => {
+        try {
+            const res = await fetch(`${API_BASE}/api/finance/recalculate`, {
+                method: 'POST',
+                headers: authHeaders
+            });
+            if (res.ok) {
+                // Refresh financial accounts in state after sync
+                const bootstrapRes = await fetch(`${API_BASE}/api/bootstrap`, { headers: authHeaders });
+                if (bootstrapRes.ok) {
+                    const data = await bootstrapRes.json();
+                    setState(prev => ({ ...prev, financialAccounts: data.financialAccounts || [] }));
+                }
+                return await res.json();
+            } else {
+                const err = await res.json();
+                throw new Error(err.error || 'Failed to sync');
+            }
+        } catch (e) {
+            console.error('Sync Balances Error:', e);
+            throw e;
+        }
     }
   };
 };

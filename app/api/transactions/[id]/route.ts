@@ -16,7 +16,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     }
 
     // Fix Data Integrity: Lookup Account ID based on name
-    let accountId = null;
+    let accountId: string | null = null;
     if (body.account) {
         const acc = await prisma.financialAccount.findFirst({
             where: {
@@ -31,31 +31,58 @@ export async function PUT(request: Request, { params }: { params: { id: string }
         }
     }
 
-    // Update transaction using Prisma
-    const updated = await prisma.transaction.update({
-        where: { id },
-        data: {
-            date: new Date(body.date),
-            amount: body.amount,
-            type: body.type,
-            category: body.category || null,
-            description: body.description,
-            account: body.account,
-            accountId: accountId, // Ensure relation is updated
-            businessUnitId: body.businessUnitId || null,
-            imageUrl: body.imageUrl || null,
-            // New Fields (Fix Update Status)
-            coaId: body.coaId || null,
-            contactName: body.contactName || null,
-            status: body.status || 'PAID',
-            dueDate: body.dueDate ? new Date(body.dueDate) : null
+    // Update transaction using Prisma $transaction for data integrity
+    const updated = await prisma.$transaction(async (tx) => {
+        const old = await tx.transaction.findUnique({ where: { id } });
+        if (!old) throw new Error('Transaction not found');
+
+        // 1. Undo Old Impact (if it was paid)
+        if (old.status === 'PAID' && old.accountId) {
+            const oldAmount = Number(old.amount);
+            const undoChange = old.type === 'IN' ? -oldAmount : oldAmount;
+            await (tx.financialAccount as any).update({
+                where: { id: old.accountId },
+                data: { balance: { increment: undoChange } }
+            });
         }
+
+        // 2. Perform Update
+        const up = await tx.transaction.update({
+            where: { id },
+            data: {
+                date: new Date(body.date),
+                amount: body.amount,
+                type: body.type,
+                category: body.category || null,
+                description: body.description,
+                account: body.account,
+                accountId: accountId,
+                businessUnitId: body.businessUnitId || null,
+                imageUrl: body.imageUrl || null,
+                coaId: body.coaId || null,
+                contactName: body.contactName || null,
+                status: body.status || 'PAID',
+                dueDate: body.dueDate ? new Date(body.dueDate) : null
+            } as any
+        });
+
+        // 3. Apply New Impact (if it is now paid)
+        if (body.status === 'PAID' && accountId) {
+            const newAmount = Number(body.amount);
+            const applyChange = body.type === 'IN' ? newAmount : -newAmount;
+            await (tx.financialAccount as any).update({
+                where: { id: accountId },
+                data: { balance: { increment: applyChange } }
+            });
+        }
+
+        return up;
     });
 
     return NextResponse.json(updated);
   } catch (error) {
     console.error('Update Transaction Error:', error);
-    return NextResponse.json({ error: 'Failed to update transaction' }, { status: 500 });
+    return NextResponse.json({ error: (error as any).message || 'Failed to update transaction' }, { status: 500 });
   }
 }
 
@@ -64,8 +91,23 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     await authorize(['OWNER', 'FINANCE']);
     const id = params.id;
 
-    await prisma.transaction.delete({
-        where: { id }
+    await prisma.$transaction(async (tx) => {
+        const old = await tx.transaction.findUnique({ where: { id } });
+        if (!old) return;
+
+        // Undo Impact
+        if (old.status === 'PAID' && old.accountId) {
+            const oldAmount = Number(old.amount);
+            const undoChange = old.type === 'IN' ? -oldAmount : oldAmount;
+            await (tx.financialAccount as any).update({
+                where: { id: old.accountId },
+                data: { balance: { increment: undoChange } }
+            });
+        }
+
+        await tx.transaction.delete({
+            where: { id }
+        });
     });
 
     return NextResponse.json({ success: true });

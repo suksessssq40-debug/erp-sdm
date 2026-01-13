@@ -145,7 +145,7 @@ model ChartOfAccount {
   code        String   @unique
   name        String
   type        String // ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE
-  normalPos   String @map("normal_pos") // DEBIT, CREDIT
+  normalPos   String? @map("normal_pos") // DEBIT, CREDIT
   description String?
   isActive    Boolean? @default(true) @map("is_active")
   createdAt   BigInt?   @map("created_at")
@@ -164,6 +164,7 @@ model FinancialAccount {
   description   String?
   isActive      Boolean? @default(true) @map("is_active")
   createdAt     BigInt? @map("created_at")
+  balance       Decimal  @default(0)
 
   transactions Transaction[]
 

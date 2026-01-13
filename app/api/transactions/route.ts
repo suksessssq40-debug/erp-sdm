@@ -63,7 +63,7 @@ export async function POST(request: Request) {
     const t = await request.json();
 
     // Link Account by Name (Lookup ID)
-    let accountId = null;
+    let accountId: string | null = null;
     if (t.account) {
         const acc = await prisma.financialAccount.findFirst({
             where: { name: { equals: t.account, mode: 'insensitive' } }
@@ -71,30 +71,43 @@ export async function POST(request: Request) {
         if (acc) accountId = acc.id;
     }
 
-    // CREATE
-    await prisma.transaction.create({
-      data: {
-        id: t.id,
-        date: new Date(t.date),
-        amount: t.amount,
-        type: t.type,
-        category: t.category || null, // Keep string for backup
-        description: t.description,
-        account: t.account,
-        accountId: accountId,
-        businessUnitId: t.businessUnitId || null,
-        imageUrl: t.imageUrl || null,
-        // New Fields
-        coaId: t.coaId || null,
-        contactName: t.contactName || null,
-        status: t.status || 'PAID',
-        dueDate: t.dueDate ? new Date(t.dueDate) : null
-      } as any // Cast to any
+    // CREATE WITH ATOMIC BALANCE UPDATE
+    await prisma.$transaction(async (tx) => {
+        // 1. Create Transaction
+        await tx.transaction.create({
+          data: {
+            id: t.id,
+            date: new Date(t.date),
+            amount: t.amount,
+            type: t.type,
+            category: t.category || null,
+            description: t.description,
+            account: t.account,
+            accountId: accountId,
+            businessUnitId: t.businessUnitId || null,
+            imageUrl: t.imageUrl || null,
+            coaId: t.coaId || null,
+            contactName: t.contactName || null,
+            status: t.status || 'PAID',
+            dueDate: t.dueDate ? new Date(t.dueDate) : null
+          } as any
+        });
+
+        // 2. Update Financial Account Balance if PAID
+        if ((t.status === 'PAID' || !t.status) && accountId) {
+            const amount = Number(t.amount);
+            const change = t.type === 'IN' ? amount : -amount;
+            
+            await (tx.financialAccount as any).update({
+                where: { id: accountId },
+                data: { balance: { increment: change } }
+            });
+        }
     });
 
     return NextResponse.json(t, { status: 201 });
   } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: 'Failed' }, { status: 500 });
+    console.error('Create Transaction Error:', error);
+    return NextResponse.json({ error: 'Failed to create transaction' }, { status: 500 });
   }
 }

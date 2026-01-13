@@ -8,46 +8,41 @@ export async function GET(request: Request) {
     // Only Owner and Finance can see full stats
     await authorize(['OWNER', 'FINANCE']);
 
-    // 1. Calculate Total Balance (Global)
-    // Prisma Decimal to Number conversion is tricky, doing aggregate raw might be better or handled in JS if dataset not huge.
-    // Ideally: SELECT SUM(CASE WHEN type='IN' THEN amount ELSE -amount END) as total FROM transactions
-    
-    // Using Prisma Aggregate
-    const totalIn = await prisma.transaction.aggregate({
-      _sum: { amount: true },
-      where: { type: 'IN' }
+    // 1. Calculate Total Balance from FinancialAccount.balance (Accurate Real-time)
+    // This is the CORRECT way - using pre-calculated balance from accounts
+    const accounts = await (prisma.financialAccount as any).findMany({
+      where: { isActive: true },
+      select: { balance: true }
     });
     
-    const totalOut = await prisma.transaction.aggregate({
-      _sum: { amount: true },
-      where: { type: 'OUT' }
-    });
+    const totalBalance = accounts.reduce((sum: number, acc: any) => sum + Number(acc.balance || 0), 0);
 
-    const balance = (Number(totalIn._sum.amount) || 0) - (Number(totalOut._sum.amount) || 0);
-
-    // 2. Calculate Monthly Cashflow
+    // 2. Calculate Monthly Cashflow (PAID transactions only - Cash Basis)
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     
-    // Prisma Date filtering
+    // Monthly IN - Only PAID status (real cash received)
     const monthlyIn = await prisma.transaction.aggregate({
         _sum: { amount: true },
         where: { 
             type: 'IN',
+            status: 'PAID', // CRITICAL: Only count paid transactions
             date: { gte: startOfMonth }
-        }
+        } as any
     });
 
+    // Monthly OUT - Only PAID status (real cash spent)
     const monthlyOut = await prisma.transaction.aggregate({
         _sum: { amount: true },
         where: { 
             type: 'OUT',
+            status: 'PAID', // CRITICAL: Only count paid transactions
             date: { gte: startOfMonth }
-        }
+        } as any
     });
 
     return NextResponse.json({
-        totalBalance: balance,
+        totalBalance: totalBalance,
         monthlyIn: Number(monthlyIn._sum.amount) || 0,
         monthlyOut: Number(monthlyOut._sum.amount) || 0
     });

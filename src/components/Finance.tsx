@@ -6,6 +6,7 @@ import { Wallet, Calendar, RefreshCw, Plus, Landmark, Edit, ArrowRight, Download
 import { useToast } from './Toast';
 import { generateFinancePDF } from '../utils/pdfGenerator';
 import { generateFinanceExcel } from '../utils/excelGenerator';
+import { useAppStore } from '../context/StoreContext';
 
 // Sub-components
 import { TransactionModal } from './finance/TransactionModal';
@@ -355,6 +356,21 @@ const FinanceModule: React.FC<FinanceProps> = ({
   }
   const handleDeleteBusiness = async (id:string, name:string) => { if(onDeleteBusinessUnit && confirm(`Hapus ${name}?`)) await onDeleteBusinessUnit(id); }
 
+  const { syncFinancialBalances } = useAppStore();
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleSyncBalances = async () => {
+    try {
+        setIsSyncing(true);
+        await syncFinancialBalances();
+        toast.success("Saldo akun berhasil disinkronisasi");
+        await fetchData(); // Refresh local data
+    } catch (e: any) {
+        toast.error(e.message || "Gagal sinkronisasi");
+    } finally {
+        setIsSyncing(false);
+    }
+  };
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-20">
@@ -395,9 +411,20 @@ const FinanceModule: React.FC<FinanceProps> = ({
               {businessUnits.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
             
-            <button onClick={() => { fetchData(); if(activeTab==='BUKU_BESAR') fetchLedger(); }} className="p-3 bg-blue-100 text-blue-600 rounded-xl hover:bg-blue-200 transition shadow-sm">
-              <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
-            </button>
+            <div className="flex items-center gap-2">
+                <button 
+                onClick={handleSyncBalances} 
+                disabled={isSyncing}
+                className="p-3 bg-amber-100 text-amber-600 rounded-xl hover:bg-amber-200 transition shadow-sm"
+                title="Sinkronisasi Saldo Akun"
+                >
+                <RefreshCw size={16} className={isSyncing ? 'animate-spin' : ''} />
+                </button>
+
+                <button onClick={() => { fetchData(); if(activeTab==='BUKU_BESAR') fetchLedger(); }} className="p-3 bg-blue-100 text-blue-600 rounded-xl hover:bg-blue-200 transition shadow-sm">
+                <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
+                </button>
+            </div>
 
             {/* EXPORT BUTTON */}
             <div className="relative">
