@@ -22,13 +22,13 @@ export async function GET() {
     ] = await Promise.all([
         prisma.user.findMany(),
         prisma.project.findMany(),
-        prisma.attendance.findMany({ orderBy: [{ date: 'desc' }, { timeIn: 'desc' }], take: 500 }),
-        prisma.leaveRequest.findMany({ orderBy: { createdAt: 'desc' }, take: 200 }),
-        prisma.transaction.findMany({ orderBy: { date: 'desc' }, take: 500 }),
-        prisma.dailyReport.findMany({ orderBy: { date: 'desc' }, take: 200 }),
+        prisma.attendance.findMany({ orderBy: [{ date: 'desc' }, { timeIn: 'desc' }], take: 100 }), // Reduced from 500
+        prisma.leaveRequest.findMany({ orderBy: { createdAt: 'desc' }, take: 100 }), // Reduced from 200
+        prisma.transaction.findMany({ orderBy: { date: 'desc' }, take: 100 }), // Reduced from 500
+        prisma.dailyReport.findMany({ orderBy: { date: 'desc' }, take: 50 }), // Reduced from 200 (Only need recent)
         prisma.salaryConfig.findMany(),
-        prisma.payrollRecord.findMany({ orderBy: { processedAt: 'desc' }, take: 100 }),
-        prisma.systemLog.findMany({ orderBy: { timestamp: 'desc' }, take: 1000 }),
+        prisma.payrollRecord.findMany({ orderBy: { processedAt: 'desc' }, take: 50 }), // Reduced from 100
+        prisma.systemLog.findMany({ orderBy: { timestamp: 'desc' }, take: 50 }), // CRITICAL: Reduced from 1000 to 50. Logs are heavy.
         prisma.settings.findFirst(),
         prisma.financialAccount.findMany({ where: { isActive: true } })
     ]);
