@@ -3,6 +3,8 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * UTILITY API: Recalculate all account balances based on transaction history.
  * Run this once after schema migration or if balances become desynced.
