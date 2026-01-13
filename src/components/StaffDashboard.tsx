@@ -33,30 +33,36 @@ export const StaffDashboard = () => {
     const updateTimer = () => {
         if (todayAttendance && todayAttendance.timeIn) {
             try {
-                // Ensure robust date parsing
-                // attendance.date comes as ISO string "2024-01-01T00:00:00.000Z"
-                const dateObj = new Date(todayAttendance.date);
-                const datePart = dateObj.toISOString().split('T')[0]; // "2024-01-01"
+                // FORCE: Use Device Today's Date, Ignore DB Date (to prevent 26h bug due to UTC/Timezone)
+                // We trust "todayAttendance" is indeed for today because filtered by 'todayStr'
+                const now = new Date();
                 
                 // timeIn comes as "08:00" or "08:00:00"
                 const [hrs, mins, secs] = todayAttendance.timeIn.split(':').map(Number);
                 
-                // Construct Start Date Object in Local Time
-                const startTime = new Date(datePart);
+                // Construct Start Time using TODAY's date
+                const startTime = new Date();
                 startTime.setHours(hrs || 0, mins || 0, secs || 0, 0);
 
+                // Handle Check Out Time
                 const end = isCheckedOut && todayAttendance.timeOut 
                     ? (() => {
                         const [outHrs, outMins, outSecs] = todayAttendance.timeOut.split(':').map(Number);
-                        const endTime = new Date(datePart);
+                        const endTime = new Date(); // Today
                         endTime.setHours(outHrs || 0, outMins || 0, outSecs || 0, 0);
                         return endTime.getTime();
                     })()
-                    : Date.now();
+                    : now.getTime();
 
-                const diff = end - startTime.getTime();
+                let diff = end - startTime.getTime();
                 
-                if (diff > 0) {
+                // Edge Case: If diff is negative (e.g. TimeIn 23:00 yesterday, Now 01:00 today), handle?? 
+                // But we filtered todayAttendance by "Today". 
+                // If todayAttendance found, it MUST mean date matches.
+                // If diff < 0, maybe device time mismatch? Just show 00:00:00
+                if (diff < 0) diff = 0;
+
+                if (diff >= 0) { // Allow 0
                     const h = Math.floor(diff / 3600000);
                     const m = Math.floor((diff % 3600000) / 60000);
                     const s = Math.floor((diff % 60000) / 1000);
@@ -89,19 +95,8 @@ export const StaffDashboard = () => {
   });
   
   const totalLate = monthlyAttendance.filter(a => a.isLate).length;
-  // Assuming 12 days leave per year, calc remaining? 
-  // Need explicit "remaining leave" field in User or calc from Requests. 
-  // For now, let's count APPROVED leave in this year.
-  const approvedLeaveDays = requests
-      .filter(r => r.userId === currentUser?.id && r.status === RequestStatus.APPROVED && r.type === 'CUTI' && new Date(r.startDate).getFullYear() === currentYear)
-      .reduce((acc, curr) => {
-          const start = new Date(curr.startDate);
-          const end = new Date(curr.endDate);
-          const diffTime = Math.abs(end.getTime() - start.getTime());
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; 
-          return acc + diffDays;
-      }, 0);
-  const remainingLeave = 12 - approvedLeaveDays; 
+  // REPLACED: Total Kehadiran instead of Sisa Cuti
+  const totalPresent = monthlyAttendance.length;
 
   // 3. Task Priority (Assigned to Me & Incomplete)
   const myTasks = projects.flatMap(p => {
@@ -183,11 +178,11 @@ export const StaffDashboard = () => {
                     </div>
                </div>
                
-               {/* Leave Quota */}
-               <div className="p-6 rounded-[2rem] bg-white border border-slate-100 flex flex-col justify-center">
-                    <div className="mb-2 font-black text-xs uppercase tracking-widest text-slate-400">Sisa Cuti Tahunan</div>
-                    <div className="text-3xl font-black text-slate-800">
-                        {remainingLeave} <span className="text-sm text-slate-400 font-medium">Hari</span>
+               {/* Attendance Counter (Replaced Leave Quota) */}
+               <div className="p-6 rounded-[2rem] bg-indigo-50 border border-indigo-100 flex flex-col justify-center">
+                    <div className="mb-2 font-black text-xs uppercase tracking-widest text-indigo-400">Total Kehadiran</div>
+                    <div className="text-3xl font-black text-indigo-600">
+                        {totalPresent} <span className="text-sm text-indigo-400 font-medium">Hari</span>
                     </div>
                </div>
            </div>
