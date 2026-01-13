@@ -32,22 +32,38 @@ export const StaffDashboard = () => {
   useEffect(() => {
     const updateTimer = () => {
         if (todayAttendance && todayAttendance.timeIn) {
-            const start = new Date(todayAttendance.date + ' ' + todayAttendance.timeIn).getTime();
-            // If invalid date string parsing, might need adjustment logic depending on how date/timeIn stored. 
-            // Assuming date="yyyy-mm-dd", timeIn="HH:MM"
-            // Start time construction:
-            const startTime = new Date(`${todayAttendance.date}T${todayAttendance.timeIn}:00`).getTime();
-            
-            const end = isCheckedOut && todayAttendance.timeOut 
-                ? new Date(`${todayAttendance.date}T${todayAttendance.timeOut}:00`).getTime()
-                : Date.now();
+            try {
+                // Ensure robust date parsing
+                // attendance.date comes as ISO string "2024-01-01T00:00:00.000Z"
+                const dateObj = new Date(todayAttendance.date);
+                const datePart = dateObj.toISOString().split('T')[0]; // "2024-01-01"
+                
+                // timeIn comes as "08:00" or "08:00:00"
+                const [hrs, mins, secs] = todayAttendance.timeIn.split(':').map(Number);
+                
+                // Construct Start Date Object in Local Time
+                const startTime = new Date(datePart);
+                startTime.setHours(hrs || 0, mins || 0, secs || 0, 0);
 
-            const diff = end - startTime;
-            if (diff > 0) {
-                const h = Math.floor(diff / 3600000);
-                const m = Math.floor((diff % 3600000) / 60000);
-                const s = Math.floor((diff % 60000) / 1000);
-                setElapsedTime(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`);
+                const end = isCheckedOut && todayAttendance.timeOut 
+                    ? (() => {
+                        const [outHrs, outMins, outSecs] = todayAttendance.timeOut.split(':').map(Number);
+                        const endTime = new Date(datePart);
+                        endTime.setHours(outHrs || 0, outMins || 0, outSecs || 0, 0);
+                        return endTime.getTime();
+                    })()
+                    : Date.now();
+
+                const diff = end - startTime.getTime();
+                
+                if (diff > 0) {
+                    const h = Math.floor(diff / 3600000);
+                    const m = Math.floor((diff % 3600000) / 60000);
+                    const s = Math.floor((diff % 60000) / 1000);
+                    setElapsedTime(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`);
+                }
+            } catch (e) {
+                console.error("Timer Parsing Error", e);
             }
         }
     };
