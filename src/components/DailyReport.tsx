@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User, DailyReport, UserRole } from '../types';
-import { Plus, CheckCircle2, History, Link as LinkIcon, Image as ImageIcon, Send, Eye, X } from 'lucide-react';
+import { Plus, CheckCircle2, History, Link as LinkIcon, Image as ImageIcon, Send, Eye, X, Pencil, Trash2, Calendar } from 'lucide-react';
 import { useToast } from './Toast';
 import { useAppStore } from '../context/StoreContext';
 
@@ -8,14 +8,19 @@ interface DailyReportProps {
   currentUser: User;
   users: User[];
   reports: DailyReport[];
-  onAddReport: (report: DailyReport) => void;
+  onAddReport: (report: DailyReport) => Promise<void>;
+  onUpdateReport: (report: DailyReport) => Promise<void>;
+  onDeleteReport: (id: string) => Promise<void>;
   toast: ReturnType<typeof useToast>;
 }
 
-const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, reports, onAddReport, toast }) => {
+const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, reports, onAddReport, onUpdateReport, onDeleteReport, toast }) => {
   const store = useAppStore(); // Access store for settings (Telegram Token)
   const [showAdd, setShowAdd] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingReport, setEditingReport] = useState<DailyReport | null>(null);
   const [selectedReport, setSelectedReport] = useState<DailyReport | null>(null);
+  const [monthFilter, setMonthFilter] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
   const [activities, setActivities] = useState([{ task: '', quantity: 1, unit: '', link: '' }]);
 
   const handleAddActivity = () => setActivities([...activities, { task: '', quantity: 1, unit: '', link: '' }]);
@@ -98,16 +103,20 @@ _Dikirim dari Sistem ERP SDM_
       toast.warning("Harap isi semua tugas harian sebelum menyimpan laporan.");
       return;
     }
+    
+    if (isSubmitting) return; // Prevent Double Click
+    setIsSubmitting(true);
+
     try {
       // FIX: Use Jakarta Timezone for Date String (YYYY-MM-DD)
       // If we use toISOString(), 1 AM Jakarta (18 PM UTC) becomes Yesterday. We must adhere to Jakarta day.
       const jakartaDateStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Jakarta' });
       const isoDate = jakartaDateStr; 
       
-      const report: DailyReport = {
-        id: Math.random().toString(36).substr(2, 9),
+      const reportData: DailyReport = {
+        id: editingReport ? editingReport.id : Math.random().toString(36).substr(2, 9),
         userId: currentUser.id,
-        date: isoDate,
+        date: editingReport ? editingReport.date : isoDate, // Keep original date if editing
         activities: activities.map(a => ({ 
             ...a, 
             quantity: Number(a.quantity),
@@ -115,17 +124,24 @@ _Dikirim dari Sistem ERP SDM_
         }))
       };
       
-      await onAddReport(report);
-      
-      // Trigger Telegram
-      toast.info("Memproses notifikasi...");
-      await sendTelegramReport(report);
+      if (editingReport) {
+          await onUpdateReport(reportData);
+          toast.success("Laporan berhasil diperbarui!");
+      } else {
+          await onAddReport(reportData);
+          // Trigger Telegram only on Create (to avoid spam on edit)
+          toast.info("Memproses notifikasi...");
+          await sendTelegramReport(reportData);
+          toast.success(`Laporan harian berhasil disimpan!`);
+      }
 
       setShowAdd(false);
       setActivities([{ task: '', quantity: 1, unit: '', link: '' }]);
-      toast.success(`Laporan harian berhasil disimpan!`);
+      setEditingReport(null);
     } catch (err: any) {
       toast.error(err?.message || 'Gagal menyimpan laporan harian.');
+    } finally {
+        setIsSubmitting(false);
     }
   };
 
@@ -137,23 +153,62 @@ _Dikirim dari Sistem ERP SDM_
   const canReport = currentUser.role !== UserRole.OWNER; 
 
   // Filter Logic:
-  // - Management: Sees EVERYTHING
-  // - Staff: Sees only OWN reports
-  const displayReports = canViewAll 
+  // - Management: Sees EVERYTHING (Filtered by Month)
+  // - Staff: Sees only OWN reports (Filtered by Month)
+  
+  const filteredByRole = canViewAll 
     ? reports 
     : reports.filter(r => r.userId === currentUser.id);
+
+  const displayReports = filteredByRole.filter(r => r.date.startsWith(monthFilter));
+
+  const prepareEdit = (report: DailyReport) => {
+      setEditingReport(report);
+      setActivities(report.activities.map(a => ({
+          task: a.task,
+          quantity: a.quantity,
+          unit: a.unit || '',
+          link: a.link || ''
+      })));
+      setShowAdd(true);
+  };
+
+  const handleDelete = async (id: string) => {
+      if(!confirm("Yakin ingin menghapus laporan ini?")) return;
+      try {
+          await onDeleteReport(id);
+          toast.success("Laporan dihapus");
+      } catch(e) {
+          toast.error("Gagal menghapus");
+      }
+  };
 
   return (
     <div className="space-y-6">
       {/* ... header ... */}
       <div className="flex justify-between items-center">
-        <div>
+        <div className="flex flex-col gap-2">
           <h3 className="text-xl font-bold text-slate-800">Laporan Harian</h3>
           <p className="text-sm text-slate-500 uppercase font-black tracking-widest">Update aktivitas tim Sukses Digital Media</p>
+          
+          {/* Month Filter */}
+          <div className="flex items-center gap-2 mt-2">
+             <Calendar size={16} className="text-slate-400" />
+             <input 
+                type="month" 
+                value={monthFilter}
+                onChange={e => setMonthFilter(e.target.value)}
+                className="bg-slate-50 border border-slate-200 text-xs font-bold text-slate-700 rounded-lg px-3 py-1 outline-none focus:border-blue-500 transition"
+             />
+          </div>
         </div>
         {canReport && (
           <button 
-            onClick={() => setShowAdd(true)}
+            onClick={() => {
+                setEditingReport(null);
+                setActivities([{ task: '', quantity: 1, unit: '', link: '' }]);
+                setShowAdd(true);
+            }}
             className="bg-slate-900 text-white px-8 py-3 rounded-[1.5rem] flex items-center space-x-3 font-black text-xs uppercase tracking-widest shadow-2xl hover:bg-blue-600 transition"
           >
             <Plus size={18} /> <span>BUAT LAPORAN</span>
@@ -207,9 +262,20 @@ _Dikirim dari Sistem ERP SDM_
                        </span>
                     </td>
                     <td className="px-6 py-5 text-right">
-                       <button onClick={() => setSelectedReport(report)} className="p-2 bg-slate-100 text-slate-500 rounded-xl hover:bg-blue-600 hover:text-white transition group">
+                       <button onClick={() => setSelectedReport(report)} className="p-2 bg-slate-100 text-slate-500 rounded-xl hover:bg-blue-600 hover:text-white transition group mr-2">
                           <Eye size={16} />
                        </button>
+                       {/* Edit/Delete if Own Report */}
+                       {report.userId === currentUser.id && (
+                           <>
+                             <button onClick={() => prepareEdit(report)} className="p-2 bg-slate-100 text-slate-500 rounded-xl hover:bg-amber-500 hover:text-white transition group mr-2">
+                                <Pencil size={16} />
+                             </button>
+                             <button onClick={() => handleDelete(report.id)} className="p-2 bg-slate-100 text-slate-500 rounded-xl hover:bg-rose-600 hover:text-white transition group">
+                                <Trash2 size={16} />
+                             </button>
+                           </>
+                       )}
                     </td>
                   </tr>
                 );
@@ -260,7 +326,10 @@ _Dikirim dari Sistem ERP SDM_
       {showAdd && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4">
           <div className="bg-white rounded-[3.5rem] w-full max-w-xl p-12 shadow-2xl overflow-hidden flex flex-col border border-white/20 max-h-[90vh]">
-            <h3 className="text-3xl font-black text-slate-800 mb-10 uppercase tracking-tight leading-none italic">Log Aktivitas<br/><span className="text-blue-600">Produktivitas Harian</span></h3>
+            <h3 className="text-3xl font-black text-slate-800 mb-10 uppercase tracking-tight leading-none italic">
+                {editingReport ? 'Edit Laporan' : 'Log Aktivitas'}<br/>
+                <span className="text-blue-600">{editingReport ? 'Perbarui Data' : 'Produktivitas Harian'}</span>
+            </h3>
             <div className="flex-1 overflow-y-auto space-y-8 pr-4 custom-scrollbar">
               {activities.map((act, idx) => (
                 <div key={idx} className="bg-slate-50 p-6 md:p-8 rounded-[2.5rem] space-y-6 border border-slate-100 relative group animate-in slide-in-from-right duration-300">
@@ -327,8 +396,10 @@ _Dikirim dari Sistem ERP SDM_
               </button>
             </div>
             <div className="flex gap-6 mt-8 pt-6 border-t border-slate-50 shrink-0">
-              <button onClick={() => setShowAdd(false)} className="flex-1 py-5 text-slate-400 font-black uppercase tracking-widest hover:bg-slate-50 rounded-[1.5rem] text-[10px] transition">BATAL</button>
-              <button onClick={submitReport} className="flex-1 bg-slate-900 text-white py-5 rounded-[1.5rem] font-black uppercase tracking-[0.2em] text-[10px] shadow-2xl shadow-slate-100 hover:bg-blue-600 transition">LAPORKAN & KIRIM</button>
+              <button onClick={() => setShowAdd(false)} className="flex-1 py-5 text-slate-400 font-black uppercase tracking-widest hover:bg-slate-50 rounded-[1.5rem] text-[10px] transition" disabled={isSubmitting}>BATAL</button>
+              <button onClick={submitReport} disabled={isSubmitting} className="flex-1 bg-slate-900 text-white py-5 rounded-[1.5rem] font-black uppercase tracking-[0.2em] text-[10px] shadow-2xl shadow-slate-100 hover:bg-blue-600 transition disabled:opacity-50 flex justify-center items-center gap-2">
+                  {isSubmitting ? 'MEMPROSES...' : (editingReport ? 'SIMPAN PERUBAHAN' : 'LAPORKAN & KIRIM')}
+              </button>
             </div>
           </div>
         </div>

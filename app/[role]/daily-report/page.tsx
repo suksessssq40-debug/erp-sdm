@@ -14,6 +14,8 @@ export default function DailyReportPage() {
       users={store.users} 
       reports={store.dailyReports} 
       onAddReport={store.addDailyReport} 
+      onUpdateReport={store.updateDailyReport}
+      onDeleteReport={store.deleteDailyReport} 
       toast={toast} 
     />
   );

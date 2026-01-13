@@ -674,6 +674,46 @@ export const useStore = () => {
       addLog(SystemActionType.PROJECT_TASK_COMPLETE, `Submitted Daily Report for ${created.date}`, created.id);
     } catch (e) {
       console.error(e);
+      throw e; // RETHROW so frontend knows it failed!
+    }
+  };
+
+  const updateDailyReport = async (report: DailyReport) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/daily-reports/${report.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify(report)
+      });
+      if (!res.ok) throw new Error('Failed to update daily report');
+      
+      setState(prev => ({
+        ...prev,
+        dailyReports: prev.dailyReports.map(r => r.id === report.id ? report : r)
+      }));
+      addLog(SystemActionType.PROJECT_TASK_COMPLETE, `Updated Daily Report for ${report.date}`, report.id);
+    } catch (e) {
+      console.error(e);
+      throw e;
+    }
+  };
+
+  const deleteDailyReport = async (id: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/daily-reports/${id}`, {
+        method: 'DELETE',
+        headers: { ...authHeaders }
+      });
+      if (!res.ok) throw new Error('Failed to delete daily report');
+      
+      setState(prev => ({
+        ...prev,
+        dailyReports: prev.dailyReports.filter(r => r.id !== id)
+      }));
+      addLog(SystemActionType.PROJECT_DELETE, `Deleted Daily Report`, id);
+    } catch (e) {
+      console.error(e);
+      throw e;
     }
   };
 
@@ -1002,6 +1042,8 @@ export const useStore = () => {
     updateTransaction,
     deleteTransaction,
     addDailyReport,
+    updateDailyReport,
+    deleteDailyReport,
     updateSalaryConfig,
     addPayrollRecord,
     addFinancialAccount,
