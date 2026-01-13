@@ -34,7 +34,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, activeTab, onTabCha
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(true);
   
   const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: [UserRole.OWNER] },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF] },
     { id: 'kanban', label: 'Project Kanban', icon: Trello, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF] },
     { id: 'chat', label: 'Team Chat', icon: MessageSquare, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF] },
     { id: 'attendance', label: 'Absensi', icon: CalendarCheck, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF] },
