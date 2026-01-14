@@ -64,8 +64,13 @@ export default function AttendanceReportPage() {
             });
         }
 
-        // Sort descending by date
-        return data.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        // Sort descending: Use createdAt if available (more reliable), otherwise fallback to date string
+        return data.sort((a, b) => {
+            // Prioritize createdAt timestamp (BigInt/Number)
+            const timeA = a.createdAt ? Number(a.createdAt) : new Date(a.date).getTime();
+            const timeB = b.createdAt ? Number(b.createdAt) : new Date(b.date).getTime();
+            return timeB - timeA;
+        });
     }, [store.attendance, startDate, endDate, searchUser, store.users, store.currentUser, isStaff]);
 
     // Export Logic
