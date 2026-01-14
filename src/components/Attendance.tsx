@@ -105,13 +105,32 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
 
     // If latest record has NO timeOut (Belum pulang)
     if (!latest.timeOut) {
-        // Check age of record to avoid picking up very old stale sessions (e.g. forgot last week)
-        const tLatest = latest.createdAt ? Number(latest.createdAt) : new Date(latest.date).getTime();
-        const diffHours = (Date.now() - tLatest) / (1000 * 60 * 60);
+        // Calculate Session Start Time
+        let tStart = latest.createdAt ? Number(latest.createdAt) : 0;
         
-        // If within 24 hours, consider it the active session for Today/Tonight
-        if (diffHours < 24) {
-            return latest;
+        // Fallback: If createdAt is missing or invalid, try to combine date + timeIn
+        if (!tStart && latest.date) {
+            const d = new Date(latest.date); // Sets to 00:00 local
+            if (!isNaN(d.getTime())) {
+                if (latest.timeIn) {
+                    // timeIn is usually "HH:mm" or "HH.mm"
+                    const [h, m] = latest.timeIn.replace('.', ':').split(':').map(Number);
+                    d.setHours(h || 0, m || 0);
+                }
+                tStart = d.getTime();
+            }
+        }
+
+        // Check age: (Now - Start)
+        // If tStart is valid
+        if (tStart > 0) {
+            const diffHours = (Date.now() - tStart) / (1000 * 60 * 60);
+            
+            // If within 24 hours, consider it the active session for Today/Tonight
+            // Extended slightly to 24h to cover full overnight shifts
+            if (diffHours < 24) {
+                return latest;
+            }
         }
     }
 
