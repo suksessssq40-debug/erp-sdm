@@ -96,7 +96,7 @@ model Project {
 model Attendance {
   id                String    @id
   userId            String?   @map("user_id")
-  date              String?   @db.VarChar(20)
+  date              String?   @db.VarChar(50)
   timeIn            String?   @map("time_in")
   timeOut           String?   @map("time_out")
   isLate            Int?      @map("is_late")

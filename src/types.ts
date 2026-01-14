@@ -132,6 +132,7 @@ export interface Attendance {
   lateReason?: string;
   selfieUrl: string;
   location: { lat: number; lng: number };
+  createdAt?: number; // Optional because legacy data might not have it loaded in all contexts
 }
 
 export enum TransactionType {
