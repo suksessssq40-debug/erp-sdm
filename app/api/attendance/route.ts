@@ -19,8 +19,12 @@ export async function GET(request: Request) {
 
         records = await prisma.attendance.findMany({
             where,
-            orderBy: [{ date: 'desc' }, { timeIn: 'desc' }],
-            take: 100 
+            orderBy: [
+                { createdAt: 'desc' }, // Primary sort by timestamp
+                { date: 'desc' },      // Fallback
+                { timeIn: 'desc' }
+            ],
+            take: 200 // Increased limit to ensure we catch recent items
         });
     } catch (e) {
         console.warn("Schema mismatch in Attendance API: falling back");
@@ -45,7 +49,8 @@ export async function GET(request: Request) {
         lateReason: a.lateReason || undefined,
         selfieUrl: a.selfieUrl,
         checkOutSelfieUrl: a.checkoutSelfieUrl || undefined,
-        location: { lat: Number(a.locationLat), lng: Number(a.locationLng) }
+        location: { lat: Number(a.locationLat), lng: Number(a.locationLng) },
+        createdAt: a.createdAt ? new Date(a.createdAt).getTime() : undefined
     }));
 
     return NextResponse.json(formatted);
