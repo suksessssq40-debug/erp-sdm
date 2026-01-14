@@ -88,7 +88,40 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
   }, [serverOffset]);
 
   const todayStr = new Date(Date.now() + serverOffset).toDateString();
-  const myAttendanceToday = attendanceLog.find(a => a.userId === currentUser.id && a.date === todayStr);
+  
+  // Cross-Day Logic: Find the latest "Open" session (no checkout) within reasonable timeframe (e.g. 24h)
+  // This allows 5 PM - 1 AM shifts to still show "Check Out" at 1 AM the next day.
+  const myAttendanceToday = React.useMemo(() => {
+    const myLogs = attendanceLog.filter(a => a.userId === currentUser.id);
+    // Sort desc
+    myLogs.sort((a, b) => {
+        const tA = a.createdAt ? Number(a.createdAt) : new Date(a.date).getTime();
+        const tB = b.createdAt ? Number(b.createdAt) : new Date(b.date).getTime();
+        return tB - tA;
+    });
+
+    const latest = myLogs[0];
+    if (!latest) return undefined;
+
+    // If latest record has NO timeOut (Belum pulang)
+    if (!latest.timeOut) {
+        // Check age of record to avoid picking up very old stale sessions (e.g. forgot last week)
+        const tLatest = latest.createdAt ? Number(latest.createdAt) : new Date(latest.date).getTime();
+        const diffHours = (Date.now() - tLatest) / (1000 * 60 * 60);
+        
+        // If within 24 hours, consider it the active session for Today/Tonight
+        if (diffHours < 24) {
+            return latest;
+        }
+    }
+
+    // Fallback: If closed or stale, check if we have a fresh new "Today" entry (standard logic)
+    // Note: If sorting is correct, 'latest' would be today's if it exists.
+    // But we double check date string just in case.
+    if (latest.date === todayStr) return latest;
+    
+    return undefined;
+  }, [attendanceLog, currentUser.id, todayStr]);
 
   const [gpsLoading, setGpsLoading] = useState(true);
   const [currentDistance, setCurrentDistance] = useState<number | null>(null);
