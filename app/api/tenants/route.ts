@@ -47,31 +47,40 @@ export async function POST(request: Request) {
 
     console.log(`Creating tenant: ${tenantIdSlug}...`);
     // 2. Create Tenant
-    const newTenant = await prisma.tenant.create({
-        data: {
-            id: tenantIdSlug,
-            name,
-            description: description || '',
-            isActive: true,
-            settings: {
-                create: {
-                    officeLat: -6.1754, // Default Jakarta
-                    officeLng: 106.8272,
-                    officeStartTime: '08:00',
-                    officeEndTime: '17:00',
-                    telegramBotToken: '',
-                    telegramGroupId: '',
-                    telegramOwnerChatId: '',
-                    dailyRecapTime: '17:00',
-                    dailyRecapContent: '["attendance", "kanban"]',
-                    companyProfileJson: JSON.stringify({
-                        name: name,
-                        address: 'Alamat Kantor...',
-                        phone: '08...'
-                    })
-                } as any
+    // 2. Create Tenant (Transaction)
+    const newTenant = await prisma.$transaction(async (tx) => {
+        // A. Create Tenant
+        const t = await tx.tenant.create({
+            data: {
+                id: tenantIdSlug,
+                name,
+                description: description || '',
+                isActive: true
             }
-        }
+        });
+
+        // B. Create Settings explicit linking
+        await tx.settings.create({
+            data: {
+                tenantId: t.id, // Explicitly link
+                officeLat: -6.1754,
+                officeLng: 106.8272,
+                officeStartTime: '08:00',
+                officeEndTime: '17:00',
+                telegramBotToken: '',
+                telegramGroupId: '',
+                telegramOwnerChatId: '',
+                dailyRecapTime: '17:00',
+                dailyRecapContent: '["attendance", "kanban"]',
+                companyProfileJson: JSON.stringify({
+                    name: name,
+                    address: 'Alamat Kantor...',
+                    phone: '08...'
+                })
+            } as any
+        });
+
+        return t;
     });
 
     // 3. CLONE THE CURRENT OWNER to the new Tenant
