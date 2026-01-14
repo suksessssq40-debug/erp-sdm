@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { useAppStore } from '../../../../src/context/StoreContext';
-import { UserRole, Attendance } from '../../../../src/types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useAppStore } from '@/context/StoreContext';
+import { UserRole, Attendance } from '@/types';
 import { useRouter } from 'next/navigation';
 import { 
     Calendar, Download, Search, MapPin, Clock, ArrowRightSquare, 
@@ -18,9 +18,17 @@ export default function AttendanceReportPage() {
     const [selectedRecord, setSelectedRecord] = useState<Attendance | null>(null);
 
     // Initial Security Check (Allow All Authenticated Users)
+    useEffect(() => {
+        if (store.currentUser) {
+            store.fetchAttendance();
+            if (!store.users || store.users.length === 0) {
+                // store.fetchUsers(); // Removed as it doesn't exist, users come from bootstrap
+            }
+        }
+    }, [store.currentUser]);
+
     if (!store.currentUser) {
         if (typeof window !== 'undefined') router.replace('/login');
-        // Prevent hydration mismatch or flash
         return null;
     }
 
@@ -52,7 +60,7 @@ export default function AttendanceReportPage() {
             const lowerQuery = searchUser.toLowerCase();
             data = data.filter(d => {
                 const u = store.users.find(u => u.id === d.userId);
-                return u?.name.toLowerCase().includes(lowerQuery);
+                return u?.name?.toLowerCase().includes(lowerQuery);
             });
         }
 
@@ -183,7 +191,7 @@ export default function AttendanceReportPage() {
                                                             user?.name.charAt(0)
                                                         )}
                                                     </div>
-                                                    <span className="group-hover:text-blue-600 transition">{user?.name}</span>
+                                                    <span className="group-hover:text-blue-600 transition">{user?.name || 'Unknown User'}</span>
                                                 </div>
                                             </td>
                                             <td className="p-6 text-emerald-600">{record.timeIn}</td>
@@ -293,11 +301,11 @@ export default function AttendanceReportPage() {
                                  <div className="border-b border-slate-100 pb-6">
                                      <div className="flex items-center gap-4 mb-2">
                                          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-black text-lg shadow-lg shadow-blue-200">
-                                             {store.users.find(u => u.id === selectedRecord.userId)?.name.charAt(0)}
+                                             {store.users.find(u => u.id === selectedRecord.userId)?.name?.charAt(0) || '?'}
                                          </div>
                                          <div>
                                             <h3 className="text-2xl font-black text-slate-800 tracking-tight leading-none">
-                                                {store.users.find(u => u.id === selectedRecord.userId)?.name}
+                                                {store.users.find(u => u.id === selectedRecord.userId)?.name || 'Unknown User'}
                                             </h3>
                                             <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px] mt-1">
                                                 Staff ID: {selectedRecord.userId}

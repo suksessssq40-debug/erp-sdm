@@ -7,10 +7,18 @@ export enum UserRole {
   SUPERADMIN = 'SUPERADMIN'
 }
 
+export interface Tenant {
+  id: string; // 'sdm', 'manjada'
+  name: string;
+  description?: string;
+  isActive: boolean;
+}
+
 export interface User {
   id: string;
   name: string;
   username: string;
+  tenantId: string;
   telegramId: string;
   telegramUsername: string;
   role: UserRole;

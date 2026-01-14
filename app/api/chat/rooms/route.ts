@@ -7,6 +7,8 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
   try {
     const user = await authorize();
+    const { tenantId } = user;
+    
     // 1. AUTO-MIGRATION & LAZY INIT
     // Ensure tables exist before checking content. This fixes "Missing Table" error on Vercel/New Configs.
     await pool.query('BEGIN');
@@ -14,11 +16,22 @@ export async function GET(request: Request) {
         await pool.query(`
           CREATE TABLE IF NOT EXISTS chat_rooms (
             id VARCHAR(50) PRIMARY KEY,
+            tenant_id VARCHAR(50) DEFAULT 'sdm',
             name VARCHAR(100),
             type VARCHAR(20),
             created_by VARCHAR(50),
             created_at BIGINT
           );
+          
+          -- Upgrade: add tenant_id if missing
+          DO $$
+          BEGIN
+              IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='chat_rooms' AND column_name='tenant_id') THEN
+                  ALTER TABLE chat_rooms ADD COLUMN tenant_id VARCHAR(50) DEFAULT 'sdm';
+              END IF;
+          END
+          $$;
+
           CREATE TABLE IF NOT EXISTS chat_members (
             room_id VARCHAR(50),
             user_id VARCHAR(50),
@@ -26,8 +39,6 @@ export async function GET(request: Request) {
             PRIMARY KEY (room_id, user_id)
           );
           
-          
-          -- Upgrade Schema: Add last_read_at, is_pinned if missing
           DO $$
           BEGIN
               IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='chat_members' AND column_name='last_read_at') THEN
@@ -56,30 +67,31 @@ export async function GET(request: Request) {
           );
         `);
 
-        // Check General Room
-        const checkGeneral = await pool.query("SELECT 1 FROM chat_rooms WHERE id = 'general'");
+        // Check General Room for THIS Tenant
+        const generalRoomId = `general-${tenantId}`;
+        const checkGeneral = await pool.query("SELECT 1 FROM chat_rooms WHERE id = $1 AND tenant_id = $2", [generalRoomId, tenantId]);
         if (checkGeneral.rows.length === 0) {
-           console.log("Initializing Default General Room...");
+           console.log(`Initializing General Forum for tenant: ${tenantId}`);
            await pool.query(
-            "INSERT INTO chat_rooms (id, name, type, created_by, created_at) VALUES ($1, $2, $3, $4, $5)",
-            ['general', 'General Forum', 'GROUP', 'system', Date.now()]
+            "INSERT INTO chat_rooms (id, tenant_id, name, type, created_by, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+            [generalRoomId, tenantId, 'General Forum', 'GROUP', 'system', Date.now()]
            );
-           // Auto-enroll all current users
-           const allUsers = await pool.query("SELECT id FROM users");
-           for (const u of allUsers.rows) {
+           // Auto-enroll all users of THIS tenant
+           const tenantUsers = await pool.query("SELECT id FROM users WHERE tenant_id = $1", [tenantId]);
+           for (const u of tenantUsers.rows) {
              await pool.query(
                "INSERT INTO chat_members (room_id, user_id, joined_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
-               ['general', u.id, Date.now()]
+               [generalRoomId, u.id, Date.now()]
              );
            }
         }
         await pool.query('COMMIT');
     } catch (e) {
         await pool.query('ROLLBACK');
-        console.error("Auto-migration failed:", e);
+        console.error("Chat migration failed:", e);
     }
 
-    // Get rooms where user is member
+    // Get rooms where user is member AND room belongs to user tenant
     const res = await pool.query(`
       SELECT r.*, 
              COALESCE(
@@ -94,19 +106,20 @@ export async function GET(request: Request) {
              COALESCE(cm.is_pinned, FALSE) as is_pinned_room
       FROM chat_rooms r
       INNER JOIN chat_members cm ON r.id = cm.room_id
-      WHERE cm.user_id = $1
+      WHERE cm.user_id = $1 AND r.tenant_id = $2
       ORDER BY 
         cm.is_pinned DESC,
         CASE WHEN (SELECT created_at FROM chat_messages WHERE room_id = r.id ORDER BY created_at DESC LIMIT 1) IS NOT NULL 
         THEN (SELECT created_at FROM chat_messages WHERE room_id = r.id ORDER BY created_at DESC LIMIT 1)
         ELSE r.created_at END DESC
-    `, [user.id]);
+    `, [user.id, tenantId]);
     
     // Transform to match interface
     const rooms = res.rows.map(row => ({
       id: row.id,
       name: row.name,
       type: row.type,
+      tenantId: row.tenant_id,
       createdBy: row.created_by,
       createdAt: Number(row.created_at),
       memberIds: row.member_ids,
@@ -130,6 +143,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const user = await authorize();
+    const { tenantId } = user;
     const body = await request.json();
     const { name, type, memberIds } = body; // memberIds is array of string
 
@@ -141,8 +155,8 @@ export async function POST(request: Request) {
     await pool.query('BEGIN');
     
     await pool.query(
-      'INSERT INTO chat_rooms (id, name, type, created_by, created_at) VALUES ($1, $2, $3, $4, $5)',
-      [roomId, name, type || 'GROUP', user.id, createdAt]
+      'INSERT INTO chat_rooms (id, tenant_id, name, type, created_by, created_at) VALUES ($1, $2, $3, $4, $5, $6)',
+      [roomId, tenantId, name, type || 'GROUP', user.id, createdAt]
     );
 
     // Add creator
@@ -165,7 +179,7 @@ export async function POST(request: Request) {
 
     await pool.query('COMMIT');
     
-    return NextResponse.json({ id: roomId, name, type, createdBy: user.id, createdAt, memberIds: [user.id, ...(memberIds || [])] });
+    return NextResponse.json({ id: roomId, name, type, tenantId, createdBy: user.id, createdAt, memberIds: [user.id, ...(memberIds || [])] });
   } catch (err) {
     await pool.query('ROLLBACK');
     console.error(err);
@@ -176,16 +190,18 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const user = await authorize();
+    const { tenantId } = user;
     const { searchParams } = new URL(request.url);
     const roomId = searchParams.get('id');
 
     if (!roomId) return NextResponse.json({ error: 'Room ID required' }, { status: 400 });
-    if (roomId === 'general') return NextResponse.json({ error: 'Cannot delete general room' }, { status: 403 });
+    if (roomId.startsWith('general-')) return NextResponse.json({ error: 'Cannot delete general room' }, { status: 403 });
 
     // Allow ANY user to delete (as requested: "semua user bisa hapus")
     // But logically, they should at least be a member or it should exist
-    const roomCheck = await pool.query('SELECT 1 FROM chat_rooms WHERE id = $1', [roomId]);
-    if (roomCheck.rows.length === 0) return NextResponse.json({ error: 'Room not found' }, { status: 404 });
+    // Verify room belongs to tenant
+    const roomCheck = await pool.query('SELECT 1 FROM chat_rooms WHERE id = $1 AND tenant_id = $2', [roomId, tenantId]);
+    if (roomCheck.rows.length === 0) return NextResponse.json({ error: 'Room not found or unauthorized' }, { status: 404 });
 
     await pool.query('BEGIN');
     await pool.query('DELETE FROM chat_messages WHERE room_id = $1', [roomId]);

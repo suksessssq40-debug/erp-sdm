@@ -4,14 +4,15 @@ import { authorize } from '@/lib/auth';
 
 export async function GET(request: Request) {
   try {
-    await authorize(['OWNER', 'FINANCE', 'MANAGER', 'STAFF']);
+    const user = await authorize(['OWNER', 'FINANCE', 'MANAGER', 'STAFF']);
+    const { tenantId } = user;
     
     const { searchParams } = new URL(request.url);
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
     const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 1000;
 
-    const whereClause: any = {};
+    const whereClause: any = { tenantId };
     if (startDate) whereClause.date = { gte: new Date(startDate) };
     if (endDate) {
         whereClause.date = { 
@@ -25,7 +26,7 @@ export async function GET(request: Request) {
         where: whereClause,
         orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
         take: limit,
-        include: { coa: true } as any // Cast to any to bypass stale types
+        include: { coa: true } as any 
     });
     
     // Map to safe format (Date to String)
@@ -34,17 +35,17 @@ export async function GET(request: Request) {
         date: t.date ? t.date.toISOString().split('T')[0] : '',
         amount: Number(t.amount),
         type: t.type,
-        category: t.coa ? `${t.coa.code} - ${t.coa.name}` : t.category, // Hybrid Display
+        category: t.coa ? `${t.coa.code} - ${t.coa.name}` : t.category, 
         description: t.description,
         account: t.account,
         businessUnitId: t.businessUnitId,
         imageUrl: t.imageUrl,
-        // New Accrual Fields
+        tenantId: t.tenantId,
         coaId: t.coaId,
         coa: t.coa ? {
             ...t.coa,
             createdAt: t.coa.createdAt ? t.coa.createdAt.toString() : null
-        } : null, // Pass full object safely (BigInt to String)
+        } : null, 
         contactName: t.contactName,
         status: t.status,
         dueDate: t.dueDate ? t.dueDate.toISOString().split('T')[0] : null
@@ -59,14 +60,18 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    await authorize(['OWNER', 'FINANCE']);
+    const user = await authorize(['OWNER', 'FINANCE']);
+    const { tenantId } = user;
     const t = await request.json();
 
-    // Link Account by Name (Lookup ID)
+    // Link Account by Name (Lookup ID) - MUST BE WITHIN SAME TENANT
     let accountId: string | null = null;
     if (t.account) {
         const acc = await prisma.financialAccount.findFirst({
-            where: { name: { equals: t.account, mode: 'insensitive' } }
+            where: { 
+                tenantId,
+                name: { equals: t.account, mode: 'insensitive' } 
+            }
         });
         if (acc) accountId = acc.id;
     }
@@ -77,6 +82,7 @@ export async function POST(request: Request) {
         await tx.transaction.create({
           data: {
             id: t.id,
+            tenantId,
             date: new Date(t.date),
             amount: t.amount,
             type: t.type,
@@ -100,18 +106,18 @@ export async function POST(request: Request) {
                 const change = t.type === 'IN' ? amount : -amount;
                 
                 await (tx.financialAccount as any).update({
-                    where: { id: accountId },
+                    where: { id: accountId, tenantId }, // Security: Double check tenant
                     data: { balance: { increment: change } }
                 });
             } catch (e) {
-                console.warn('Sync Warning: Balance update skipped, column likely missing in production DB.');
+                console.warn('Sync Warning: Balance update skipped or failed.');
             }
         }
     });
 
     return NextResponse.json(t, { status: 201 });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Create Transaction Error:', error);
-    return NextResponse.json({ error: 'Failed to create transaction' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to create transaction', details: error.message }, { status: 500 });
   }
 }

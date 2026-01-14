@@ -95,7 +95,7 @@ export const FinanceDashboard = () => {
                </div>
                <div>
                    {!isCheckedIn ? (
-                       <button onClick={() => router.push(`/${currentUser?.role.toLowerCase()}/attendance`)} className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl font-bold text-sm uppercase tracking-widest shadow-lg transition">
+                       <button onClick={() => router.push(`/${currentUser?.tenantId || 'sdm'}/${currentUser?.role.toLowerCase()}/attendance`)} className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl font-bold text-sm uppercase tracking-widest shadow-lg transition">
                            <Clock className="inline mr-2" size={18}/> Absen Masuk
                        </button>
                    ) : (
@@ -150,7 +150,7 @@ export const FinanceDashboard = () => {
                  ))}
                  {transactions.length === 0 && <p className="text-xs text-slate-400 italic">Belum ada transaksi.</p>}
              </div>
-             <button onClick={() => router.push(`/${currentUser?.role.toLowerCase()}/finance`)} className="w-full mt-6 py-3 bg-slate-50 text-slate-600 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-100 transition">
+             <button onClick={() => router.push(`/${currentUser?.tenantId || 'sdm'}/${currentUser?.role.toLowerCase()}/finance`)} className="w-full mt-6 py-3 bg-slate-50 text-slate-600 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-100 transition">
                  Lihat Semua
              </button>
           </div>

@@ -85,7 +85,10 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
     const collaborators = users.filter(u => project.collaborators.includes(u.id));
     const tagString = collaborators.map(u => u.telegramUsername || u.name).join(', ');
     
-    const msg = `<b>${escapeHTML(title)}</b>\n\n` +
+    const officeLabel = settings.companyProfile?.name ? settings.companyProfile.name.toUpperCase() : currentUser.tenantId.toUpperCase() + " ERP";
+
+    const msg = `🏢 <b>${escapeHTML(officeLabel)}</b>\n` +
+                `<b>${escapeHTML(title)}</b>\n\n` +
                 `Proyek: <b>${escapeHTML(project.title)}</b>\n` +
                 `${content}\n` +
                 `Oleh: <b>${escapeHTML(currentUser.name)}</b>\n\n` +
@@ -186,11 +189,11 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
       <div className="space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h3 className="text-xl font-bold text-slate-800">Papan Proyek SDM</h3>
+            <h3 className="text-xl font-bold text-slate-800">Papan Proyek {currentUser.tenantId.toUpperCase()}</h3>
             <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">DRAG & DROP UNTUK UPDATE STATUS</p>
           </div>
           <div className="flex gap-3 w-full md:w-auto">
-             <button onClick={() => router.push(`/${currentUser.role.toLowerCase()}/projects`)} className="bg-slate-100 text-slate-600 px-5 py-3 rounded-2xl flex items-center justify-center space-x-2 hover:bg-slate-200 transition flex-1 md:flex-none">
+             <button onClick={() => router.push(`/${currentUser.tenantId || 'sdm'}/${currentUser.role.toLowerCase()}/projects`)} className="bg-slate-100 text-slate-600 px-5 py-3 rounded-2xl flex items-center justify-center space-x-2 hover:bg-slate-200 transition flex-1 md:flex-none">
                <LayoutGrid size={20} /> <span className="font-black text-xs uppercase tracking-widest">DETAIL VIEW</span>
              </button>
              <button onClick={() => setShowAddModal(true)} className="bg-blue-600 text-white px-5 py-3 rounded-2xl flex items-center justify-center space-x-2 hover:bg-blue-700 transition shadow-xl shadow-blue-200 flex-1 md:flex-none">
@@ -530,7 +533,9 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, curre
                  finalChatId = `-100${finalChatId}`;
              }
          }
-         const msg = `💬 <b>Komentar Tugas Baru</b>\n\n` +
+         const officeLabel = settings.companyProfile?.name ? settings.companyProfile.name.toUpperCase() : currentUser.tenantId.toUpperCase() + " ERP";
+         const msg = `🏢 <b>${escapeHTML(officeLabel)}</b>\n` +
+                  `💬 <b>Komentar Tugas Baru</b>\n\n` +
                   `Proyek: <b>${escapeHTML(project.title)}</b>\n` +
                   `Tugas: <b>${escapeHTML(project.tasks[idx].title)}</b>\n` +
                   `User: <b>${escapeHTML(currentUser.name)}</b>\n` +
@@ -565,7 +570,9 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, curre
       const collaborators = users.filter(u => updatedTask.assignedTo.includes(u.id));
       const tagString = collaborators.map(u => u.telegramUsername || u.name).join(', ');
       
-      const msg = `✅ <b>Tugas Selesai</b>\n\n` +
+      const officeLabel = settings.companyProfile?.name ? settings.companyProfile.name.toUpperCase() : currentUser.tenantId.toUpperCase() + " ERP";
+      const msg = `🏢 <b>${escapeHTML(officeLabel)}</b>\n` +
+                  `✅ <b>Tugas Selesai</b>\n\n` +
                   `Proyek: <b>${escapeHTML(project.title)}</b>\n` +
                   `Tugas: <b>${escapeHTML(updatedTask.title)}</b>\n` +
                   `Penyelesaian: <i>${escapeHTML(proofForm.description)}</i>\n` +

@@ -1,6 +1,7 @@
 
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
+import { authorize } from '@/lib/auth';
 
 export async function POST(request: Request) {
   try {
@@ -8,10 +9,12 @@ export async function POST(request: Request) {
 
     console.log(`[API Transporter] Sending to ${chatId}`);
 
-    // 1. Get Token from Database (Securely)
-    const settingsRes = await pool.query('SELECT telegram_bot_token FROM settings LIMIT 1');
+    // 1. Get Token from Database (Securely for CURRENT Tenant)
+    const user = await authorize();
+    const settingsRes = await pool.query('SELECT telegram_bot_token FROM settings WHERE tenant_id = $1', [user.tenantId]);
+    
     if (settingsRes.rows.length === 0) {
-      console.warn("Telegram token not configured in settings");
+      console.warn(`Telegram token not configured for tenant: ${user.tenantId}`);
       return NextResponse.json({ error: 'Token not configured' }, { status: 404 });
     }
     const token = settingsRes.rows[0].telegram_bot_token;

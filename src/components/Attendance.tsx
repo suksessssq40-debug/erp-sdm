@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Attendance, AppSettings, User, UserRole } from '../types';
+import { Attendance, AppSettings, User, UserRole } from '@/types';
 import { calculateDistance } from '../utils';
 import { Camera, MapPin, AlertCircle, CheckCircle2, History, Clock, LogOut, Loader2 } from 'lucide-react';
 import { OFFICE_RADIUS_METERS } from '../constants';
@@ -319,8 +319,8 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
               </div>
 
                {/* REPORT BUTTON */}
-               <button 
-                onClick={() => window.location.href = `/${currentUser.role.toLowerCase()}/attendance/report`}
+                <button 
+                 onClick={() => window.location.href = `/${currentUser.tenantId || 'sdm'}/${currentUser.role.toLowerCase()}/attendance/report`}
                 className="md:absolute md:top-8 md:right-8 w-full md:w-auto mt-6 md:mt-0 bg-white border border-slate-200 text-slate-600 px-6 py-3 rounded-xl flex items-center justify-center space-x-2 text-[10px] font-black uppercase tracking-widest hover:border-blue-500 hover:text-blue-600 transition shadow-sm"
                >
                   <History size={14} /> <span>LAPORAN DETAIL</span>

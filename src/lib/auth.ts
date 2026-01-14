@@ -9,7 +9,9 @@ if (!JWT_SECRET) {
 
 export interface AuthPayload {
   id: string;
+  username: string;
   role: string;
+  tenantId: string;
 }
 
 export async function getUser(): Promise<AuthPayload | null> {

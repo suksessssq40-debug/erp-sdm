@@ -168,7 +168,7 @@ export const OwnerDashboard = () => {
                              <p className="text-slate-400 text-xs xl:text-sm mt-2 leading-relaxed">Kelola arus kas perusahaaan secara menyeluruh di modul finansial.</p>
                         </div>
                         <button 
-                            onClick={() => router.push('/owner/finance')}
+                            onClick={() => router.push(`/${currentUser?.tenantId || 'sdm'}/owner/finance`)}
                             className="bg-slate-900 text-white w-full py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-blue-600 transition shadow-lg mt-6 text-sm"
                         >
                             Open Finance <ArrowRight size={18} />
@@ -337,7 +337,7 @@ export const OwnerDashboard = () => {
                             </div>
                             <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.3em] mt-8 text-center max-w-[200px]">Permohonan Menunggu Tanda Tangan Digital Anda.</p>
                             <button 
-                                onClick={() => router.push('/owner/requests')}
+                                onClick={() => router.push(`/${currentUser?.tenantId || 'sdm'}/owner/requests`)}
                                 className="mt-8 px-8 py-3 bg-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-900 hover:text-white transition shadow-sm"
                             >
                                 Review All Requests

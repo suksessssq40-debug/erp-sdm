@@ -151,7 +151,7 @@ export const StaffDashboard = () => {
                    <div>
                        {!isCheckedIn ? (
                            <button 
-                             onClick={() => router.push(`/${currentUser?.role.toLowerCase()}/attendance`)}
+                             onClick={() => router.push(`/${currentUser?.tenantId || 'sdm'}/${currentUser?.role.toLowerCase()}/attendance`)}
                              className="px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-blue-500/30 transition-all active:scale-95 flex items-center gap-3"
                            >
                                <Clock size={20} /> Absen Masuk
@@ -197,7 +197,7 @@ export const StaffDashboard = () => {
                        <Briefcase className="text-blue-600" size={20} />
                        TUGAS PRIORITAS SAYA
                    </h2>
-                   <button onClick={() => router.push(`/${currentUser?.role.toLowerCase()}/kanban`)} className="text-xs font-bold text-blue-600 hover:text-blue-700 uppercase tracking-widest flex items-center gap-1">
+                   <button onClick={() => router.push(`/${currentUser?.tenantId || 'sdm'}/${currentUser?.role.toLowerCase()}/kanban`)} className="text-xs font-bold text-blue-600 hover:text-blue-700 uppercase tracking-widest flex items-center gap-1">
                        Lihat Semua <ArrowRight size={14} />
                    </button>
                </div>
@@ -250,7 +250,7 @@ export const StaffDashboard = () => {
                        <div>
                            <p className="text-slate-500 text-xs mb-4 font-medium">Anda belum mengisi laporan kinerja hari ini.</p>
                            <button 
-                             onClick={() => router.push(`/${currentUser?.role.toLowerCase()}/daily-report`)}
+                             onClick={() => router.push(`/${currentUser?.tenantId || 'sdm'}/${currentUser?.role.toLowerCase()}/daily-report`)}
                              className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-800 transition shadow-lg"
                            >
                                Buat Laporan

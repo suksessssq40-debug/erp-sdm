@@ -15,7 +15,8 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   const pathname = usePathname();
   const toast = useToast();
   
-  // Params role
+  // Params
+  const tenantParam = params?.tenant as string;
   const roleParam = params?.role as string;
 
   // Unread Chat Badge Logic
@@ -81,7 +82,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   useEffect(() => {
     if (!store.loaded) return; 
     
-    // Redirect if not logged in and not on login page
+    // Redirect if not logged in
     if (!store.currentUser) {
       if (pathname !== '/login') {
           router.replace('/login');
@@ -89,13 +90,21 @@ export default function ClientShell({ children }: { children: React.ReactNode })
       return;
     }
 
-    // Redirect if role mismatch
+    // MULTI-TENANT REDIRECT LOGIC
     const userRoleSlug = store.currentUser.role.toLowerCase();
-    if (roleParam && roleParam !== userRoleSlug) {
-      router.replace(`/${userRoleSlug}/kanban`);
+    const userTenantId = store.currentUser?.tenantId || 'sdm';
+    
+    // If we're at a path that doesn't have tenant or has WRONG tenant/role
+    // pathParts[1] should be tenantParam
+    if (!tenantParam || tenantParam !== userTenantId || !roleParam || roleParam !== userRoleSlug) {
+        // Construct target: /[tenant]/[role]/[activeTab]
+        const pathParts = pathname.split('/');
+        const currentTab = pathParts[3] || pathParts[2] || 'kanban'; 
+        // Force redirect to correct tenant path
+        router.replace(`/${userTenantId}/${userRoleSlug}/${currentTab}`);
     }
 
-  }, [store.loaded, store.currentUser, roleParam, router, pathname]);
+  }, [store.loaded, store.currentUser, tenantParam, roleParam, router, pathname]);
 
   if (!store.loaded) {
     return (
@@ -107,23 +116,30 @@ export default function ClientShell({ children }: { children: React.ReactNode })
 
   if (!store.currentUser) return null;
 
-  // Determine Active Tab from Path
+  // Determine Active Tab from Path: /[tenant]/[role]/[tab]
   const pathParts = pathname.split('/');
-  const tabSlug = pathParts[2] || 'kanban';
+  const tabSlug = pathParts[3] || 'kanban';
   const activeTab = tabSlug; 
 
   const handleTabChange = (tab: string) => {
     const userRoleSlug = store.currentUser!.role.toLowerCase();
-    router.push(`/${userRoleSlug}/${tab}`);
+    const userTenantId = store.currentUser?.tenantId || 'sdm';
+    router.push(`/${userTenantId}/${userRoleSlug}/${tab}`);
   };
 
   // Pending Requests Badge for Management
   const pendingRequests = store.requests.filter(r => r.status === RequestStatus.PENDING).length;
+  
+  // Tenant Data
+  const tenantId = store.currentUser?.tenantId || 'sdm';
+  const tenantName = store.settings?.companyProfile?.name || `Office ${tenantId.toUpperCase()}`;
 
   return (
     <>
       <Layout
         userRole={store.currentUser.role}
+        tenantId={tenantId}
+        tenantName={tenantName}
         activeTab={activeTab}
         onTabChange={handleTabChange}
         onLogout={() => {

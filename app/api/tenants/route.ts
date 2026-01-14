@@ -1,0 +1,153 @@
+
+import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
+import { authorize } from '@/lib/auth';
+import { UserRole } from '@/types';
+
+// Admin-only API to Manage Tenants (Offices)
+export async function GET(request: Request) {
+  try {
+    const user = await authorize([UserRole.OWNER, UserRole.SUPERADMIN]);
+    
+    // Fetch all tenants
+    const tenants = await prisma.tenant.findMany({
+        orderBy: { createdAt: 'desc' },
+        include: {
+            // Optional: Count users strictly for this tenant
+            _count: {
+                select: { users: true }
+            }
+        }
+    });
+
+    return NextResponse.json(tenants);
+  } catch(e) {
+      console.error(e);
+      return NextResponse.json({ error: 'Failed to fetch tenants' }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const user = await authorize([UserRole.OWNER, UserRole.SUPERADMIN]);
+    const body = await request.json();
+    const { id, name, description } = body;
+
+    if (!id || !name) {
+        return NextResponse.json({ error: 'ID (slug) and Name are required' }, { status: 400 });
+    }
+
+    const tenantIdSlug = id.toLowerCase().trim().replace(/\s+/g, '-');
+
+    // 1. Check existing
+    const existing = await prisma.tenant.findUnique({ where: { id: tenantIdSlug } });
+    if (existing) {
+        return NextResponse.json({ error: `ID Kantor "${tenantIdSlug}" sudah terdaftar. Gunakan ID lain.` }, { status: 409 });
+    }
+
+    console.log(`Creating tenant: ${tenantIdSlug}...`);
+    // 2. Create Tenant
+    const newTenant = await prisma.tenant.create({
+        data: {
+            id: tenantIdSlug,
+            name,
+            description: description || '',
+            isActive: true,
+            settings: {
+                create: {
+                    officeLat: -6.1754, // Default Jakarta
+                    officeLng: 106.8272,
+                    officeStartTime: '08:00',
+                    officeEndTime: '17:00',
+                    telegramBotToken: '',
+                    telegramGroupId: '',
+                    telegramOwnerChatId: '',
+                    dailyRecapTime: '17:00',
+                    dailyRecapContent: '["attendance", "kanban"]',
+                    companyProfileJson: JSON.stringify({
+                        name: name,
+                        address: 'Alamat Kantor...',
+                        phone: '08...'
+                    })
+                } as any
+            }
+        }
+    });
+
+    // 3. CLONE THE CURRENT OWNER to the new Tenant
+    const currentUser = user as any;
+    const baseUsername = currentUser.username 
+        ? currentUser.username.split('.')[0] 
+        : (await prisma.user.findUnique({ where: { id: currentUser.id } }))?.username?.split('.')[0];
+    
+    const newAdminUsername = `${baseUsername}.${tenantIdSlug}`; // e.g. 'jaka.manjada'
+    
+    // Check if original user has passwordHash (it should)
+    const originalUser = await prisma.user.findUnique({ where: { id: user.id } });
+    
+    if (originalUser) {
+        await prisma.user.upsert({
+            where: { username: newAdminUsername },
+            update: {}, // If exists, do nothing (or update name if needed)
+            create: {
+                id: `${user.id}-${tenantIdSlug}`, // Unique ID
+                tenantId: tenantIdSlug,
+                name: originalUser.name,
+                username: newAdminUsername,
+                passwordHash: originalUser.passwordHash,
+                role: 'OWNER',
+                telegramId: originalUser.telegramId,
+                telegramUsername: originalUser.telegramUsername,
+                deviceIds: [], // Reset devices
+                isFreelance: false
+            }
+        });
+    }
+
+    // 4. Also init the General Chat Room for this new tenant
+    try {
+        await prisma.chatRoom.upsert({
+            where: { id: `general-${tenantIdSlug}` },
+            update: {},
+            create: {
+                id: `general-${tenantIdSlug}`,
+                tenantId: tenantIdSlug,
+                name: 'General Forum',
+                type: 'GROUP',
+                createdBy: 'system',
+                createdAt: BigInt(Date.now())
+            } as any
+        });
+        
+        // Add the new admin to this room
+        if (originalUser) {
+            await prisma.chatMember.upsert({
+                where: { 
+                    roomId_userId: {
+                        roomId: `general-${tenantIdSlug}`,
+                        userId: `${user.id}-${tenantIdSlug}`
+                    }
+                },
+                update: {},
+                create: {
+                    roomId: `general-${tenantIdSlug}`,
+                    userId: `${user.id}-${tenantIdSlug}`,
+                    joinedAt: BigInt(Date.now())
+                } as any
+            });
+        }
+    } catch(e) {
+        console.warn("Auto-chat init failed in tenant creation:", e);
+    }
+
+    return NextResponse.json({ tenant: newTenant, adminUsername: newAdminUsername });
+  } catch (error: any) {
+    console.error('Tenant Creation Error:', error);
+    // Provide a more helpful error message
+    let message = 'Gagal membuat kantor baru';
+    if (error.code === 'P2002') {
+        message = `Gagal: ID atau Data yang dimasukkan sudah terdaftar (${error.meta?.target || 'id'})`;
+    }
+    return NextResponse.json({ error: message, detail: error.message }, { status: 500 });
+  }
+}

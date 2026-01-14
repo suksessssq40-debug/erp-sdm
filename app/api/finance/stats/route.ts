@@ -6,20 +6,37 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   try {
-    await authorize(['OWNER', 'FINANCE']);
+    const user = await authorize(['OWNER', 'FINANCE']);
+    const { tenantId } = user;
 
-    // 1. Calculate Total Balance (Resilient)
+    // Special Rule: Arus Kas only for SDM
+    if (tenantId !== 'sdm') {
+      return NextResponse.json({
+          totalBalance: 0,
+          monthlyIn: 0,
+          monthlyOut: 0,
+          dailyTrend: []
+      });
+    }
+
+    // 1. Calculate Total Balance (Resilient) - Filter by Tenant
     let totalBalance = 0;
     try {
         const accounts = await (prisma.financialAccount as any).findMany({
-          where: { isActive: true },
+          where: { tenantId, isActive: true },
           select: { balance: true }
         });
         totalBalance = accounts.reduce((sum: number, acc: any) => sum + Number(acc.balance || 0), 0);
     } catch (e) {
-        const totalIn = await prisma.transaction.aggregate({ _sum: { amount: true }, where: { type: 'IN', status: 'PAID' } });
-        const totalOut = await prisma.transaction.aggregate({ _sum: { amount: true }, where: { type: 'OUT', status: 'PAID' } });
-        totalBalance = (Number(totalIn._sum.amount) || 0) - (Number(totalOut._sum.amount) || 0);
+        const totalIn = await prisma.transaction.aggregate({ 
+            _sum: { amount: true }, 
+            where: { tenantId, type: 'IN', status: 'PAID' } 
+        });
+        const totalOut = await prisma.transaction.aggregate({ 
+            _sum: { amount: true }, 
+            where: { tenantId, type: 'OUT', status: 'PAID' } 
+        });
+        totalBalance = (Number(totalIn?._sum?.amount) || 0) - (Number(totalOut?._sum?.amount) || 0);
     }
 
     // 2. Monthly Stats
@@ -28,12 +45,12 @@ export async function GET(request: Request) {
     
     const monthlyIn = await prisma.transaction.aggregate({
         _sum: { amount: true },
-        where: { type: 'IN', status: 'PAID', date: { gte: startOfMonth } } as any
+        where: { tenantId, type: 'IN', status: 'PAID', date: { gte: startOfMonth } } as any
     });
 
     const monthlyOut = await prisma.transaction.aggregate({
         _sum: { amount: true },
-        where: { type: 'OUT', status: 'PAID', date: { gte: startOfMonth } } as any
+        where: { tenantId, type: 'OUT', status: 'PAID', date: { gte: startOfMonth } } as any
     });
 
     // 3. Daily Trend (Last 30 Days)
@@ -42,6 +59,7 @@ export async function GET(request: Request) {
 
     const trendTransactions = await prisma.transaction.findMany({
         where: {
+            tenantId,
             status: 'PAID',
             date: { gte: thirtyDaysAgo }
         } as any,

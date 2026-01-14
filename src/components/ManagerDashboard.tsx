@@ -101,7 +101,7 @@ export const ManagerDashboard = () => {
                </div>
                <div>
                    {!isCheckedIn ? (
-                       <button onClick={() => router.push(`/${currentUser?.role.toLowerCase()}/attendance`)} className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-sm uppercase tracking-widest shadow-lg transition">
+                       <button onClick={() => router.push(`/${currentUser?.tenantId || 'sdm'}/${currentUser?.role.toLowerCase()}/attendance`)} className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-sm uppercase tracking-widest shadow-lg transition">
                            <Clock className="inline mr-2" size={18}/> Absen Masuk
                        </button>
                    ) : (
@@ -178,7 +178,7 @@ export const ManagerDashboard = () => {
           <div className="space-y-4">
                {/* Pending Approvals */}
                <div className="bg-amber-50 p-6 rounded-[2rem] border border-amber-100 relative group cursor-pointer hover:shadow-md transition"
-                    onClick={() => router.push(`/${currentUser?.role.toLowerCase()}/requests`)}>
+                    onClick={() => router.push(`/${currentUser?.tenantId || 'sdm'}/${currentUser?.role.toLowerCase()}/requests`)}>
                    <div className="flex justify-between items-start mb-2">
                        <div className="bg-white p-2 rounded-xl text-amber-500 shadow-sm">
                            <FileText size={24} />
@@ -191,7 +191,7 @@ export const ManagerDashboard = () => {
 
                {/* Overdue Projects */}
                <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm relative group cursor-pointer hover:shadow-md transition"
-                    onClick={() => router.push(`/${currentUser?.role.toLowerCase()}/projects`)}>
+                    onClick={() => router.push(`/${currentUser?.tenantId || 'sdm'}/${currentUser?.role.toLowerCase()}/projects`)}>
                    <div className="flex items-center gap-2 mb-2 text-rose-500 font-black text-xs uppercase tracking-widest">
                        <AlertTriangle size={14} /> Butuh Perhatian
                    </div>

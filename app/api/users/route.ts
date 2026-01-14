@@ -5,7 +5,8 @@ import bcrypt from 'bcryptjs';
 
 export async function POST(request: Request) {
   try {
-    await authorize(['OWNER', 'MANAGER', 'FINANCE']);
+    const creator = await authorize(['OWNER', 'MANAGER', 'FINANCE']);
+    const { tenantId } = creator;
     const body = await request.json();
     const { id, name, username, telegramId, telegramUsername, role, password, isFreelance } = body;
     
@@ -18,6 +19,7 @@ export async function POST(request: Request) {
         await prisma.user.create({
           data: {
             id,
+            tenantId,
             name,
             username,
             telegramId: telegramId || '',
@@ -26,12 +28,12 @@ export async function POST(request: Request) {
             passwordHash: hash,
             isFreelance: !!isFreelance,
             deviceIds: [] // Initialize empty
-          }
+          } as any
         });
         
-        return NextResponse.json({ id, name, username, telegramId, telegramUsername, role, isFreelance }, { status: 201 });
+        return NextResponse.json({ id, name, username, telegramId, telegramUsername, role, isFreelance, tenantId }, { status: 201 });
     } catch (e: any) {
-        if (e.code === 'P2002') { // Prisma Unique Constraint
+        if (e.code === 'P2002') { 
           return NextResponse.json({ error: 'Username already exists' }, { status: 409 });
         }
         throw e;

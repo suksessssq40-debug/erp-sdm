@@ -89,21 +89,24 @@ export async function POST(request: Request) {
     }
 
     // 4. Update Token
+    const tenantId = (u as any).tenantId || 'sdm';
+    
     const userPayload = {
       id: u.id,
       name: u.name,
       username: u.username,
+      tenantId: tenantId,
       telegramId: u.telegramId || '',
       telegramUsername: u.telegramUsername || '',
       role: u.role,
-      deviceId: deviceId, // Just return what was sent or first of authorized
+      deviceId: deviceId, 
       avatarUrl: u.avatarUrl || undefined,
       jobTitle: u.jobTitle || undefined,
       bio: u.bio || undefined,
       isFreelance: !!u.isFreelance
     };
 
-    const token = jwt.sign({ id: u.id, role: u.role }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: u.id, username: u.username, role: u.role, tenantId: tenantId }, JWT_SECRET, { expiresIn: '7d' });
 
     return NextResponse.json({ user: userPayload, token });
 

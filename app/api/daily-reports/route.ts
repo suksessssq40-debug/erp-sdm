@@ -5,9 +5,11 @@ import { authorize } from '@/lib/auth';
 export async function GET(request: Request) {
   try {
     const user = await authorize();
+    const { tenantId } = user;
     
     const isAdmin = ['OWNER', 'MANAGER', 'FINANCE'].includes(user.role);
-    const where = isAdmin ? {} : { userId: user.id };
+    const where: any = { tenantId };
+    if (!isAdmin) where.userId = user.id;
 
     const reports = await prisma.dailyReport.findMany({
        where,
@@ -18,24 +20,25 @@ export async function GET(request: Request) {
     const formatted = reports.map(r => ({
         id: r.id,
         userId: r.userId,
+        tenantId: (r as any).tenantId,
         date: r.date,
         activities: typeof r.activitiesJson === 'string' ? JSON.parse(r.activitiesJson) : []
     }));
 
     return NextResponse.json(formatted);
-  } catch(e) {
+  } catch(e: any) {
       console.error(e);
-      return NextResponse.json({ error: 'Failed' }, { status: 500 });
+      return NextResponse.json({ error: 'Failed', details: e.message }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
   try {
     const user = await authorize();
+    const { tenantId } = user;
     const r = await request.json();
 
-    // Security: Prevent User Spoofing
-    // If user is STAFF (not management), they can ONLY report for themselves.
+    // Security: Prevent User Spoofing within Tenant
     if (user.role === 'STAFF' && r.userId !== user.id) {
         return NextResponse.json({ error: 'Forbidden: Cannot submit report for others' }, { status: 403 });
     }
@@ -43,6 +46,7 @@ export async function POST(request: Request) {
     await prisma.dailyReport.create({
       data: {
         id: r.id,
+        tenantId,
         userId: r.userId,
         date: r.date,
         activitiesJson: JSON.stringify(r.activities || [])
@@ -50,8 +54,8 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json(r, { status: 201 });
-  } catch (error) {
+  } catch (error: any) {
     console.error(error);
-    return NextResponse.json({ error: 'Failed' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed', details: error.message }, { status: 500 });
   }
 }

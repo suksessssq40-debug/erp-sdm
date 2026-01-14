@@ -31,7 +31,8 @@ export const LoginScreen: React.FC<{ store: ReturnType<typeof useStore> }> = ({ 
       }
       toast.success(`Selamat datang, ${user.name}!`);
       const roleSlug = user.role.toLowerCase();
-      setTimeout(() => router.push(`/${roleSlug}/dashboard`), 500); // Changed navigate
+      const tenantId = user.tenantId || 'sdm';
+      setTimeout(() => router.push(`/${tenantId}/${roleSlug}/dashboard`), 500); 
     } catch (err: any) {
       const errorMsg = err?.message || 'Login gagal. Periksa koneksi, username, dan password Anda.';
       toast.error(errorMsg);

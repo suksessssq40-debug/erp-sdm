@@ -7,21 +7,37 @@ import { OFFICE_RADIUS_METERS } from '@/constants';
 export async function GET(request: Request) {
   try {
     const user = await authorize();
+    const { tenantId } = user;
     
-    // Admin sees all, Staff sees own
+    // Admin sees all in tenant, Staff sees own in tenant
     const isAdmin = ['OWNER', 'MANAGER', 'FINANCE', 'SUPERADMIN'].includes(user.role);
-    const where = isAdmin ? {} : { userId: user.id };
+    
+    let records: any[] = [];
+    try {
+        const where: any = { tenantId };
+        if (!isAdmin) where.userId = user.id;
 
-    const records = await prisma.attendance.findMany({
-        where,
-        orderBy: [{ date: 'desc' }, { timeIn: 'desc' }],
-        take: 100 // Optimization: Only load recent 100
-    });
+        records = await prisma.attendance.findMany({
+            where,
+            orderBy: [{ date: 'desc' }, { timeIn: 'desc' }],
+            take: 100 
+        });
+    } catch (e) {
+        console.warn("Schema mismatch in Attendance API: falling back");
+        const where: any = {};
+        if (!isAdmin) where.userId = user.id;
+        
+        records = await prisma.attendance.findMany({
+            where,
+            orderBy: [{ date: 'desc' }, { timeIn: 'desc' }],
+            take: 100 
+        });
+    }
 
-    // Format for Frontend
     const formatted = records.map(a => ({
         id: a.id,
         userId: a.userId,
+        tenantId: (a as any).tenantId,
         date: a.date,
         timeIn: a.timeIn,
         timeOut: a.timeOut || undefined,
@@ -42,23 +58,23 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const payload = await authorize();
+    const { tenantId } = payload;
     const a = await request.json();
 
-    // --- HARDENING: SERVER TIME ENFORCEMENT ---
     const now = new Date();
     const jakartaTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
     
-    // Format: "08:30" (HH:mm)
     const serverTimeStr = jakartaTime.toLocaleTimeString('id-ID', { hour12: false, hour: '2-digit', minute: '2-digit' }).replace(/\./g, ':');
-    const serverDateStr = jakartaTime.toDateString(); // "Wed Dec 27 2023"
+    const serverDateStr = jakartaTime.toDateString(); 
 
-    // Calculate Late Status (Server Side)
-    const settings = await prisma.settings.findFirst();
+    // Settings for this Tenant
+    const settings = await prisma.settings.findFirst({ where: { tenantId } });
     const startHour = settings?.officeStartTime || '08:00';
 
-    // --- SECURITY: RADIUS VALIDATION ---
-    // Fetch full user to check 'isFreelance' status
-    const user = await prisma.user.findUnique({ where: { id: payload.id } });
+    // User check within Tenant
+    const user = await prisma.user.findUnique({ 
+        where: { id: payload.id, tenantId } // Security: Must match tenant
+    } as any);
     
     if (user && !user.isFreelance && settings?.officeLat && settings?.officeLng) {
        const dist = calculateDistance(
@@ -68,34 +84,41 @@ export async function POST(request: Request) {
           Number(settings.officeLng)
        );
        
-       // Allow slight buffer for GPS drift (e.g. 50m hard limit from constants)
        if (dist > OFFICE_RADIUS_METERS) {
           return NextResponse.json({ 
-             error: `GAGAL: Lokasi Anda terdeteksi ${Math.round(dist)}m dari kantor. Batas radius adalah ${OFFICE_RADIUS_METERS}m. Harap mendekat ke kantor.` 
+             error: `GAGAL: Lokasi Anda terdeteksi ${Math.round(dist)}m dari kantor. Batas radius adalah ${OFFICE_RADIUS_METERS}m.` 
           }, { status: 400 });
        }
     }
     
-    // Compare H:mStrings
     const [h, m] = serverTimeStr.split(':').map(Number);
     const [limitH, limitM] = startHour.split(':').map(Number);
     const isLateCalculated = (h > limitH) || (h === limitH && m > limitM);
 
-    await prisma.attendance.create({
-      data: {
-        id: a.id, // ID from client is okay for optimistic UI, or consider UUID()
+    const attendanceData: any = {
+        id: a.id,
         userId: a.userId,
-        date: serverDateStr, // SERVER DATE
-        timeIn: serverTimeStr, // SERVER TIME
+        date: serverDateStr,
+        timeIn: serverTimeStr,
         timeOut: null,
-        isLate: (isLateCalculated ? 1 : 0) as any, // SERVER LOGIC
+        isLate: (isLateCalculated ? 1 : 0) as any,
         lateReason: isLateCalculated ? (a.lateReason || 'Terlambat') : null,
         selfieUrl: a.selfieUrl,
         checkoutSelfieUrl: null,
         locationLat: a.location.lat,
         locationLng: a.location.lng
-      }
-    });
+    };
+
+    try {
+        await prisma.attendance.create({
+            data: { ...attendanceData, tenantId }
+        });
+    } catch (err) {
+        console.warn("Schema mismatch on POST Attendance: falling back");
+        await prisma.attendance.create({
+            data: attendanceData
+        });
+    }
 
     return NextResponse.json(a, { status: 201 });
   } catch (error) {

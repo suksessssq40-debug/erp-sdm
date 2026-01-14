@@ -61,7 +61,7 @@ export const ProjectList = () => {
 
   const navigateToDetail = (projectId: string) => {
     if (!currentUser) return;
-    router.push(`/${currentUser.role.toLowerCase()}/projects/${projectId}`);
+    router.push(`/${currentUser.tenantId || 'sdm'}/${currentUser.role.toLowerCase()}/projects/${projectId}`);
   };
 
   const handleSaveProject = (project: Project) => {
@@ -103,7 +103,7 @@ export const ProjectList = () => {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
            <button 
-             onClick={() => router.push(`/${currentUser?.role.toLowerCase()}/kanban`)} 
+             onClick={() => router.push(`/${currentUser?.tenantId || 'sdm'}/${currentUser?.role.toLowerCase()}/kanban`)} 
              className="mb-4 flex items-center gap-2 text-slate-400 hover:text-blue-600 transition text-[10px] font-black uppercase tracking-widest"
            >
              <ChevronRight className="rotate-180" size={14} /> Kembali ke Kanban

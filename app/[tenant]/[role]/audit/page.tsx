@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { useAppStore } from '../../../src/context/StoreContext';
-import { UserRole, SystemLog, SystemActionType } from '../../../src/types';
+import { useAppStore } from '@/context/StoreContext';
+import { UserRole, SystemLog, SystemActionType } from '@/types';
 import { useRouter } from 'next/navigation';
 import { Search, Filter, ShieldAlert, ArrowDownUp, RefreshCw } from 'lucide-react';
 

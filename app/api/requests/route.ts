@@ -5,9 +5,11 @@ import { authorize } from '@/lib/auth';
 export async function GET(request: Request) {
   try {
     const user = await authorize();
+    const { tenantId } = user;
     
     const isAdmin = ['OWNER', 'MANAGER', 'FINANCE'].includes(user.role);
-    const where = isAdmin ? {} : { userId: user.id };
+    const where: any = { tenantId };
+    if (!isAdmin) where.userId = user.id;
 
     const requests = await prisma.leaveRequest.findMany({
        where,
@@ -18,6 +20,7 @@ export async function GET(request: Request) {
     const formatted = requests.map(r => ({
           id: r.id,
           userId: r.userId,
+          tenantId: (r as any).tenantId,
           type: r.type,
           description: r.description,
           startDate: r.startDate ? r.startDate.toISOString().split('T')[0] : '',
@@ -28,20 +31,22 @@ export async function GET(request: Request) {
     }));
 
     return NextResponse.json(formatted);
-  } catch(e) {
+  } catch(e: any) {
       console.error(e);
-      return NextResponse.json({ error: 'Failed' }, { status: 500 });
+      return NextResponse.json({ error: 'Failed', details: e.message }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
   try {
-    await authorize();
+    const user = await authorize();
+    const { tenantId } = user;
     const r = await request.json();
 
     await prisma.leaveRequest.create({
       data: {
         id: r.id,
+        tenantId,
         userId: r.userId,
         type: r.type,
         description: r.description,
@@ -54,8 +59,8 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json(r, { status: 201 });
-  } catch (error) {
+  } catch (error: any) {
     console.error(error);
-    return NextResponse.json({ error: 'Failed' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed', details: error.message }, { status: 500 });
   }
 }

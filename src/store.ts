@@ -1,18 +1,16 @@
 import { useState, useEffect } from 'react';
-import { BusinessUnit, TransactionCategory, User, UserRole, Project, Attendance, LeaveRequest, Transaction, AppSettings, DailyReport, UserSalaryConfig, PayrollRecord, SystemLog, SystemActionType, FinancialAccountDef } from './types';
+import { BusinessUnit, TransactionCategory, User, UserRole, Project, Attendance, LeaveRequest, Transaction, AppSettings, DailyReport, UserSalaryConfig, PayrollRecord, SystemLog, SystemActionType, FinancialAccountDef, Tenant } from './types';
 import { INITIAL_OFFICE_LOCATION } from './constants';
 import { supabase } from './lib/supabaseClient';
 
 const isDev = process.env.NODE_ENV === 'development';
-// Changed to prefer relative path (Next.js internal API) even in dev to match Vercel environment
-// Changed to prefer relative path (Next.js internal API) - FORCE INTERNAL API
-const API_BASE = ''; // Was: process.env.NEXT_PUBLIC_API_BASE || '';
+const API_BASE = ''; 
 const CURRENT_USER_KEY = 'sdm_erp_current_user';
 const CURRENT_TOKEN_KEY = 'sdm_erp_auth_token';
 
 interface AppState {
   currentUser: User | null;
-  realUser?: User | null; // For Superadmin Impersonation
+  realUser?: User | null; 
   authToken?: string;
   users: User[];
   projects: Project[];
@@ -27,6 +25,7 @@ interface AppState {
   financialAccounts: FinancialAccountDef[];
   categories: TransactionCategory[];
   businessUnits: BusinessUnit[];
+  tenants: Tenant[];
 }
 
 const initialState: AppState = {
@@ -45,6 +44,7 @@ const initialState: AppState = {
   financialAccounts: [],
   categories: [],
   businessUnits: [],
+  tenants: [],
   settings: {
     officeLocation: INITIAL_OFFICE_LOCATION,
     officeHours: { start: '08:00', end: '17:00' },
@@ -52,9 +52,9 @@ const initialState: AppState = {
     telegramGroupId: '',
     telegramOwnerChatId: '',
     companyProfile: {
-      name: 'Sukses Digital Media',
-      address: 'Jl. Kemajuan No. 88, Jakarta Selatan',
-      phone: '0812-3456-7890',
+      name: '',
+      address: '',
+      phone: '',
       logoUrl: '',
       logoPosition: 'top',
       textAlignment: 'center'
@@ -1138,6 +1138,7 @@ export const useStore = () => {
           name: `[Preview] ${role}`,
           username: `preview_${role.toLowerCase()}`,
           role: role,
+          tenantId: state.currentUser?.tenantId || 'sdm',
           telegramId: '000',
           telegramUsername: 'preview',
           deviceId: 'preview_device'
@@ -1178,6 +1179,73 @@ export const useStore = () => {
             }
         } catch (e) {
             console.error('Sync Balances Error:', e);
+            throw e;
+        }
+    },
+    
+    // --- Tenant Management ---
+    createTenant: async (id: string, name: string, description?: string) => {
+        try {
+            const res = await fetch(`${API_BASE}/api/tenants`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...authHeaders },
+                body: JSON.stringify({ id, name, description })
+            });
+            
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || 'Failed to create tenant');
+            }
+            
+            const data = await res.json();
+            const newTenant: Tenant = data.tenant;
+            
+            setState(prev => ({ ...prev, tenants: [newTenant, ...prev.tenants] }));
+            addLog(SystemActionType.SETTINGS_UPDATE, `Created New Tenant: ${name} (${id})`);
+            
+            return data; 
+        } catch(e) {
+            console.error(e);
+            throw e;
+        }
+    },
+
+    fetchTenants: async () => {
+        if (state.currentUser?.role !== UserRole.OWNER) return;
+        try {
+            const res = await fetch(`${API_BASE}/api/tenants`, { headers: authHeaders });
+            if (res.ok) {
+                const data = await res.json();
+                setState(prev => ({ ...prev, tenants: data }));
+            }
+        } catch(e) { console.error(e); }
+    },
+
+    switchTenant: async (targetTenantId: string) => {
+        try {
+            const res = await fetch(`${API_BASE}/api/tenants/switch`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...authHeaders },
+                body: JSON.stringify({ targetTenantId })
+            });
+            
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || 'Failed to switch unit');
+            }
+            
+            const { user, token } = await res.json();
+            
+            // Update LocalStorage
+            if (typeof window !== 'undefined') {
+                window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
+                window.localStorage.setItem(CURRENT_TOKEN_KEY, token);
+                
+                // Hard refresh to reset all state and routing
+                window.location.href = `/${targetTenantId}/${user.roleSlug}/dashboard`;
+            }
+        } catch(e) {
+            console.error(e);
             throw e;
         }
     }

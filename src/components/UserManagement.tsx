@@ -119,7 +119,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
           telegramId: formData.telegramId,
           telegramUsername: formData.telegramUsername,
           isFreelance: formData.isFreelance,
-          password: formData.password
+          password: formData.password,
+          tenantId: currentUser?.tenantId || 'sdm'
         };
         await onAddUser(newUser);
         toast.success(`User ${newUser.name} berhasil ditambahkan.`);
@@ -198,7 +199,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
                role: role as UserRole,
                telegramId: telegramId || '',
                telegramUsername: telegramUsername || '',
-               password
+               password, tenantId: currentUser?.tenantId || 'sdm'
              });
              successCount++;
            } catch (e) {

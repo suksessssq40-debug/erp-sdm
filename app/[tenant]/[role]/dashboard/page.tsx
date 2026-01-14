@@ -45,7 +45,7 @@ export default function DashboardPage() {
           return <FinanceDashboard />;
       case UserRole.OWNER:
       case UserRole.SUPERADMIN:
-          return <OwnerDashboard store={store} toast={toast} />;
+          return <OwnerDashboard />;
       default:
           return <StaffDashboard />;
   }
