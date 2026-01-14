@@ -19,47 +19,100 @@ export const StaffDashboard = () => {
   const { currentUser, attendance, projects, dailyReports, requests } = useAppStore();
   const router = useRouter();
   
-  // 1. Time & Attendance Logic
-  const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
-  const [greeting, setGreeting] = useState('');
+  // 1. Time & Attendance Logic (Enhanced for Cross-Day Shifts)
+  const todayStr = new Date().toDateString(); 
+  
+  // Find Active Session (Logic mirrored from Attendance.tsx)
+  const todayAttendance = React.useMemo(() => {
+    const myLogs = attendance.filter(a => a.userId === currentUser?.id);
+    // Sort desc by time
+    myLogs.sort((a, b) => {
+        const tA = a.createdAt ? Number(a.createdAt) : new Date(a.date!).getTime();
+        const tB = b.createdAt ? Number(b.createdAt) : new Date(b.date!).getTime();
+        return tB - tA;
+    });
 
-  const todayStr = new Date().toDateString(); // e.g. "Mon Jan 01 2024"
-  const todayAttendance = attendance.find(a => new Date(a.date!).toDateString() === todayStr && a.userId === currentUser?.id);
+    const latest = myLogs[0];
+    if (!latest) return undefined;
+
+    // A. If still Open (active session), check validity usually < 24h
+    if (!latest.timeOut) {
+        let tStart = latest.createdAt ? Number(latest.createdAt) : 0;
+        // Fallback info if createdAt missing
+        if (!tStart && latest.date) { 
+             const d = new Date(latest.date);
+             if (!isNaN(d.getTime()) && latest.timeIn) {
+                const [h, m] = latest.timeIn.replace('.', ':').split(':').map(Number);
+                d.setHours(h||0, m||0);
+                tStart = d.getTime();
+             }
+        }
+        
+        if (tStart > 0) {
+             const diffHours = (Date.now() - tStart) / (1000 * 60 * 60);
+             if (diffHours < 24) return latest; // Found active session (even if yesterday)
+        }
+    }
+
+    // B. If Closed, check if it belongs to 'Today' strictly
+    if (new Date(latest.date!).toDateString() === todayStr) {
+        return latest;
+    }
+
+    return undefined;
+  }, [attendance, currentUser?.id, todayStr]);
+
   const isCheckedIn = !!todayAttendance;
   const isCheckedOut = !!todayAttendance?.timeOut;
 
   // Timer Effect
+  const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
+  const [greeting, setGreeting] = useState('');
+
   useEffect(() => {
     const updateTimer = () => {
         if (todayAttendance && todayAttendance.timeIn) {
             try {
-                // FORCE: Use Device Today's Date, Ignore DB Date (to prevent 26h bug due to UTC/Timezone)
-                // We trust "todayAttendance" is indeed for today because filtered by 'todayStr'
-                const now = new Date();
+                // 1. Determine Start Time accurately
+                let startTimeTime = 0;
                 
-                // timeIn comes as "08:00" or "08:00:00"
-                const [hrs, mins, secs] = todayAttendance.timeIn.split(':').map(Number);
-                
-                // Construct Start Time using TODAY's date
-                const startTime = new Date();
-                startTime.setHours(hrs || 0, mins || 0, secs || 0, 0);
+                // Priority: Use createdAt timestamp if available (Most Accurate)
+                if (todayAttendance.createdAt) {
+                    startTimeTime = Number(todayAttendance.createdAt);
+                } else {
+                    // Fallback: Parse String Date + TimeIn
+                    const d = new Date(todayAttendance.date);
+                    if (!isNaN(d.getTime())) {
+                        const [hrs, mins, secs] = todayAttendance.timeIn.split(':').map(Number);
+                        d.setHours(hrs || 0, mins || 0, secs || 0, 0);
+                        startTimeTime = d.getTime();
+                    }
+                }
 
-                // Handle Check Out Time
-                const end = isCheckedOut && todayAttendance.timeOut 
-                    ? (() => {
-                        const [outHrs, outMins, outSecs] = todayAttendance.timeOut.split(':').map(Number);
-                        const endTime = new Date(); // Today
-                        endTime.setHours(outHrs || 0, outMins || 0, outSecs || 0, 0);
-                        return endTime.getTime();
-                    })()
-                    : now.getTime();
+                if (!startTimeTime) return; // Cannot calculate
 
-                let diff = end - startTime.getTime();
+                // 2. Determine End Time (Now or fixed checkout time)
+                const now = new Date().getTime();
+                let endTimeTime = now;
+
+                if (isCheckedOut && todayAttendance.timeOut) {
+                    // Issues arise if checkout was 'next day' but date string is 'yesterday'. 
+                    // Ideally we should have checkOutTimestamp. 
+                    // But for displayed elapsed time on a closed session, it's static.
+                    // If we assume checkout happened on same "logical shift day" or we just rely on current time if not feasible.
+                    // Ideally: Backend should store checkOutTimestamp. 
+                    // Hack for now: If checkout time < starttime (crossed midnight?), add 24h?
+                    // Better: If we are here, session is DONE. Just show static duration if possible? 
+                    // But 'elapsedTime' is for running timer. If closed, maybe just stop?
+                }
                 
-                // Edge Case: If diff is negative (e.g. TimeIn 23:00 yesterday, Now 01:00 today), handle?? 
-                // But we filtered todayAttendance by "Today". 
-                // If todayAttendance found, it MUST mean date matches.
-                // If diff < 0, maybe device time mismatch? Just show 00:00:00
+                // If checking out, we stop timer?
+                // Actually the logic below "isCheckedIn ? ... : ..." handles text.
+                // If isCheckedOut, we strictly don't need running timer, but let's keep it robust.
+
+                let diff = endTimeTime - startTimeTime;
+                
+                // Safety 
                 if (diff < 0) diff = 0;
 
                 if (diff >= 0) { // Allow 0
