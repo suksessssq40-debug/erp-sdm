@@ -29,6 +29,7 @@ export interface User {
   jobTitle?: string;
   bio?: string;
   isFreelance?: boolean;
+  features?: string; // JSON String of enabled modules (e.g. "['finance','attendance']")
 }
 
 export enum KanbanStatus {

@@ -18,6 +18,7 @@ import {
   MessageSquare,
   Building
 } from 'lucide-react';
+import { TenantSwitcher } from './TenantSwitcher';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -33,36 +34,59 @@ interface LayoutProps {
   pendingRequestCount?: number;
 }
 
+import { useAppStore } from '../context/StoreContext';
+
+// ...
+
 const Layout: React.FC<LayoutProps> = ({ 
   children, userRole, activeTab, onTabChange, onLogout, userName, userAvatar, 
   tenantId, tenantName,
   unreadChatCount = 0, pendingRequestCount = 0 
 }) => {
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(true);
-  
+  const { currentUser } = useAppStore(); // Get features from store
+
+  // Parse Features from User Profile (JSON String)
+  const enabledFeatures = React.useMemo(() => {
+     if (!currentUser?.features) return null; // If null, assume ALL enabled (backward compat) or handle logic
+     try {
+         const parsed = JSON.parse(currentUser.features);
+         return Array.isArray(parsed) ? parsed : [];
+     } catch(e) { return []; }
+  }, [currentUser?.features]);
+
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF] },
-    { id: 'kanban', label: 'Project Kanban', icon: Trello, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF] },
+    { id: 'kanban', label: 'Project Kanban', icon: Trello, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF], feature: 'projects' },
     { id: 'chat', label: 'Team Chat', icon: MessageSquare, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF] },
-    { id: 'attendance', label: 'Absensi', icon: CalendarCheck, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF] },
-    { id: 'payroll', label: 'Gaji & Slip', icon: CreditCard, roles: [UserRole.OWNER, UserRole.FINANCE] },
-    { id: 'requests', label: 'Permohonan', icon: FileText, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF] },
-    { id: 'daily-report', label: 'Daily Report', icon: Clock, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF] },
-    { id: 'finance', label: 'Arus Kas', icon: Wallet, roles: [UserRole.OWNER, UserRole.FINANCE], exclusiveTo: 'sdm' },
+    { id: 'attendance', label: 'Absensi', icon: CalendarCheck, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF], feature: 'attendance' },
+    { id: 'payroll', label: 'Gaji & Slip', icon: CreditCard, roles: [UserRole.OWNER, UserRole.FINANCE], feature: 'finance' },
+    { id: 'requests', label: 'Permohonan', icon: FileText, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF], feature: 'attendance' }, // Linked to attendance usually
+    { id: 'daily-report', label: 'Daily Report', icon: Clock, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF], feature: 'attendance' },
+    { id: 'finance', label: 'Arus Kas', icon: Wallet, roles: [UserRole.OWNER, UserRole.FINANCE], feature: 'finance' },
     { id: 'users', label: 'User Management', icon: Users, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE] },
-    { id: 'tenants', label: 'Unit Bisnis', icon: Building, roles: [UserRole.OWNER] }, // New Menu
+    { id: 'tenants', label: 'Unit Bisnis', icon: Building, roles: [UserRole.OWNER] }, 
     { id: 'audit', label: 'Audit Trail', icon: ShieldAlert, roles: [UserRole.OWNER] },
     { id: 'settings', label: 'Settings', icon: Settings, roles: [UserRole.OWNER] },
   ];
 
   const visibleNav = navItems.filter(item => {
     const hasRole = item.roles.includes(userRole);
-    const isAllowedTenant = !item['exclusiveTo'] || item['exclusiveTo'] === tenantId;
-    return hasRole && isAllowedTenant;
+    const it = item as any;
+    // Exclusive Check (Legacy)
+    if (it.exclusiveTo && it.exclusiveTo !== tenantId) return false;
+    
+    // Feature Toggle Check
+    if (enabledFeatures && it.feature && !enabledFeatures.includes(it.feature)) {
+        return false;
+    }
+    
+    return hasRole;
   });
   const isManagement = [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(userRole);
   
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
+
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden relative">
@@ -81,11 +105,9 @@ const Layout: React.FC<LayoutProps> = ({
         md:translate-x-0 md:static md:shadow-none
         ${!isSidebarOpen ? 'md:w-0 md:opacity-0 md:overflow-hidden' : 'md:w-64 md:opacity-100'} 
       `}>
-        <div className="p-6 border-b border-slate-800 flex justify-between items-center">
-          <div>
-            <h1 className="text-xl font-bold tracking-tight text-blue-400 italic">{tenantId.toUpperCase()} <span className="text-white">ERP</span></h1>
-            <p className="text-[10px] text-slate-400 mt-1 font-black uppercase tracking-widest">{tenantName}</p>
-          </div>
+        <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-950/30">
+          <TenantSwitcher />
+          
           {/* Close button always visible if sidebar is open, usable on mobile */}
           <button onClick={() => setIsSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-white">
             <X size={20} />
