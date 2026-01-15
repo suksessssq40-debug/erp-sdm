@@ -58,16 +58,18 @@ export const OwnerDashboard = () => {
 
     // --- 2. INTELLIGENCE & HEALTH CHECK ---
     const todayStr = new Date().toDateString();
-    const activeStaff = users.filter(u => u.role !== 'OWNER' && u.role !== 'SUPERADMIN');
+    const activeStaff = users ? users.filter(u => u.role !== 'OWNER' && u.role !== 'SUPERADMIN') : [];
     
-    const todayTeamAttendance = attendance.filter(a => {
-        const isToday = new Date(a.date!).toDateString() === todayStr;
+    const todayTeamAttendance = attendance ? attendance.filter(a => {
+        if (!a.date) return false;
+        const isToday = new Date(a.date).toDateString() === todayStr;
         const isStaff = activeStaff.some(u => u.id === a.userId);
         return isToday && isStaff; 
-    });
+    }) : [];
+
     const lateCount = todayTeamAttendance.filter(a => a.isLate).length;
-    const overdueProjects = projects.filter(p => p.deadline && new Date(p.deadline) < new Date() && p.status !== 'DONE');
-    const pendingApprovals = requests.filter(r => r.status === 'PENDING').length;
+    const overdueProjects = projects ? projects.filter(p => p.deadline && new Date(p.deadline) < new Date() && p.status !== 'DONE') : [];
+    const pendingApprovals = requests ? requests.filter(r => r.status === 'PENDING').length : 0;
     
     const netCashFlow = finStats.monthlyIn - finStats.monthlyOut;
 

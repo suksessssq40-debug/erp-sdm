@@ -99,7 +99,11 @@ export default function ClientShell({ children }: { children: React.ReactNode })
     if (!tenantParam || tenantParam !== userTenantId || !roleParam || roleParam !== userRoleSlug) {
         // Construct target: /[tenant]/[role]/[activeTab]
         const pathParts = pathname.split('/');
-        const currentTab = pathParts[3] || pathParts[2] || 'kanban'; 
+        let currentTab = pathParts[3] || pathParts[2] || 'dashboard'; 
+        
+        // Safety: If currentTab is the tenant itself (due to weird split), force dashboard
+        if (currentTab === userTenantId) currentTab = 'dashboard';
+
         // Force redirect to correct tenant path
         router.replace(`/${userTenantId}/${userRoleSlug}/${currentTab}`);
     }
@@ -118,7 +122,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
 
   // Determine Active Tab from Path: /[tenant]/[role]/[tab]
   const pathParts = pathname.split('/');
-  const tabSlug = pathParts[3] || 'kanban';
+  const tabSlug = pathParts[3] || 'dashboard';
   const activeTab = tabSlug; 
 
   const handleTabChange = (tab: string) => {
