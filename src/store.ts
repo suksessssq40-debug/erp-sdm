@@ -78,18 +78,31 @@ export const useStore = () => {
       try {
         const raw = typeof window !== 'undefined' ? window.localStorage.getItem(CURRENT_USER_KEY) : null;
         const rawToken = typeof window !== 'undefined' ? window.localStorage.getItem(CURRENT_TOKEN_KEY) : null;
-        if (raw) {
-          currentUser = JSON.parse(raw);
-        }
-        if (rawToken) {
-          token = rawToken;
+        
+        if (raw && rawToken) {
+          const parsedUser = JSON.parse(raw);
+          // Validate structure minimally
+          if (parsedUser && parsedUser.id && parsedUser.tenantId) {
+             currentUser = parsedUser;
+             token = rawToken;
+          } else {
+             // Invalid user object found, clear it
+             if (typeof window !== 'undefined') {
+                window.localStorage.removeItem(CURRENT_USER_KEY);
+                window.localStorage.removeItem(CURRENT_TOKEN_KEY);
+             }
+          }
         }
       } catch (e) {
-        console.error('Failed to read current user from localStorage:', e);
+        console.error('Failed to read current user from localStorage (Corrupted Data), clearing...', e);
+        if (typeof window !== 'undefined') {
+            window.localStorage.removeItem(CURRENT_USER_KEY);
+            window.localStorage.removeItem(CURRENT_TOKEN_KEY);
+        }
       }
 
       // Update state with rehydrated user immediately (before fetch to avoid UI flicker)
-      if (currentUser || token) {
+      if (currentUser && token) {
          setState(prev => ({ ...prev, currentUser, authToken: token }));
       }
 

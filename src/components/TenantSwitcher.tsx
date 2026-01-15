@@ -68,7 +68,7 @@ export const TenantSwitcher = () => {
              // 2. Hard Reload to flush state and jump directly to new dashboard
              const newTenantId = data.user.tenantId;
              const newRole = data.user.roleSlug;
-             window.location.href = `/${newTenantId}/${newRole}/kanban`; 
+             window.location.href = `/${newTenantId}/${newRole}/dashboard`; 
         } else {
             toast.error(data.error || "Failed to switch");
             setLoading(false);

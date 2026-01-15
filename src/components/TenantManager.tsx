@@ -69,7 +69,7 @@ export const TenantManager: React.FC<{ store: ReturnType<typeof useStore> }> = (
               localStorage.setItem('sdm_erp_current_user', JSON.stringify(data.user));
               
               // Force Navigation
-              window.location.href = `/${data.user.tenantId}/${data.user.roleSlug}/kanban`;
+              window.location.href = `/${data.user.tenantId}/${data.user.roleSlug}/dashboard`;
           } else {
               throw new Error(data.error || 'Failed to switch');
           }
