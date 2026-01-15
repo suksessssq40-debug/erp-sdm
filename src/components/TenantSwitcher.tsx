@@ -20,8 +20,21 @@ export const TenantSwitcher = () => {
 
   useEffect(() => {
     if (isOpen && tenants.length === 0) {
-        fetch('/api/auth/my-tenants')
-            .then(res => res.json())
+        const token = currentUser ? localStorage.getItem('sdm_erp_auth_token') : null;
+        if (!token) return;
+
+        fetch('/api/auth/my-tenants', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        })
+            .then(async res => {
+                if (res.status === 401) {
+                    toast.error("Session expired");
+                    return [];
+                }
+                return res.json();
+            })
             .then(data => {
                 if(Array.isArray(data)) setTenants(data);
             })
@@ -35,9 +48,13 @@ export const TenantSwitcher = () => {
     toast.info("Switching unit...");
 
     try {
+        const token = localStorage.getItem('sdm_erp_auth_token');
         const res = await fetch('/api/tenants/switch', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}` 
+            },
             body: JSON.stringify({ targetTenantId: targetId })
         });
         
