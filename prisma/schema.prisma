@@ -12,6 +12,8 @@ model Tenant {
   description           String?
   isActive              Boolean               @default(true) @map("is_active")
   createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  featuresJson          String?               @default("[]") @map("features_json") // Modular Features: ['finance', 'attendance']
+  accessList            TenantAccess[]        // Multi-Tenant Access
   attendance            Attendance[]
   businessUnits         BusinessUnit[]
   chartOfAccounts       ChartOfAccount[]
@@ -28,13 +30,28 @@ model Tenant {
   @@map("tenants")
 }
 
+model TenantAccess {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  tenantId  String   @map("tenant_id")
+  role      String   @default("STAFF") // OWNER, MANAGER, STAFF, FINANCE
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenantId]) // Prevent duplicate roles
+  @@map("tenant_access")
+}
+
 model User {
   id               String          @id
   name             String?
   username         String?         @unique
   telegramId       String?         @map("telegram_id")
   telegramUsername String?         @map("telegram_username")
-  role             String?
+  role             String?         // Legacy Role (for Backward Compat)
   passwordHash     String?         @map("password_hash")
   deviceIds        Json?           @default("[]") @map("device_ids")
   avatarUrl        String?         @map("avatar_url")
@@ -44,6 +61,8 @@ model User {
   createdAt        DateTime?       @default(now()) @map("created_at") @db.Timestamptz(6)
   deviceId         String?         @map("device_id")
   tenantId         String?         @default("sdm") @map("tenant_id")
+  
+  tenantAccess     TenantAccess[]  // New Relation
   attendance       Attendance[]
   chatMemberships  ChatMember[]
   sentMessages     ChatMessage[]
@@ -61,6 +80,7 @@ model Settings {
   officeLng           Float?  @map("office_lng")
   officeStartTime     String? @map("office_start_time")
   officeEndTime       String? @map("office_end_time")
+  hasOvernightShift   Boolean? @default(false) @map("has_overnight_shift") // New: Support Shift Malam
   telegramBotToken    String? @map("telegram_bot_token")
   telegramGroupId     String? @map("telegram_group_id")
   telegramOwnerChatId String? @map("telegram_owner_chat_id")
