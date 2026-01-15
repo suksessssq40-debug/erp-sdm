@@ -110,6 +110,7 @@ model Attendance {
   tenant            Tenant?   @relation(fields: [tenantId], references: [id])
   user              User?     @relation(fields: [userId], references: [id])
 
+  @@index([tenantId, createdAt(sort: Desc)], map: "idx_attendance_tenant_date")
   @@map("attendance")
 }
 
@@ -219,19 +220,21 @@ model Transaction {
   @@index([businessUnitId], map: "idx_trans_biz_unit")
   @@index([accountId], map: "idx_trans_account")
   @@index([coaId], map: "idx_trans_coa")
+  @@index([tenantId, date(sort: Desc)], map: "idx_transactions_tenant_date")
   @@map("transactions")
 }
 
 model DailyReport {
   id             String    @id
   userId         String?   @map("user_id")
-  date           String?   @db.VarChar(20)
+  date           String?   @db.VarChar(50)
   activitiesJson String?   @map("activities_json")
   createdAt      DateTime? @map("created_at") @db.Timestamptz(6)
   tenantId       String?   @default("sdm") @map("tenant_id")
   tenant         Tenant?   @relation(fields: [tenantId], references: [id])
   user           User?     @relation(fields: [userId], references: [id])
 
+  @@index([tenantId, createdAt(sort: Desc)], map: "idx_daily_reports_tenant_date")
   @@map("daily_reports")
 }
 
