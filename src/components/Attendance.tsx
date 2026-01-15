@@ -121,7 +121,7 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
             }
         }
 
-        // Check age: (Now - Start)
+    // Check age: (Now - Start)
         // If tStart is valid
         if (tStart > 0) {
             const diffHours = (Date.now() - tStart) / (1000 * 60 * 60);
@@ -131,13 +131,18 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
             if (diffHours < 24) {
                 return latest;
             }
+        } else {
+             // If tStart calc failed (bad data), but timeOut is missing...
+             // Assume it's valid if success/recent is implied. 
+             // Best effort: Return it so they can check out (better false positive than blocked check out)
+             return latest;
         }
     }
 
-    // Fallback: If closed or stale, check if we have a fresh new "Today" entry (standard logic)
+    // Fallback: If closed, check if we have a fresh new "Today" entry (standard logic)
     // Note: If sorting is correct, 'latest' would be today's if it exists.
     // But we double check date string just in case.
-    if (latest.date === todayStr) return latest;
+    if (new Date(latest.date).toDateString() === todayStr) return latest;
     
     return undefined;
   }, [attendanceLog, currentUser.id, todayStr]);
