@@ -36,6 +36,8 @@ model TenantAccess {
   tenantId  String   @map("tenant_id")
   role      String   @default("STAFF") // OWNER, MANAGER, STAFF, FINANCE
   isActive  Boolean  @default(true) @map("is_active")
+  shiftStartTime String? @map("shift_start_time") // HH:mm
+  shiftEndTime   String? @map("shift_end_time")   // HH:mm
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -2,14 +2,13 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
-import { UserRole } from '@/types';
 import { sign } from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'secret';
 
 export async function POST(request: Request) {
   try {
-    const currentUser = await authorize([UserRole.OWNER, UserRole.SUPERADMIN]);
+    const currentUser = await authorize(); // Any role can switch if they have access
     const body = await request.json();
     const { targetTenantId } = body;
 
@@ -17,72 +16,40 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Target Tenant ID is required' }, { status: 400 });
     }
 
-    // 1. Verify existence of target tenant
-    const tenant = await prisma.tenant.findUnique({ where: { id: targetTenantId } });
-    if (!tenant) return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
-
-    // 2. Find the user record for this person in the target tenant
-    // Strategy: Look for username pattern "originalUsername.targetTenantId" 
-    const baseUsername = currentUser.username 
-        ? currentUser.username.split('.')[0] 
-        : (await prisma.user.findUnique({ where: { id: currentUser.id } }))?.username?.split('.')[0];
-    
-    if (!baseUsername) return NextResponse.json({ error: 'User identity not found' }, { status: 404 });
-
-    const targetUsername = `${baseUsername}.${targetTenantId}`;
-
-    let targetUser = await prisma.user.findFirst({
+    // 1. Verify Access via TenantAccess Table
+    // We look for a record linking currentUser.id -> targetTenantId
+    const access = await prisma.tenantAccess.findFirst({
         where: {
+            userId: currentUser.id,
             tenantId: targetTenantId,
-            OR: [
-                { username: targetUsername },
-                { id: `${currentUser.id.split('-')[0]}-${targetTenantId}` },
-                { role: 'OWNER' }
-            ]
-        }
+            isActive: true
+        },
+        include: { tenant: true }
     });
 
-    // --- SELF-HEALING: If no owner record exists in target tenant, CREATE IT ---
-    if (!targetUser && currentUser.role === UserRole.OWNER) {
-        console.log(`Cloning owner ${currentUser.id} into tenant ${targetTenantId}...`);
-        const originalUser = await prisma.user.findUnique({ where: { id: currentUser.id } });
-        if (originalUser) {
-            targetUser = await prisma.user.create({
-                data: {
-                    id: `${currentUser.id.split('-')[0]}-${targetTenantId}`,
-                    tenantId: targetTenantId,
-                    name: originalUser.name,
-                    username: targetUsername,
-                    passwordHash: originalUser.passwordHash,
-                    role: 'OWNER',
-                    telegramId: originalUser.telegramId,
-                    telegramUsername: originalUser.telegramUsername,
-                    deviceIds: [],
-                    isFreelance: false
-                }
-            });
-        }
+    if (!access) {
+        return NextResponse.json({ error: 'Access Denied: You do not have permission to access this unit.' }, { status: 403 });
     }
 
-    if (!targetUser) {
-        return NextResponse.json({ error: 'You do not have an account in this unit and self-provisioning failed.' }, { status: 403 });
-    }
-
-    // 3. Generate NEW JWT for the target user
+    // 2. Generate NEW JWT with switched context
+    // We keep the SAME User ID, but change the Tenant ID and Role in the token payload
     const userPayload = {
-      id: targetUser.id,
-      name: targetUser.name,
-      username: targetUser.username,
-      tenantId: targetTenantId,
-      role: targetUser.role,
-      telegramId: targetUser.telegramId || '',
-      telegramUsername: targetUser.telegramUsername || '',
+      id: currentUser.id,      // Keep original User ID (Unified Identity)
+      name: currentUser.name,
+      username: currentUser.username,
+      tenantId: access.tenantId, // NEW Context
+      role: access.role,         // Role for this specific tenant
+      telegramId: currentUser.telegramId || '',
+      telegramUsername: currentUser.telegramUsername || '',
+      features: access.tenant.featuresJson // Pass features to frontend!
     };
 
     const token = sign(userPayload, JWT_SECRET, { expiresIn: '7d' });
 
+    console.log(`User ${currentUser.username} switched to tenant ${access.tenant.name} (${access.tenantId}) as ${access.role}`);
+
     return NextResponse.json({ 
-        user: { ...userPayload, roleSlug: targetUser.role?.toLowerCase() }, 
+        user: { ...userPayload, roleSlug: access.role.toLowerCase() }, 
         token 
     });
 
