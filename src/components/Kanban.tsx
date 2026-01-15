@@ -24,6 +24,11 @@ interface KanbanProps {
 
 const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings, onAddProject, onUpdateProject, toast, onCelebrate }) => {
   const router = useRouter(); 
+  
+  // Defensive Guard
+  if (!currentUser || !settings || !projects || !users) {
+      return <div className="p-8 text-center text-slate-400">Loading Kanban Data...</div>;
+  }
   const { logs, patchProject, deleteProject } = useAppStore(); // Access logs, patchProject, and deleteProject from store
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);

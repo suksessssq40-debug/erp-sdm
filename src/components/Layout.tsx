@@ -48,7 +48,8 @@ const Layout: React.FC<LayoutProps> = ({
 
   // Parse Features from User Profile (JSON String)
   const enabledFeatures = React.useMemo(() => {
-     if (!currentUser?.features) return null; // If null, assume ALL enabled (backward compat) or handle logic
+     if (!currentUser?.features) return null; // If null, assume ALL enabled
+     if (typeof currentUser.features === 'object') return currentUser.features; // Already parsed?
      try {
          const parsed = JSON.parse(currentUser.features);
          return Array.isArray(parsed) ? parsed : [];
