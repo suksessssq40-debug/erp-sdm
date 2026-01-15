@@ -111,7 +111,8 @@ export async function POST(request: Request) {
         selfieUrl: a.selfieUrl,
         checkoutSelfieUrl: null,
         locationLat: a.location.lat,
-        locationLng: a.location.lng
+        locationLng: a.location.lng,
+        createdAt: new Date() // Explicitly set timestamp to prevent NULLs
     };
 
     try {
