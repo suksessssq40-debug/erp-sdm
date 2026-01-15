@@ -51,8 +51,29 @@ export const TenantManager: React.FC<{ store: ReturnType<typeof useStore> }> = (
   const switchToTenant = async (tenantId: string) => {
       setSwitchingId(tenantId);
       try {
-          await store.switchTenant(tenantId);
-          toast.success(`Berhasil pindah ke unit ${tenantId}`);
+          // Direct API call followed by Hard Reload is safer for Context Switch
+          const token = localStorage.getItem('sdm_erp_auth_token');
+          const res = await fetch('/api/tenants/switch', {
+              method: 'POST',
+              headers: { 
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}` 
+              },
+              body: JSON.stringify({ targetTenantId: tenantId }) 
+          });
+
+          const data = await res.json();
+          if (res.ok) {
+              toast.success(`Berhasil pindah ke unit ${tenantId}`);
+              localStorage.setItem('sdm_erp_auth_token', data.token);
+              localStorage.setItem('sdm_erp_current_user', JSON.stringify(data.user));
+              
+              // Force Navigation
+              window.location.href = `/${data.user.tenantId}/${data.user.roleSlug}/kanban`;
+          } else {
+              throw new Error(data.error || 'Failed to switch');
+          }
+
       } catch (e: any) {
           toast.error(e.message || 'Gagal berpindah unit');
           setSwitchingId(null);

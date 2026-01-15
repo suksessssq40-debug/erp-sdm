@@ -65,8 +65,10 @@ export const TenantSwitcher = () => {
              localStorage.setItem('sdm_erp_auth_token', data.token);
              localStorage.setItem('sdm_erp_current_user', JSON.stringify(data.user));
              
-             // 2. Hard Reload to flush state (Simplest way to ensure clean switch)
-             window.location.href = '/'; 
+             // 2. Hard Reload to flush state and jump directly to new dashboard
+             const newTenantId = data.user.tenantId;
+             const newRole = data.user.roleSlug;
+             window.location.href = `/${newTenantId}/${newRole}/kanban`; 
         } else {
             toast.error(data.error || "Failed to switch");
             setLoading(false);
