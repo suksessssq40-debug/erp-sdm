@@ -12,6 +12,10 @@ export interface AuthPayload {
   username: string;
   role: string;
   tenantId: string;
+  name?: string;
+  telegramId?: string;
+  telegramUsername?: string;
+  features?: any;
 }
 
 export async function getUser(): Promise<AuthPayload | null> {
