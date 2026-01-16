@@ -91,20 +91,24 @@ export default function ClientShell({ children }: { children: React.ReactNode })
     }
 
     // MULTI-TENANT REDIRECT LOGIC
-    const userRoleSlug = store.currentUser.role.toLowerCase();
-    const userTenantId = store.currentUser?.tenantId || 'sdm';
+    if (!store.currentUser || !store.currentUser.role) return;
+
+    const userRoleSlug = String(store.currentUser.role).toLowerCase();
+    const userTenantId = String(store.currentUser?.tenantId || 'sdm').toLowerCase();
     
+    // Normalize params
+    const normalizedTenantParam = (tenantParam || '').toLowerCase();
+    const normalizedRoleParam = (roleParam || '').toLowerCase();
+
     // If we're at a path that doesn't have tenant or has WRONG tenant/role
-    // pathParts[1] should be tenantParam
-    if (!tenantParam || tenantParam !== userTenantId || !roleParam || roleParam !== userRoleSlug) {
-        // Construct target: /[tenant]/[role]/[activeTab]
+    if (!normalizedTenantParam || normalizedTenantParam !== userTenantId || !normalizedRoleParam || normalizedRoleParam !== userRoleSlug) {
         const pathParts = pathname.split('/');
         let currentTab = pathParts[3] || pathParts[2] || 'dashboard'; 
         
-        // Safety: If currentTab is the tenant itself (due to weird split), force dashboard
-        if (currentTab === userTenantId) currentTab = 'dashboard';
+        // Safety: If currentTab is the tenant itself, force dashboard
+        if (currentTab === userTenantId || currentTab === tenantParam) currentTab = 'dashboard';
 
-        // Force redirect to correct tenant path
+        // Force redirect to correct tenant path (normalized to lowercase)
         router.replace(`/${userTenantId}/${userRoleSlug}/${currentTab}`);
     }
 
@@ -132,7 +136,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   };
 
   // Pending Requests Badge for Management
-  const pendingRequests = store.requests.filter(r => r.status === RequestStatus.PENDING).length;
+  const pendingRequests = (store.requests || []).filter(r => r.status === RequestStatus.PENDING).length;
   
   // Tenant Data
   const tenantId = store.currentUser?.tenantId || 'sdm';
@@ -151,7 +155,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
            toast.info('Logged out.');
            router.replace('/login');
         }}
-        userName={store.currentUser.name}
+        userName={store.currentUser.name || store.currentUser.username || 'User'}
         userAvatar={store.currentUser.avatarUrl}
         unreadChatCount={unreadCount}
         pendingRequestCount={pendingRequests}

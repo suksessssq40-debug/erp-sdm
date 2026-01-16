@@ -12,6 +12,7 @@ export async function GET() {
     let users: any[] = [];
     let settingsData: any = null;
     let financialAccounts: any[] = [];
+    let tenantFeatures: string | null = null;
 
     try {
         users = await prisma.user.findMany({
@@ -22,6 +23,8 @@ export async function GET() {
         financialAccounts = await prisma.financialAccount.findMany({ 
             where: { tenantId, isActive: true } as any
         });
+        const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { featuresJson: true } });
+        tenantFeatures = tenant?.featuresJson || '[]';
     } catch (e) {
         console.warn("Schema mismatch: falling back to legacy global queries");
         users = await prisma.user.findMany({
@@ -78,7 +81,8 @@ export async function GET() {
           avatarUrl: u.avatarUrl || undefined,
           jobTitle: u.jobTitle || undefined,
           bio: u.bio || undefined,
-          isFreelance: !!u.isFreelance
+          isFreelance: !!u.isFreelance,
+          features: u.id === user.id ? (tenantFeatures || '[]') : undefined
         })),
         settings,
         financialAccounts: financialAccounts.map(a => ({

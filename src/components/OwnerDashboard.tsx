@@ -233,7 +233,7 @@ export const OwnerDashboard = () => {
                                 />
                                 <Tooltip 
                                     contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', fontWeight: 'bold' }}
-                                    formatter={(value: number) => [formatIDR(value), '']}
+                                    formatter={(value: any) => [typeof value === 'number' ? formatIDR(value) : 'Rp0', '']}
                                 />
                                 <Area type="monotone" dataKey="income" stroke="#3B82F6" strokeWidth={3} fillOpacity={1} fill="url(#colorIncome)" />
                                 <Area type="monotone" dataKey="expense" stroke="#FB7185" strokeWidth={3} fillOpacity={1} fill="url(#colorExpense)" />
