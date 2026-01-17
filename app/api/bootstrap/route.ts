@@ -26,30 +26,30 @@ export async function GET() {
         const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { featuresJson: true } });
         tenantFeatures = tenant?.featuresJson || '[]';
     } catch (e) {
-        console.warn("Schema mismatch: falling back to legacy global queries");
-        users = await prisma.user.findMany({
-            select: { id: true, name: true, username: true, role: true, avatarUrl: true, jobTitle: true, isFreelance: true, tenantId: true, telegramId: true, telegramUsername: true, deviceIds: true, bio: true }
-        });
-        settingsData = await prisma.settings.findFirst();
-        financialAccounts = await prisma.financialAccount.findMany({ 
-            where: { isActive: true } as any
-        });
+        console.error("Critical Bootstrap Err (Users/Settings):", e);
+        throw e;
     }
 
-    // 3. Fetch Attendance (Safe for migration)
+    // 3. Fetch Attendance, Projects, Requests, Reports (Safe for migration)
     let attendanceRecords: any[] = [];
+    let projectRecords: any[] = [];
+    let requestRecords: any[] = [];
+    let dailyReportRecords: any[] = [];
+
     try {
-        attendanceRecords = await prisma.attendance.findMany({
-            where: { tenantId } as any,
-            orderBy: [{ date: 'desc' }, { timeIn: 'desc' }],
-            take: 100
-        });
+        const [att, proj, req, rep] = await Promise.all([
+          prisma.attendance.findMany({ where: { tenantId } as any, orderBy: [{ date: 'desc' }, { timeIn: 'desc' }], take: 100 }),
+          prisma.project.findMany({ where: { tenantId } as any, orderBy: { createdAt: 'desc' }, take: 50 }),
+          prisma.leaveRequest.findMany({ where: { tenantId } as any, orderBy: { createdAt: 'desc' }, take: 50 }),
+          prisma.dailyReport.findMany({ where: { tenantId } as any, orderBy: { createdAt: 'desc' }, take: 50 })
+        ]);
+        attendanceRecords = att;
+        projectRecords = proj;
+        requestRecords = req;
+        dailyReportRecords = rep;
     } catch (err) {
-        console.warn("Schema mismatch: falling back to non-tenant attendance query");
-        attendanceRecords = await prisma.attendance.findMany({
-            orderBy: [{ date: 'desc' }, { timeIn: 'desc' }],
-            take: 100
-        });
+        console.error("Bootstrap query failure:", err);
+        throw err; // Don't fallback to global queries in multi-tenancy!
     }
 
     // Format Settings
@@ -106,10 +106,42 @@ export async function GET() {
             checkOutSelfieUrl: a.checkoutSelfieUrl || undefined,
             location: { lat: Number(a.locationLat), lng: Number(a.locationLng) }
         })),
-        projects: [],
-        requests: [],
+        projects: projectRecords.map(p => ({
+            id: p.id,
+            title: p.title,
+            description: p.description || '',
+            collaborators: typeof p.collaboratorsJson === 'string' ? JSON.parse(p.collaboratorsJson) : [],
+            deadline: p.deadline ? p.deadline.toISOString().split('T')[0] : '',
+            status: p.status,
+            tasks: typeof p.tasksJson === 'string' ? JSON.parse(p.tasksJson) : [],
+            comments: typeof p.commentsJson === 'string' ? JSON.parse(p.commentsJson) : [],
+            isManagementOnly: !!p.isManagementOnly,
+            priority: p.priority,
+            createdBy: p.createdBy,
+            createdAt: p.createdAt ? Number(p.createdAt) : Date.now()
+        })),
+        requests: requestRecords.map(r => ({
+            id: r.id,
+            userId: r.userId,
+            type: r.type,
+            description: r.description,
+            startDate: r.startDate?.toISOString().split('T')[0],
+            endDate: r.endDate?.toISOString().split('T')[0],
+            status: r.status,
+            createdAt: Number(r.createdAt),
+            approverId: r.approverId,
+            approverName: r.approverName,
+            actionNote: r.actionNote,
+            actionAt: r.actionAt ? Number(r.actionAt) : undefined
+        })),
         transactions: [],
-        dailyReports: [],
+        dailyReports: dailyReportRecords.map(dr => ({
+            id: dr.id,
+            userId: dr.userId,
+            date: dr.date,
+            activities: typeof dr.activitiesJson === 'string' ? JSON.parse(dr.activitiesJson) : [],
+            createdAt: dr.createdAt ? dr.createdAt.getTime() : Date.now()
+        })),
         salaryConfigs: [],
         payrollRecords: [],
         logs: []

@@ -27,15 +27,8 @@ export async function GET(request: Request) {
             take: 200 // Increased limit to ensure we catch recent items
         });
     } catch (e) {
-        console.warn("Schema mismatch in Attendance API: falling back");
-        const where: any = {};
-        if (!isAdmin) where.userId = user.id;
-        
-        records = await prisma.attendance.findMany({
-            where,
-            orderBy: [{ date: 'desc' }, { timeIn: 'desc' }],
-            take: 100 
-        });
+        console.error("Attendance Fetch Error:", e);
+        return NextResponse.json({ error: 'Failed to fetch attendance' }, { status: 500 });
     }
 
     const formatted = records.map(a => ({
@@ -120,10 +113,8 @@ export async function POST(request: Request) {
             data: { ...attendanceData, tenantId }
         });
     } catch (err) {
-        console.warn("Schema mismatch on POST Attendance: falling back");
-        await prisma.attendance.create({
-            data: attendanceData
-        });
+        console.error("Attendance Create Error:", err);
+        return NextResponse.json({ error: 'Gagal mencatat absensi' }, { status: 500 });
     }
 
     return NextResponse.json(a, { status: 201 });
