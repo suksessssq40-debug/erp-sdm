@@ -7,17 +7,23 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
   try {
     const user = await authorize();
+    const { tenantId } = user;
     const { searchParams } = new URL(request.url);
     const roomId = searchParams.get('roomId');
-    const after = searchParams.get('after'); // timestamp
-    const before = searchParams.get('before'); // timestamp for history pagination
+    const after = searchParams.get('after');
+    const before = searchParams.get('before');
 
     if (!roomId) return NextResponse.json({ error: 'Room ID required' }, { status: 400 });
 
-    // Verify membership
-    const membership = await pool.query('SELECT 1 FROM chat_members WHERE room_id=$1 AND user_id=$2', [roomId, user.id]);
-    if (membership.rows.length === 0) {
-      return NextResponse.json({ error: 'Not a member' }, { status: 403 });
+    // Verify membership AND tenant ownership
+    const roomCheck = await pool.query(`
+        SELECT 1 FROM chat_rooms r
+        INNER JOIN chat_members cm ON r.id = cm.room_id
+        WHERE r.id = $1 AND cm.user_id = $2 AND r.tenant_id = $3
+    `, [roomId, user.id, tenantId]);
+
+    if (roomCheck.rows.length === 0) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
     let query = `
@@ -34,16 +40,12 @@ export async function GET(request: Request) {
     const params: any[] = [roomId];
 
     if (before && Number(before) > 0) {
-       // Load History: Messages OLDER than 'before'
-       // Logic: Get 50 messages < before ORDER BY DESC (closest to before), then ASC them back
        query = `SELECT * FROM (${query} AND m.created_at < $2 ORDER BY m.created_at DESC LIMIT 50) sub ORDER BY sub.created_at ASC`;
        params.push(BigInt(before));
     } else if (after && Number(after) > 0) {
-       // Load New: Messages NEWER than 'after'
        query += ` AND m.created_at > $2 ORDER BY m.created_at ASC`;
        params.push(BigInt(after));
     } else {
-       // Initial Load: Last 50 messages
        query = `SELECT * FROM (${query} ORDER BY m.created_at DESC LIMIT 50) sub ORDER BY sub.created_at ASC`;
     }
 
@@ -67,7 +69,6 @@ export async function GET(request: Request) {
       isPinned: row.is_pinned || false
     }));
 
-    // Fetch Read Status for Room (Realtime Update)
     const memberRes = await pool.query('SELECT user_id, last_read_at FROM chat_members WHERE room_id = $1', [roomId]);
     const readStatus: Record<string, number> = {};
     memberRes.rows.forEach(r => {
@@ -77,22 +78,28 @@ export async function GET(request: Request) {
     return NextResponse.json({ messages, readStatus });
   } catch (err) {
     console.error(err);
-    return NextResponse.json({ error: 'Failed to fetch messages' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed' }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
   try {
     const user = await authorize();
+    const { tenantId } = user;
     const body = await request.json();
     const { roomId, content, attachmentUrl, replyToId } = body;
 
-    if (!roomId || (!content && !attachmentUrl)) return NextResponse.json({ error: 'Invalid message' }, { status: 400 });
+    if (!roomId || (!content && !attachmentUrl)) return NextResponse.json({ error: 'Invalid' }, { status: 400 });
 
-    // Basic membership check
-    const membership = await pool.query('SELECT 1 FROM chat_members WHERE room_id=$1 AND user_id=$2', [roomId, user.id]);
-    if (membership.rows.length === 0) {
-      return NextResponse.json({ error: 'Not a member' }, { status: 403 });
+    // Verify membership AND tenant isolation
+    const roomCheck = await pool.query(`
+        SELECT 1 FROM chat_rooms r
+        INNER JOIN chat_members cm ON r.id = cm.room_id
+        WHERE r.id = $1 AND cm.user_id = $2 AND r.tenant_id = $3
+    `, [roomId, user.id, tenantId]);
+
+    if (roomCheck.rows.length === 0) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
     const id = Math.random().toString(36).substr(2, 9);
@@ -103,11 +110,9 @@ export async function POST(request: Request) {
       [id, roomId, user.id, content || '', attachmentUrl || '', replyToId || null, createdAt]
     );
 
-    // Fetch sender details to return full object immediately
     const senderRes = await pool.query('SELECT name, role FROM users WHERE id = $1', [user.id]);
     const sender = senderRes.rows[0];
 
-    // If reply exists, fetch basic reply info for immediate UI update
     let replyInfo = undefined;
     if (replyToId) {
        const replyRes = await pool.query(`
@@ -132,23 +137,31 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     console.error(err);
-    return NextResponse.json({ error: 'Failed to send' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed' }, { status: 500 });
   }
 }
 
 export async function PUT(request: Request) {
   try {
     const user = await authorize();
+    const { tenantId } = user;
     const body = await request.json();
     const { messageId, content } = body;
 
-    if (!messageId || !content) return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+    if (!messageId || !content) return NextResponse.json({ error: 'Invalid' }, { status: 400 });
 
-    const msgCheck = await pool.query('SELECT sender_id FROM chat_messages WHERE id = $1', [messageId]);
-    if (msgCheck.rows.length === 0) return NextResponse.json({ error: 'Message not found' }, { status: 404 });
+    // Strict Cross-Tenant Guard for Message Edit
+    const msgCheck = await pool.query(`
+        SELECT m.sender_id 
+        FROM chat_messages m
+        INNER JOIN chat_rooms r ON m.room_id = r.id
+        WHERE m.id = $1 AND r.tenant_id = $2
+    `, [messageId, tenantId]);
+
+    if (msgCheck.rows.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     
     if (msgCheck.rows[0].sender_id !== user.id) {
-       return NextResponse.json({ error: 'Unauthorized to edit' }, { status: 403 });
+       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
     await pool.query('UPDATE chat_messages SET content = $1 WHERE id = $2', [content, messageId]);
@@ -156,6 +169,6 @@ export async function PUT(request: Request) {
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error(err);
-    return NextResponse.json({ error: 'Failed to update' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed' }, { status: 500 });
   }
 }

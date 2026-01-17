@@ -114,6 +114,64 @@ export default function ClientShell({ children }: { children: React.ReactNode })
 
   }, [store.loaded, store.currentUser, tenantParam, roleParam, router, pathname]);
 
+  // Determine Active Tab from Path: /[tenant]/[role]/[tab]
+  const pathParts = pathname.split('/');
+  const tabSlug = pathParts[3] || 'dashboard';
+  const activeTab = tabSlug;
+
+  // --- SECURITY & FEATURE GUARD (URL BYPASS PREVENTION) ---
+  useEffect(() => {
+    if (!store.loaded || !store.currentUser) return;
+
+    // 1. Check if user is on the correct tenant/role path
+    const userRoleSlug = String(store.currentUser.role).toLowerCase();
+    const userTenantId = String(store.currentUser?.tenantId || 'sdm').toLowerCase();
+    const normalizedTenantParam = (tenantParam || '').toLowerCase();
+    const normalizedRoleParam = (roleParam || '').toLowerCase();
+
+    if (normalizedTenantParam && normalizedRoleParam) {
+        if (normalizedTenantParam !== userTenantId || normalizedRoleParam !== userRoleSlug) {
+            console.warn(`[SECURITY] Unauthorized path access: ${pathname}. Redirecting to ${userTenantId}/${userRoleSlug}`);
+            router.replace(`/${userTenantId}/${userRoleSlug}/dashboard`);
+            return;
+        }
+    }
+
+    // 2. Feature Access Check
+    const featureMap: Record<string, string> = {
+        'kanban': 'projects',
+        'chat': 'chat',
+        'attendance': 'attendance',
+        'payroll': 'payroll',
+        'requests': 'requests',
+        'daily-report': 'daily_report',
+        'finance': 'finance'
+    };
+
+    const requiredFeature = featureMap[activeTab];
+    if (requiredFeature) {
+        let enabled: string[] = [];
+        try {
+            const parsed = typeof store.currentUser.features === 'string' 
+                ? JSON.parse(store.currentUser.features) 
+                : (store.currentUser.features || []);
+            enabled = Array.isArray(parsed) ? parsed : [];
+        } catch(e) {}
+
+        // Special Restriction: Finance & Payroll usually only in SDM (unless overridden)
+        const isFinanceRestricted = (activeTab === 'finance' || activeTab === 'payroll') && store.currentUser.tenantId !== 'sdm';
+        const hasFeature = enabled.includes(requiredFeature);
+        
+        if (isFinanceRestricted && !hasFeature) {
+            toast.error("Modul Keuangan hanya tersedia di Kantor Pusat SDM.");
+            router.replace(`/${userTenantId}/${userRoleSlug}/dashboard`);
+        } else if (!isFinanceRestricted && !hasFeature) {
+            toast.warning(`Modul "${activeTab.toUpperCase()}" dinonaktifkan untuk unit ini.`);
+            router.replace(`/${userTenantId}/${userRoleSlug}/dashboard`);
+        }
+    }
+  }, [activeTab, store.loaded, store.currentUser, store.currentUser?.features, tenantParam, roleParam, router, pathname]);
+
   if (!store.loaded) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
@@ -123,11 +181,6 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   }
 
   if (!store.currentUser) return null;
-
-  // Determine Active Tab from Path: /[tenant]/[role]/[tab]
-  const pathParts = pathname.split('/');
-  const tabSlug = pathParts[3] || 'dashboard';
-  const activeTab = tabSlug; 
 
   const handleTabChange = (tab: string) => {
     const userRoleSlug = store.currentUser!.role.toLowerCase();

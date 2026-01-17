@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     const hash = await bcrypt.hash(password, 10);
     
     try {
-        await prisma.user.create({
+        const newUser = await prisma.user.create({
           data: {
             id,
             tenantId,
@@ -29,6 +29,16 @@ export async function POST(request: Request) {
             isFreelance: !!isFreelance,
             deviceIds: [] // Initialize empty
           } as any
+        });
+
+        // MUST also create TenantAccess for the user to be able to access this tenant
+        await prisma.tenantAccess.create({
+            data: {
+                userId: newUser.id,
+                tenantId: tenantId,
+                role: role,
+                isActive: true
+            }
         });
         
         return NextResponse.json({ id, name, username, telegramId, telegramUsername, role, isFreelance, tenantId }, { status: 201 });

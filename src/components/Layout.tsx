@@ -59,11 +59,11 @@ const Layout: React.FC<LayoutProps> = ({
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF] },
     { id: 'kanban', label: 'Project Kanban', icon: Trello, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF], feature: 'projects' },
-    { id: 'chat', label: 'Team Chat', icon: MessageSquare, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF] },
+    { id: 'chat', label: 'Team Chat', icon: MessageSquare, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF], feature: 'chat' },
     { id: 'attendance', label: 'Absensi', icon: CalendarCheck, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF], feature: 'attendance' },
-    { id: 'payroll', label: 'Gaji & Slip', icon: CreditCard, roles: [UserRole.OWNER, UserRole.FINANCE], feature: 'finance' },
-    { id: 'requests', label: 'Permohonan', icon: FileText, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF], feature: 'attendance' }, // Linked to attendance usually
-    { id: 'daily-report', label: 'Daily Report', icon: Clock, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF], feature: 'attendance' },
+    { id: 'payroll', label: 'Gaji & Slip', icon: CreditCard, roles: [UserRole.OWNER, UserRole.FINANCE], feature: 'payroll' },
+    { id: 'requests', label: 'Permohonan', icon: FileText, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF], feature: 'requests' }, 
+    { id: 'daily-report', label: 'Daily Report', icon: Clock, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF], feature: 'daily_report' },
     { id: 'finance', label: 'Arus Kas', icon: Wallet, roles: [UserRole.OWNER, UserRole.FINANCE], feature: 'finance' },
     { id: 'users', label: 'User Management', icon: Users, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE] },
     { id: 'tenants', label: 'Unit Bisnis', icon: Building, roles: [UserRole.OWNER] }, 
@@ -74,11 +74,17 @@ const Layout: React.FC<LayoutProps> = ({
   const visibleNav = navItems.filter(item => {
     const hasRole = item.roles.includes(userRole);
     const it = item as any;
-    // Exclusive Check (Legacy)
-    if (it.exclusiveTo && it.exclusiveTo !== tenantId) return false;
     
-    // Feature Toggle Check
-    if (enabledFeatures && it.feature && !enabledFeatures.includes(it.feature)) {
+    // 1. Finance & Cashflow Restriction: ONLY in 'sdm' unless explicitly enabled
+    // This follows "Arus kas itu hanya di kantor utama saja (SDM)"
+    if ((item.id === 'finance' || item.id === 'payroll') && tenantId !== 'sdm') {
+        const hasFeature = enabledFeatures?.includes(it.feature);
+        if (!hasFeature) return false;
+    }
+
+    // 2. Feature Toggle Check for Optional Modules
+    if (it.feature && enabledFeatures && !enabledFeatures.includes(it.feature)) {
+        // Special Case: Staff/Manager might NOT see their features if disabled for tenant
         return false;
     }
     

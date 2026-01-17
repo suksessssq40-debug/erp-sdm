@@ -7,17 +7,20 @@ import { UserRole } from '@/types';
 export async function POST(request: Request) {
   try {
     const user = await authorize();
+    const { tenantId } = user;
     const body = await request.json();
     const { messageId } = body;
 
     if (!messageId) return NextResponse.json({ error: 'Message ID required' }, { status: 400 });
 
-    // Check message existence and sender
-    // Allow OWNER, MANAGER to pin ANY message?
-    // Allow Sender to pin THEIR own message?
-    // Let's allow OWNER, MANAGER, and the Sender to pin.
-    
-    const msgCheck = await pool.query('SELECT room_id, sender_id, is_pinned FROM chat_messages WHERE id = $1', [messageId]);
+    // Verify message exists and room belongs to tenant
+    const msgCheck = await pool.query(`
+        SELECT m.room_id, m.sender_id, m.is_pinned 
+        FROM chat_messages m
+        INNER JOIN chat_rooms r ON m.room_id = r.id
+        WHERE m.id = $1 AND r.tenant_id = $2
+    `, [messageId, tenantId]);
+
     if (msgCheck.rows.length === 0) return NextResponse.json({ error: 'Message not found' }, { status: 404 });
     
     const msg = msgCheck.rows[0];
@@ -37,17 +40,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, isPinned: newPin, roomId: msg.room_id });
   } catch (err) {
     console.error(err);
-    return NextResponse.json({ error: 'Failed to toggle pin' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed' }, { status: 500 });
   }
 }
 
 export async function GET(request: Request) {
-    // Get Pinned Message for a Room (Simple single sticky)
     try {
-        await authorize();
+        const user = await authorize();
+        const { tenantId } = user;
         const { searchParams } = new URL(request.url);
         const roomId = searchParams.get('roomId');
         if (!roomId) return NextResponse.json({ error: 'Room ID required' }, { status: 400 });
+
+        // Verify room belongs to tenant
+        const roomCheck = await pool.query('SELECT 1 FROM chat_rooms WHERE id = $1 AND tenant_id = $2', [roomId, tenantId]);
+        if (roomCheck.rows.length === 0) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
 
         const res = await pool.query(`
             SELECT m.*, u.name as sender_name 

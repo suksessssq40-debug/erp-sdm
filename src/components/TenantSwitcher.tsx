@@ -81,6 +81,10 @@ export const TenantSwitcher = () => {
 
   const currentTenant = tenants.find(t => t.current) || { name: currentUser?.tenantId || 'SDM', role: currentUser?.role || 'User' };
 
+  if (currentUser && !['OWNER', 'FINANCE', 'MANAGER'].includes(currentUser.role)) {
+      return null;
+  }
+
   return (
     <div className="relative">
         <button 

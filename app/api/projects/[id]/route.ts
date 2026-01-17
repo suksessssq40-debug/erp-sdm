@@ -5,8 +5,13 @@ import { authorize } from '@/lib/auth';
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   try {
     const user = await authorize();
+    const { tenantId } = user;
     const id = params.id;
     const p = await request.json();
+
+    // Security: Check ownership & existence within tenant
+    const existing = await prisma.project.findFirst({ where: { id, tenantId } });
+    if (!existing) return NextResponse.json({ error: 'Project not found or unauthorized' }, { status: 404 });
 
     if (p.status === 'DONE' && user.role === 'STAFF') {
       return NextResponse.json({ error: 'Not allowed to mark DONE' }, { status: 403 });
@@ -38,14 +43,15 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
     const user = await authorize();
+    const { tenantId } = user;
     const id = params.id;
     const body = await request.json(); // { action: '...', data: ... }
     const { action, data } = body;
 
-    // Fetch current project first
-    const currentProject = await prisma.project.findUnique({ where: { id } });
+    // Fetch current project first - STRICT TENANT CHECK
+    const currentProject = await prisma.project.findFirst({ where: { id, tenantId } });
     if (!currentProject) {
-      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Project not found or unauthorized' }, { status: 404 });
     }
 
     let updateData: any = {};
@@ -74,8 +80,6 @@ export async function PATCH(request: Request, { params }: { params: { id: string
        comments.push(data.comment);
        updateData.commentsJson = JSON.stringify(comments);
     }
-    // Fallback? If logic is complex, maybe just rely on standard PUT if 'data' is full object.
-    // But store.ts uses PATCH specifically for 'atomic' names. 
     
     // Perform Update
     const updated = await prisma.project.update({
@@ -97,11 +101,17 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   }
 }
 
-// Support DELETE if required by recent user requests
+// Support DELETE - Management Level
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   try {
-    await authorize(['OWNER', 'MANAGER', 'FINANCE']); // Management Level Delete
+    const user = await authorize(['OWNER', 'MANAGER', 'FINANCE']); 
+    const { tenantId } = user;
     const id = params.id;
+
+    // Verify existence & ownership
+    const existing = await prisma.project.findFirst({ where: { id, tenantId } });
+    if (!existing) return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+
     await prisma.project.delete({ where: { id } });
     return NextResponse.json({ message: 'Deleted' });
   } catch (error) {

@@ -5,15 +5,16 @@ import { authorize } from '@/lib/auth';
 
 export async function POST(request: Request) {
   try {
-    await authorize(['OWNER', 'FINANCE']);
-    const { categories } = await request.json(); // Expected: [{ name, type, parentName? }]
+    const user = await authorize(['OWNER', 'FINANCE']);
+    const { tenantId } = user;
+    const { categories } = await request.json(); 
 
     if (!Array.isArray(categories)) {
-        return NextResponse.json({ error: 'Invalid payload: categories must be an array' }, { status: 400 });
+        return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
     }
 
-    // 1. Fetch current categories to check for duplicates and resolve parents
-    const existingRes = await pool.query('SELECT id, name, type FROM transaction_categories');
+    // 1. Fetch current categories - FILTER BY TENANT
+    const existingRes = await pool.query('SELECT id, name, type FROM transaction_categories WHERE tenant_id = $1', [tenantId]);
     
     // Map: "NAME|TYPE" -> ID
     const categoryMap = new Map<string, string>();
@@ -24,7 +25,6 @@ export async function POST(request: Request) {
     let newCount = 0;
 
     // 2. Pass 1: Process Roots (No Parent)
-    // We prioritize roots so they exist when children need them
     const roots = categories.filter((c: any) => !c.parentName);
     
     for (const cat of roots) {
@@ -35,8 +35,8 @@ export async function POST(request: Request) {
         if (!categoryMap.has(key)) {
             const id = Math.random().toString(36).substr(2, 9);
             await pool.query(
-                `INSERT INTO transaction_categories (id, name, type, parent_id) VALUES ($1, $2, $3, NULL)`,
-                [id, normalizedName, cat.type]
+                `INSERT INTO transaction_categories (id, tenant_id, name, type, parent_id) VALUES ($1, $2, $3, $4, NULL)`,
+                [id, tenantId, normalizedName, cat.type]
             );
             categoryMap.set(key, id);
             newCount++;
@@ -51,21 +51,16 @@ export async function POST(request: Request) {
         const normalizedName = cat.name.trim();
         const key = `${normalizedName.toUpperCase()}|${cat.type}`;
 
-        // Skip if already exists
         if (categoryMap.has(key)) continue;
 
         // Resolve Parent
         const parentKey = `${cat.parentName.trim().toUpperCase()}|${cat.type}`;
         let parentId = categoryMap.get(parentKey);
-
-        // Fallback: If parent not found in map, maybe it was meant for a different type? 
-        // Or if strictly not found, we insert as root to avoid data loss, but log it.
-        // This fulfills "jangan sampai ada error" by being resilient.
         
         const id = Math.random().toString(36).substr(2, 9);
         await pool.query(
-            `INSERT INTO transaction_categories (id, name, type, parent_id) VALUES ($1, $2, $3, $4)`,
-            [id, normalizedName, cat.type, parentId || null]
+            `INSERT INTO transaction_categories (id, tenant_id, name, type, parent_id) VALUES ($1, $2, $3, $4, $5)`,
+            [id, tenantId, normalizedName, cat.type, parentId || null]
         );
         categoryMap.set(key, id);
         newCount++;
@@ -78,6 +73,6 @@ export async function POST(request: Request) {
 
   } catch (error) {
     console.error("Import Categories Error:", error);
-    return NextResponse.json({ error: 'Internal Server Error during import' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

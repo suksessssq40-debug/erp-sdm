@@ -5,33 +5,31 @@ import { authorize } from '@/lib/auth';
 
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   try {
-    // Owner and Finance can edit
-    await authorize(['OWNER', 'FINANCE']);
+    const user = await authorize(['OWNER', 'FINANCE']);
+    const { tenantId } = user;
     const id = params.id;
     const body = await request.json();
 
-    // Basic validation
     if (!body.amount || !body.account) {
         return NextResponse.json({ error: 'Invalid data' }, { status: 400 });
     }
 
-    // Fix Data Integrity: Lookup Account ID based on name
+    // STRICT CHECK: Ownership & Tenant match
+    const existingTx = await prisma.transaction.findFirst({ where: { id, tenantId } });
+    if (!existingTx) return NextResponse.json({ error: 'Transaction not found or unauthorized' }, { status: 404 });
+
+    // Fix Data Integrity: Lookup Account ID based on name - MUST BE WITHIN TENANT
     let accountId: string | null = null;
     if (body.account) {
         const acc = await prisma.financialAccount.findFirst({
             where: {
-                name: {
-                    equals: body.account,
-                    mode: 'insensitive'
-                }
+                tenantId,
+                name: { equals: body.account, mode: 'insensitive' }
             }
         });
-        if (acc) {
-            accountId = acc.id;
-        }
+        if (acc) accountId = acc.id;
     }
 
-    // Update transaction using Prisma $transaction for data integrity
     const updated = await prisma.$transaction(async (tx) => {
         const old = await tx.transaction.findUnique({ where: { id } });
         if (!old) throw new Error('Transaction not found');
@@ -42,10 +40,10 @@ export async function PUT(request: Request, { params }: { params: { id: string }
                 const oldAmount = Number(old.amount);
                 const undoChange = old.type === 'IN' ? -oldAmount : oldAmount;
                 await (tx.financialAccount as any).update({
-                    where: { id: old.accountId },
+                    where: { id: old.accountId, tenantId },
                     data: { balance: { increment: undoChange } }
                 });
-            } catch (e) { /* ignore missing column */ }
+            } catch (e) { /* ignore */ }
         }
 
         // 2. Perform Update
@@ -74,10 +72,10 @@ export async function PUT(request: Request, { params }: { params: { id: string }
                 const newAmount = Number(body.amount);
                 const applyChange = body.type === 'IN' ? newAmount : -newAmount;
                 await (tx.financialAccount as any).update({
-                    where: { id: accountId },
+                    where: { id: accountId, tenantId },
                     data: { balance: { increment: applyChange } }
                 });
-            } catch (e) { /* ignore missing column */ }
+            } catch (e) { /* ignore */ }
         }
 
         return up;
@@ -86,39 +84,41 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     return NextResponse.json(updated);
   } catch (error) {
     console.error('Update Transaction Error:', error);
-    return NextResponse.json({ error: (error as any).message || 'Failed to update transaction' }, { status: 500 });
+    return NextResponse.json({ error: (error as any).message || 'Failed' }, { status: 500 });
   }
 }
 
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   try {
-    await authorize(['OWNER', 'FINANCE']);
+    const user = await authorize(['OWNER', 'FINANCE']);
+    const { tenantId } = user;
     const id = params.id;
+
+    // STRICT CHECK: Tenant validation
+    const existing = await prisma.transaction.findFirst({ where: { id, tenantId } });
+    if (!existing) return NextResponse.json({ error: 'Unauthorized delete' }, { status: 403 });
 
     await prisma.$transaction(async (tx) => {
         const old = await tx.transaction.findUnique({ where: { id } });
         if (!old) return;
 
-        // Undo Impact
         if (old.status === 'PAID' && old.accountId) {
             try {
                 const oldAmount = Number(old.amount);
                 const undoChange = old.type === 'IN' ? -oldAmount : oldAmount;
                 await (tx.financialAccount as any).update({
-                    where: { id: old.accountId },
+                    where: { id: old.accountId, tenantId },
                     data: { balance: { increment: undoChange } }
                 });
-            } catch (e) { /* ignore missing column */ }
+            } catch (e) { /* ignore */ }
         }
 
-        await tx.transaction.delete({
-            where: { id }
-        });
+        await tx.transaction.delete({ where: { id } });
     });
 
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Delete Transaction Error:', error);
-    return NextResponse.json({ error: 'Failed to delete transaction' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed' }, { status: 500 });
   }
 }

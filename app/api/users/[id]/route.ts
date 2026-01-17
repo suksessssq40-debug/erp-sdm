@@ -6,15 +6,16 @@ import bcrypt from 'bcryptjs';
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   try {
     const actor = await authorize(['OWNER', 'MANAGER']);
+    const { tenantId } = actor;
     const id = params.id;
     const body = await request.json();
 
-    // Prevent non-Owners from editing Owners or Superadmins
-    const target = await prisma.user.findUnique({ where: { id } });
-    if (!target) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    // Security: Strict tenant isolation & Role hierarchy
+    const target = await prisma.user.findFirst({ where: { id, tenantId } });
+    if (!target) return NextResponse.json({ error: 'User not found or unauthorized' }, { status: 404 });
 
     if (actor.role !== 'OWNER' && (target.role === 'OWNER' || target.role === 'SUPERADMIN')) {
-         return NextResponse.json({ error: 'Forbidden to edit this user' }, { status: 403 });
+         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     const { name, username, telegramId, telegramUsername, role, password, isFreelance } = body;
@@ -42,10 +43,11 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   try {
     const actor = await authorize(['OWNER']);
+    const { tenantId } = actor;
     const id = params.id;
 
-    const target = await prisma.user.findUnique({ where: { id } });
-    if (!target) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    const target = await prisma.user.findFirst({ where: { id, tenantId } });
+    if (!target) return NextResponse.json({ error: 'Not found or unauthorized' }, { status: 404 });
     if (target.role === 'OWNER') return NextResponse.json({ error: 'Cannot delete owner' }, { status: 400 });
 
     await prisma.user.delete({ where: { id } });

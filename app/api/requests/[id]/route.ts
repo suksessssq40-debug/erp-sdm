@@ -5,18 +5,16 @@ import { authorize } from '@/lib/auth';
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   try {
     const user = await authorize(['OWNER', 'MANAGER', 'FINANCE']);
+    const { tenantId } = user;
     const id = params.id;
     const r = await request.json();
 
-    // Prepare Update Data
-    // We conditionally update fields only if present to allow partial updates (e.g. just status update)
-    // Or we assume the frontend sends full object. Based on typical React forms, usually full object.
-    
-    // Critical Logic: If status is changing to APPROVED/REJECTED, we must log the Approver.
+    // STRICT CHECK: Ownership & Tenant match
+    const existing = await prisma.leaveRequest.findFirst({ where: { id, tenantId } as any });
+    if (!existing) return NextResponse.json({ error: 'Request not found or unauthorized' }, { status: 404 });
+
     const isApprovalAction = r.status === 'APPROVED' || r.status === 'REJECTED';
 
-    // But wait, the `user` from authorize() might be just { id, role }. We need the name.
-    // Fetch the full user details to get the Name for audit trail
     const activeUser = await prisma.user.findUnique({
         where: { id: user.id },
         select: { name: true }
@@ -36,7 +34,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
         // Audit Trail (Only updated if explicit action is taken)
         ...(isApprovalAction && {
             approverId: user.id,
-            approverName: approverRealName, // FIXED: Use fetched name
+            approverName: approverRealName,
             actionNote: r.actionNote || null,
             actionAt: BigInt(Date.now())
         })

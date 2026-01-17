@@ -12,6 +12,13 @@ export interface Tenant {
   name: string;
   description?: string;
   isActive: boolean;
+  featuresJson?: string; // Modular Features JSON string: "['finance', 'attendance']"
+  _count?: {
+    users: number;
+    projects: number;
+    requests: number;
+    attendance: number;
+  };
 }
 
 export interface User {
@@ -22,6 +29,7 @@ export interface User {
   telegramId: string;
   telegramUsername: string;
   role: UserRole;
+  roleSlug?: string; // lowercase role name for routing
   password?: string;
   deviceId?: string;
   deviceIds?: string[];

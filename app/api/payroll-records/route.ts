@@ -4,11 +4,16 @@ import { authorize } from '@/lib/auth';
 
 export async function GET(request: Request) {
     try {
-        await authorize(['OWNER', 'FINANCE', 'MANAGER']);
+        const user = await authorize(['OWNER', 'FINANCE', 'MANAGER']);
+        const { tenantId } = user;
         
+        // Filter by Tenant via User relationship
         const records = await prisma.payrollRecord.findMany({
+            where: {
+                user: { tenantId }
+            },
             orderBy: { processedAt: 'desc' },
-            take: 50
+            take: 100
         });
 
         const formatted = records.map(pr => ({
@@ -35,7 +40,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    await authorize(['OWNER', 'FINANCE']);
+    const user = await authorize(['OWNER', 'FINANCE']);
+    const { tenantId } = user;
     const pr = await request.json();
 
     // Transaction: Create Payroll Record + Auto Journal
@@ -58,7 +64,7 @@ export async function POST(request: Request) {
             }
         });
 
-        // 2. Auto Journal
+        // 2. Auto Journal - MUST INCLUDE tenantId
         const transactionId = Math.random().toString(36).substr(2, 9);
         const today = new Date();
         const desc = `Gaji Bulan ${pr.month} (Auto)`;
@@ -66,6 +72,7 @@ export async function POST(request: Request) {
         await tx.transaction.create({
             data: {
                 id: transactionId,
+                tenantId: tenantId, // CRITICAL FIX
                 date: today,
                 amount: pr.netSalary,
                 type: 'OUT',

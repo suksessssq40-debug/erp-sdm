@@ -4,9 +4,15 @@ import { authorize } from '@/lib/auth';
 
 export async function GET(request: Request) {
     try {
-        await authorize(['OWNER', 'FINANCE', 'MANAGER']);
+        const user = await authorize(['OWNER', 'FINANCE', 'MANAGER']);
+        const { tenantId } = user;
         
-        const configs = await prisma.salaryConfig.findMany();
+        // Filter by Tenant via User relationship
+        const configs = await prisma.salaryConfig.findMany({
+            where: {
+                user: { tenantId }
+            }
+        });
 
         const formatted = configs.map(c => ({
           userId: c.userId,
@@ -18,6 +24,7 @@ export async function GET(request: Request) {
 
         return NextResponse.json(formatted);
     } catch(e) {
+        console.error(e);
         return NextResponse.json({ error: 'Failed' }, { status: 500 });
     }
 }

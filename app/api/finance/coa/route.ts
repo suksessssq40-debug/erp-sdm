@@ -6,13 +6,15 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    await authorize(['OWNER', 'FINANCE', 'MANAGER']);
+    const user = await authorize(['OWNER', 'FINANCE', 'MANAGER']);
+    const { tenantId } = user;
     
     // 1. Fetch Chart of Accounts (Standard)
     const coaList = await prisma.chartOfAccount.findMany({
-      where: { isActive: true },
+      where: { tenantId, isActive: true } as any,
       include: { 
         transactions: {
+            where: { tenantId },
             select: { amount: true, type: true }
         }
       }
@@ -20,9 +22,10 @@ export async function GET() {
 
     // 2. Fetch Financial Accounts (Banks/Cash) -> Treat as ASSET
     const financialAccounts = await prisma.financialAccount.findMany({
-        where: { isActive: true },
+        where: { tenantId, isActive: true },
         include: {
             transactions: {
+                where: { tenantId },
                 select: { amount: true, type: true }
             }
         }
@@ -32,13 +35,14 @@ export async function GET() {
     // These are transactions where 'account' stores the Debit COA Name, and 'coaId' stores the Credit COA.
     // 'accountId' is null.
     const generalTransactions = await prisma.transaction.findMany({
-        where: { accountId: null },
+        where: { tenantId, accountId: null },
         select: { amount: true, type: true, account: true }
     });
 
     // 3. Process COA Balances
     const processedCoa = coaList.map(c => {
         // A. Standard Linked Transactions (via coaId) - Usually the "Credit" side or "Lawan"
+        // (Now already filtered by tenantId in findMany include where)
         const totalIn = c.transactions.filter(t => t.type === 'IN').reduce((acc, t) => acc + Number(t.amount), 0);
         const totalOut = c.transactions.filter(t => t.type === 'OUT').reduce((acc, t) => acc + Number(t.amount), 0);
         
@@ -125,7 +129,8 @@ export async function GET() {
 
 export async function POST(request: Request) {
     try {
-        await authorize(['OWNER', 'FINANCE']);
+        const user = await authorize(['OWNER', 'FINANCE']);
+        const { tenantId } = user;
         const body = await request.json();
         
         // Basic Validation
@@ -133,15 +138,18 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Data tidak lengkap' }, { status: 400 });
         }
 
-        // Check Duplicate Code
-        const existing = await prisma.chartOfAccount.findUnique({ where: { code: body.code } });
+        // Check Duplicate Code - WITHIN TENANT
+        const existing = await (prisma.chartOfAccount as any).findFirst({ 
+            where: { code: body.code, tenantId } 
+        });
         if (existing) {
             return NextResponse.json({ error: `Kode Akun ${body.code} sudah digunakan!` }, { status: 400 });
         }
 
-        const newCoa = await prisma.chartOfAccount.create({
+        const newCoa = await (prisma.chartOfAccount as any).create({
             data: {
-                id: `coa_${body.code}`, // Predictable ID
+                id: `coa_${tenantId}_${body.code}`, // Tenant-specific Predictable ID
+                tenantId,
                 code: body.code,
                 name: body.name,
                 type: body.type,
@@ -159,6 +167,6 @@ export async function POST(request: Request) {
 
     } catch (e) {
         console.error(e);
-        return NextResponse.json({ error: 'Gagal membuat akun' }, { status: 500 });
+        return NextResponse.json({ error: 'Gagal' }, { status: 500 });
     }
 }

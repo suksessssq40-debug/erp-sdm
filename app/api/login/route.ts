@@ -13,19 +13,31 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Username and password required' }, { status: 400 });
     }
 
-    // 1. Find User
-    const u = await prisma.user.findUnique({
-      where: { username }
+    // 1. Find User (Case Insensitive)
+    console.log(`[LOGIN] Attempt: ${username}`);
+    const u = await prisma.user.findFirst({
+      where: { 
+        username: {
+          equals: username,
+          mode: 'insensitive' // Critical for user ease of use
+        }
+      }
     });
 
     if (!u) {
+      console.warn(`[LOGIN] 401: User not found - ${username}`);
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
+
+    console.log(`[LOGIN] User found: ${u.username} (ID: ${u.id})`);
 
     // 2. Password Check
     if (u.passwordHash) {
       const ok = await bcrypt.compare(password, u.passwordHash);
-      if (!ok) return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+      if (!ok) {
+        console.warn(`[LOGIN] 401: Password mismatch for ${username}`);
+        return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+      }
     } else {
       // Legacy Migration (if plain text exists - strict fallback)
       const hash = await bcrypt.hash(password, 10);
@@ -90,6 +102,11 @@ export async function POST(request: Request) {
 
     // 4. Update Token
     const tenantId = (u as any).tenantId || 'sdm';
+    const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { featuresJson: true }
+    });
+    const features = tenant?.featuresJson || '[]';
     
     const userPayload = {
       id: u.id,
@@ -103,10 +120,11 @@ export async function POST(request: Request) {
       avatarUrl: u.avatarUrl || undefined,
       jobTitle: u.jobTitle || undefined,
       bio: u.bio || undefined,
-      isFreelance: !!u.isFreelance
+      isFreelance: !!u.isFreelance,
+      features: features // CRITICAL: Include features here to fix stale menu
     };
 
-    const token = jwt.sign({ id: u.id, username: u.username, role: u.role, tenantId: tenantId }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign(userPayload, JWT_SECRET, { expiresIn: '7d' });
 
     return NextResponse.json({ user: userPayload, token });
 

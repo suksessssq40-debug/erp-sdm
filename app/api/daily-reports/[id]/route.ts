@@ -5,12 +5,13 @@ import { authorize } from '@/lib/auth';
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   try {
     const user = await authorize();
+    const { tenantId } = user;
     const id = params.id;
     const r = await request.json();
 
-    // Security: Ensure user owns the report (unless Admin)
-    const existing = await prisma.dailyReport.findUnique({ where: { id } });
-    if (!existing) return NextResponse.json({ error: 'Not Found' }, { status: 404 });
+    // Security: Ensure repo exists & belongs to tenant
+    const existing = await prisma.dailyReport.findFirst({ where: { id, tenantId } });
+    if (!existing) return NextResponse.json({ error: 'Not Found or Unauthorized' }, { status: 404 });
 
     const isOwner = user.id === existing.userId;
     const isAdmin = ['OWNER', 'MANAGER', 'FINANCE'].includes(user.role);
@@ -19,16 +20,10 @@ export async function PUT(request: Request, { params }: { params: { id: string }
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Logic: Allowed to edit? Maybe limit to same day?
-    // User requested "Edit Feature", we assume full edit for now or let Frontend handle logic.
-    // Ideally, lock editing after 24 hours. But let's be flexible first.
-
     await prisma.dailyReport.update({
       where: { id },
       data: {
         activitiesJson: JSON.stringify(r.activities || [])
-        // Date usually shouldn't change, but if they want to fix date? Let's allow it for admins only?
-        // For simplicity, just update activities.
       }
     });
 
@@ -42,11 +37,12 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   try {
     const user = await authorize();
+    const { tenantId } = user;
     const id = params.id;
 
-    // Security
-    const existing = await prisma.dailyReport.findUnique({ where: { id } });
-    if (!existing) return NextResponse.json({ error: 'Not Found' }, { status: 404 });
+    // Security: Strict tenant isolation
+    const existing = await prisma.dailyReport.findFirst({ where: { id, tenantId } });
+    if (!existing) return NextResponse.json({ error: 'Not Found or Unauthorized' }, { status: 404 });
 
     const isOwner = user.id === existing.userId;
     const isAdmin = ['OWNER', 'MANAGER', 'FINANCE'].includes(user.role);

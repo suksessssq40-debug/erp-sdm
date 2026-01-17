@@ -30,23 +30,29 @@ export async function GET() {
         throw e;
     }
 
-    // 3. Fetch Attendance, Projects, Requests, Reports (Safe for migration)
+    // 3. Fetch Attendance, Projects, Requests, Reports, Salary (Safe for migration)
     let attendanceRecords: any[] = [];
     let projectRecords: any[] = [];
     let requestRecords: any[] = [];
     let dailyReportRecords: any[] = [];
+    let salaryConfigs: any[] = [];
+    let payrollRecords: any[] = [];
 
     try {
-        const [att, proj, req, rep] = await Promise.all([
+        const [att, proj, req, rep, sConf, pRec] = await Promise.all([
           prisma.attendance.findMany({ where: { tenantId } as any, orderBy: [{ date: 'desc' }, { timeIn: 'desc' }], take: 100 }),
           prisma.project.findMany({ where: { tenantId } as any, orderBy: { createdAt: 'desc' }, take: 50 }),
           prisma.leaveRequest.findMany({ where: { tenantId } as any, orderBy: { createdAt: 'desc' }, take: 50 }),
-          prisma.dailyReport.findMany({ where: { tenantId } as any, orderBy: { createdAt: 'desc' }, take: 50 })
+          prisma.dailyReport.findMany({ where: { tenantId } as any, orderBy: { createdAt: 'desc' }, take: 50 }),
+          prisma.salaryConfig.findMany({ where: { user: { tenantId } } as any }),
+          prisma.payrollRecord.findMany({ where: { user: { tenantId } } as any, orderBy: { processedAt: 'desc' }, take: 50 })
         ]);
         attendanceRecords = att;
         projectRecords = proj;
         requestRecords = req;
         dailyReportRecords = rep;
+        salaryConfigs = sConf;
+        payrollRecords = pRec;
     } catch (err) {
         console.error("Bootstrap query failure:", err);
         throw err; // Don't fallback to global queries in multi-tenancy!
@@ -56,6 +62,7 @@ export async function GET() {
     const settings = settingsData ? {
         officeLocation: { lat: Number(settingsData.officeLat), lng: Number(settingsData.officeLng) },
         officeHours: { start: settingsData.officeStartTime, end: settingsData.officeEndTime },
+        hasOvernightShift: !!settingsData.hasOvernightShift,
         telegramBotToken: settingsData.telegramBotToken || '',
         telegramGroupId: settingsData.telegramGroupId || '',
         telegramOwnerChatId: settingsData.telegramOwnerChatId || '',
@@ -142,8 +149,27 @@ export async function GET() {
             activities: typeof dr.activitiesJson === 'string' ? JSON.parse(dr.activitiesJson) : [],
             createdAt: dr.createdAt ? dr.createdAt.getTime() : Date.now()
         })),
-        salaryConfigs: [],
-        payrollRecords: [],
+        salaryConfigs: salaryConfigs.map(c => ({
+          userId: c.userId,
+          basicSalary: Number(c.basicSalary),
+          allowance: Number(c.allowance),
+          mealAllowance: Number(c.mealAllowance),
+          lateDeduction: Number(c.lateDeduction)
+        })),
+        payrollRecords: payrollRecords.map(pr => ({
+          id: pr.id,
+          userId: pr.userId,
+          month: pr.month,
+          basicSalary: Number(pr.basicSalary),
+          allowance: Number(pr.allowance),
+          totalMealAllowance: Number(pr.totalMealAllowance),
+          bonus: Number(pr.bonus),
+          deductions: Number(pr.deductions),
+          netSalary: Number(pr.netSalary),
+          isSent: !!pr.isSent,
+          processedAt: pr.processedAt ? Number(pr.processedAt) : Date.now(),
+          metadata: typeof pr.metadataJson === 'string' ? JSON.parse(pr.metadataJson) : undefined
+        })),
         logs: []
     };
 

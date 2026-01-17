@@ -5,9 +5,14 @@ import { authorize } from '@/lib/auth';
 
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   try {
-    await authorize();
+    const user = await authorize();
+    const { tenantId } = user;
     const id = params.id;
     const a = await request.json();
+
+    // STRICT CHECK: Ensure record belongs to tenant
+    const existing = await prisma.attendance.findFirst({ where: { id, tenantId } as any });
+    if (!existing) return NextResponse.json({ error: 'Record not found' }, { status: 404 });
 
     // --- HARDENING: SERVER TIME ENFORCEMENT ---
     const now = new Date();

@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAppStore } from '../context/StoreContext';
+import { MultiUnitOverview } from './MultiUnitOverview';
 import { 
   Users, 
   TrendingUp, 
@@ -178,6 +179,9 @@ export const OwnerDashboard = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Aggregated View for Multiple Units */}
+            <MultiUnitOverview />
 
             {/* --- ROW 2: TREND ANALYSIS & STATS --- */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

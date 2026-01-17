@@ -325,9 +325,14 @@ export const useStore = () => {
         }
         throw new Error(payload?.error || 'Login failed');
       }
-      const user: User = payload.user;
+      const user: User = { 
+          ...payload.user, 
+          roleSlug: payload.user.role.toLowerCase(),
+          features: payload.user.features // Ensure features are mapped correctly
+      };
       const token: string | undefined = payload.token;
       
+      // Update state with fresh data
       setState(prev => ({ ...prev, currentUser: user, authToken: token as any }));
       
       // LOG LOGIN
@@ -1098,6 +1103,63 @@ export const useStore = () => {
             }
         } catch(e) { console.error("Fetch Requests Failed", e); }
     },
+    fetchTenants: async () => {
+        try {
+            const res = await fetch(`${API_BASE}/api/tenants`, { headers: authHeaders });
+            if (res.ok) {
+                const data = await res.json();
+                setState(prev => ({ ...prev, tenants: data }));
+            }
+        } catch(e) { console.error("Fetch Tenants Failed", e); }
+    },
+    createTenant: async (id: string, name: string, description: string, features: string[]) => {
+        const res = await fetch(`${API_BASE}/api/tenants`, {
+            method: 'POST',
+            headers: { ...authHeaders, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, name, description, features })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to create tenant');
+        
+        // Refresh tenants list
+        const updatedTenantsRes = await fetch(`${API_BASE}/api/tenants`, { headers: authHeaders });
+        if (updatedTenantsRes.ok) {
+            const updatedData = await updatedTenantsRes.json();
+            setState(prev => ({ ...prev, tenants: updatedData }));
+        }
+        return data;
+    },
+    updateTenant: async (id: string, name: string, description: string, features: string[], isActive: boolean) => {
+        const res = await fetch(`${API_BASE}/api/tenants/${id}`, {
+            method: 'PUT',
+            headers: { ...authHeaders, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, description, features, isActive })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to update tenant');
+        
+        // Update local state
+        setState(prev => ({
+            ...prev,
+            tenants: prev.tenants.map(t => t.id === id ? data : t)
+        }));
+        return data;
+    },
+    deleteTenant: async (id: string) => {
+        const res = await fetch(`${API_BASE}/api/tenants/${id}`, {
+            method: 'DELETE',
+            headers: { ...authHeaders }
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to delete tenant');
+        
+        // Update local state
+        setState(prev => ({
+            ...prev,
+            tenants: prev.tenants.filter(t => t.id !== id)
+        }));
+        return data;
+    },
     fetchDailyReports: async () => {
          try {
             const res = await fetch(`${API_BASE}/api/daily-reports`, { headers: authHeaders });
@@ -1195,45 +1257,6 @@ export const useStore = () => {
             throw e;
         }
     },
-    
-    // --- Tenant Management ---
-    createTenant: async (id: string, name: string, description?: string) => {
-        try {
-            const res = await fetch(`${API_BASE}/api/tenants`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...authHeaders },
-                body: JSON.stringify({ id, name, description })
-            });
-            
-            if (!res.ok) {
-                const err = await res.json();
-                throw new Error(err.error || 'Failed to create tenant');
-            }
-            
-            const data = await res.json();
-            const newTenant: Tenant = data.tenant;
-            
-            setState(prev => ({ ...prev, tenants: [newTenant, ...prev.tenants] }));
-            addLog(SystemActionType.SETTINGS_UPDATE, `Created New Tenant: ${name} (${id})`);
-            
-            return data; 
-        } catch(e) {
-            console.error(e);
-            throw e;
-        }
-    },
-
-    fetchTenants: async () => {
-        if (state.currentUser?.role !== UserRole.OWNER) return;
-        try {
-            const res = await fetch(`${API_BASE}/api/tenants`, { headers: authHeaders });
-            if (res.ok) {
-                const data = await res.json();
-                setState(prev => ({ ...prev, tenants: data }));
-            }
-        } catch(e) { console.error(e); }
-    },
-
     switchTenant: async (targetTenantId: string) => {
         try {
             const res = await fetch(`${API_BASE}/api/tenants/switch`, {
@@ -1248,14 +1271,15 @@ export const useStore = () => {
             }
             
             const { user, token } = await res.json();
+            const normalizedUser = { ...user, roleSlug: (user.role || '').toLowerCase() };
             
             // Update LocalStorage
             if (typeof window !== 'undefined') {
-                window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
+                window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(normalizedUser));
                 window.localStorage.setItem(CURRENT_TOKEN_KEY, token);
                 
                 // Hard refresh to reset all state and routing
-                window.location.href = `/${targetTenantId}/${user.roleSlug}/dashboard`;
+                window.location.href = `/${targetTenantId}/${normalizedUser.roleSlug}/dashboard`;
             }
         } catch(e) {
             console.error(e);

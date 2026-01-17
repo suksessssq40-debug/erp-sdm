@@ -5,16 +5,19 @@ import { authorize } from '@/lib/auth';
 
 export async function GET() {
   try {
-    await authorize(['OWNER', 'FINANCE', 'MANAGER']); // Allow Manager too?
-    const res = await pool.query('SELECT * FROM financial_accounts WHERE is_active = true ORDER BY created_at ASC');
-    // Map snake_case to camelCase
+    const user = await authorize(['OWNER', 'FINANCE', 'MANAGER']);
+    const { tenantId } = user;
+
+    const res = await pool.query('SELECT * FROM financial_accounts WHERE tenant_id = $1 AND is_active = true ORDER BY created_at ASC', [tenantId]);
+    
     const accounts = res.rows.map(row => ({
       id: row.id,
       name: row.name,
       bankName: row.bank_name,
       accountNumber: row.account_number,
       description: row.description,
-      isActive: row.is_active
+      isActive: row.is_active,
+      tenantId: row.tenant_id
     }));
     return NextResponse.json(accounts);
   } catch (error) {
@@ -25,10 +28,10 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const user = await authorize(['OWNER', 'FINANCE']); // Only Owner and Finance can add accounts
+    const user = await authorize(['OWNER', 'FINANCE']);
+    const { tenantId } = user;
     const body = await request.json();
     
-    // Validation
     if (!body.name || !body.bankName) {
       return NextResponse.json({ error: 'Name and Bank Name are required' }, { status: 400 });
     }
@@ -37,13 +40,14 @@ export async function POST(request: Request) {
     const now = Date.now();
     
     await pool.query(
-      `INSERT INTO financial_accounts (id, name, bank_name, account_number, description, is_active, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [id, body.name, body.bankName, body.accountNumber || '-', body.description || '', true, now]
+      `INSERT INTO financial_accounts (id, tenant_id, name, bank_name, account_number, description, is_active, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [id, tenantId, body.name, body.bankName, body.accountNumber || '-', body.description || '', true, now]
     );
 
     const newAccount = {
       id,
+      tenantId,
       name: body.name,
       bankName: body.bankName,
       accountNumber: body.accountNumber || '-',
@@ -54,6 +58,6 @@ export async function POST(request: Request) {
     return NextResponse.json(newAccount, { status: 201 });
   } catch (error) {
     console.error(error);
-    return NextResponse.json({ error: 'Failed to create account' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed' }, { status: 500 });
   }
 }

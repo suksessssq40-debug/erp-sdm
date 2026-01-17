@@ -145,7 +145,7 @@ export async function POST(request: Request) {
     const user = await authorize();
     const { tenantId } = user;
     const body = await request.json();
-    const { name, type, memberIds } = body; // memberIds is array of string
+    const { name, type, memberIds } = body; 
 
     if (!name) return NextResponse.json({ error: 'Name required' }, { status: 400 });
 
@@ -165,14 +165,18 @@ export async function POST(request: Request) {
       [roomId, user.id, createdAt]
     );
 
-    // Add other members
+    // Add other members - STRICT TENANT CHECK
     if (Array.isArray(memberIds)) {
       for (const mid of memberIds) {
         if (mid !== user.id) {
-           await pool.query(
-             'INSERT INTO chat_members (room_id, user_id, joined_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
-             [roomId, mid, createdAt]
-           );
+           // Verify mid belongs to same tenant
+           const userCheck = await pool.query('SELECT 1 FROM users WHERE id = $1 AND tenant_id = $2', [mid, tenantId]);
+           if (userCheck.rows.length > 0) {
+              await pool.query(
+                'INSERT INTO chat_members (room_id, user_id, joined_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+                [roomId, mid, createdAt]
+              );
+           }
         }
       }
     }
@@ -183,7 +187,7 @@ export async function POST(request: Request) {
   } catch (err) {
     await pool.query('ROLLBACK');
     console.error(err);
-    return NextResponse.json({ error: 'Failed to create room' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed' }, { status: 500 });
   }
 }
 
