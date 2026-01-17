@@ -334,7 +334,7 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
                              {currentUser.avatarUrl ? (
                                 <img src={currentUser.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
                              ) : (
-                                currentUser.name.charAt(0)
+                                (currentUser?.name || currentUser?.username || '?').charAt(0)
                              )}
                          </div>
                     </div>

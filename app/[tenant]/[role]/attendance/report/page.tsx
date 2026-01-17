@@ -180,26 +180,38 @@ export default function AttendanceReportPage() {
                             {filteredData.length > 0 ? (
                                 filteredData.map(record => {
                                     const user = store.users.find(u => u.id === record.userId);
+                                    
+                                    // Safe date parsing to prevent crash
+                                    let dateDisplay = 'Unknown';
+                                    try {
+                                        const d = new Date(record.date);
+                                        if (!isNaN(d.getTime())) {
+                                            dateDisplay = d.toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' });
+                                        } else {
+                                            dateDisplay = String(record.date).split(',')[0]; // Simple fallback
+                                        }
+                                    } catch(e) {}
+
                                     return (
                                         <tr 
                                             key={record.id} 
                                             onClick={() => setSelectedRecord(record)}
                                             className="hover:bg-blue-50/50 cursor-pointer transition-colors group"
                                         >
-                                            <td className="p-6 font-mono">{new Date(record.date).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' })}</td>
+                                            <td className="p-6 font-mono">{dateDisplay}</td>
                                             <td className="p-6">
                                                 <div className="flex items-center gap-3">
                                                     <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 font-black uppercase overflow-hidden border border-white shadow-sm">
                                                         {user?.avatarUrl ? (
-                                                            <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
+                                                            <img src={user.avatarUrl} alt={user.name || 'User'} className="w-full h-full object-cover" />
                                                         ) : (
-                                                            user?.name.charAt(0)
+                                                            (user?.name || user?.username || '?').charAt(0)
                                                         )}
                                                     </div>
                                                     <span className="group-hover:text-blue-600 transition">{user?.name || 'Unknown User'}</span>
                                                 </div>
                                             </td>
-                                            <td className="p-6 text-emerald-600">{record.timeIn}</td>
+                                            <td className="p-6 text-emerald-600">{record.timeIn || '--:--'}</td>
                                             <td className="p-6 text-rose-600">{record.timeOut || '-'}</td>
                                             <td className="p-6 text-center">
                                                 <span className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest ${record.isLate ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>

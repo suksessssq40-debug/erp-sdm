@@ -111,7 +111,8 @@ export async function GET() {
             lateReason: a.lateReason || undefined,
             selfieUrl: a.selfieUrl,
             checkOutSelfieUrl: a.checkoutSelfieUrl || undefined,
-            location: { lat: Number(a.locationLat), lng: Number(a.locationLng) }
+            location: { lat: Number(a.locationLat), lng: Number(a.locationLng) },
+            createdAt: a.createdAt ? a.createdAt.getTime() : undefined
         })),
         projects: projectRecords.map(p => ({
             id: p.id,

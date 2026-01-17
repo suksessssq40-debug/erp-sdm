@@ -93,7 +93,7 @@ export const TenantSwitcher = () => {
         >
             <div className="text-left">
                 <h1 className="text-xl font-bold tracking-tight text-blue-400 italic flex items-center gap-2">
-                    {currentUser?.tenantId.toUpperCase()} <span className="text-white">ERP</span>
+                    {(currentUser?.tenantId || 'SDM').toUpperCase()} <span className="text-white">ERP</span>
                     <ChevronDown size={14} className={`text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                 </h1>
                 <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest group-hover:text-blue-300 transition-colors">

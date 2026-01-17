@@ -186,7 +186,7 @@ const Layout: React.FC<LayoutProps> = ({
               {userAvatar ? (
                   <img src={userAvatar} alt="Profile" className="w-full h-full object-cover" />
               ) : (
-                  userName.charAt(0)
+                  (userName || '?').charAt(0)
               )}
             </button>
           </div>
