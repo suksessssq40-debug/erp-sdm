@@ -273,9 +273,9 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       ctx.translate(canvas.width, 0);
-      ctx.scale(-1, 1);
       ctx.drawImage(video, 0, 0);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+      // OPTIMIZATION: Use WebP with 0.6 quality (High compression, Good quality)
+      const dataUrl = canvas.toDataURL('image/webp', 0.6);
       if (video.srcObject) (video.srcObject as MediaStream).getTracks().forEach(t => t.stop());
 
       const finalize = async (url: string) => {
@@ -324,8 +324,8 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
         const ab = new ArrayBuffer(byteString.length);
         const ia = new Uint8Array(ab);
         for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
-        const blob = new Blob([ab], { type: 'image/jpeg' });
-        const file = new File([blob], `selfie_${Date.now()}.jpg`, { type: 'image/jpeg' });
+        const blob = new Blob([ab], { type: 'image/webp' });
+        const file = new File([blob], `selfie_${Date.now()}.webp`, { type: 'image/webp' });
 
         toast.info("Mengupload selfie...");
         uploadFile(file).then(finalize).catch(() => {
