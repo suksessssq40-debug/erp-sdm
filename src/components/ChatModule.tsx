@@ -148,7 +148,7 @@ export default function ChatModule() {
   // 1. Poll Rooms
   useEffect(() => {
     fetchRooms();
-    const interval = setInterval(fetchRooms, 10000); // Poll rooms every 10s
+    const interval = setInterval(fetchRooms, 60000); // OPTIMIZATION: Poll rooms every 60s (was 10s)
     return () => clearInterval(interval);
   }, [fetchRooms]);
 
@@ -161,8 +161,10 @@ export default function ChatModule() {
     setReplyingTo(null); 
     lastFetchRef.current = 0;
     setHasMoreHistory(true); // Reset history tracker
+    // Initial fetch
     fetchMessages();
     
+    // Mark as read initially
     const markAsRead = async () => {
        try {
          await fetch(`${process.env.NEXT_PUBLIC_API_BASE || ''}/api/chat/unread`, {
@@ -176,14 +178,13 @@ export default function ChatModule() {
     };
     markAsRead();
 
+    // OPTIMIZATION: Removed aggressive polling (was 3s).
+    // In a real app, use Supabase Realtime Subscription here.
+    // For now, we rely on manual refresh or slower polling to save Vercel/DB usage.
+    // Let's use a very slow poll (30s) or just rely on focus re-fetch.
     const interval = setInterval(() => {
         fetchMessages();
-        // Also keep marking read as long as we stay in room? 
-        // Not strictly necessary unless we want to clear badge while chatting live.
-        // Let's keep it simple: mark read on entry and maybe on send/receive is implicit via UI focus. 
-        // For now, mark on entry & every fetch is safest for "live" unread clearing.
-        markAsRead(); 
-    }, 3000); 
+    }, 30000); 
     
     return () => clearInterval(interval);
   }, [activeRoomId]);
@@ -617,6 +618,9 @@ export default function ChatModule() {
                   </div>
                </div>
                <div className="flex items-center space-x-2 flex-shrink-0">
+                  <button onClick={() => fetchMessages()} className="p-2 text-slate-400 hover:bg-slate-50 hover:text-blue-600 rounded-xl transition" title="Refresh Messages">
+                     <Loader2 size={16} className={isLoadingHistory ? 'animate-spin' : ''} />
+                  </button>
                   {activeRoomId !== 'general' && (
                     <button onClick={handleDeleteRoom} className="p-2 text-rose-400 hover:bg-rose-50 hover:text-rose-600 rounded-xl transition" title="Delete Channel">
                         <Trash2 size={20} />
