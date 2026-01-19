@@ -13,6 +13,12 @@ model Tenant {
   isActive              Boolean               @default(true) @map("is_active")
   createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   featuresJson          String?               @default("[]") @map("features_json") // Modular Features: ['finance', 'attendance']
+  
+  // New: Advanced Configuration
+  workStrategy          String                @default("FIXED") @map("work_strategy") // FIXED, SHIFT, FLEXIBLE
+  radiusTolerance       Int                   @default(50) @map("radius_tolerance") // Meters
+  lateGracePeriod       Int                   @default(15) @map("late_grace_period") // Minutes
+
   accessList            TenantAccess[]        // Multi-Tenant Access
   attendance            Attendance[]
   businessUnits         BusinessUnit[]
@@ -26,8 +32,23 @@ model Tenant {
   transactionCategories TransactionCategory[]
   transactions          Transaction[]
   users                 User[]
+  shifts                Shift[]               // Relation to Shifts
 
   @@map("tenants")
+}
+
+model Shift {
+  id            String   @id
+  tenantId      String   @map("tenant_id")
+  name          String
+  startTime     String   @map("shift_start_time") // HH:mm
+  endTime       String   @map("shift_end_time")   // HH:mm
+  isOvernight   Boolean  @default(false) @map("is_overnight")
+  
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  attendance    Attendance[]
+
+  @@map("shifts")
 }
 
 model TenantAccess {
@@ -36,8 +57,11 @@ model TenantAccess {
   tenantId  String   @map("tenant_id")
   role      String   @default("STAFF") // OWNER, MANAGER, STAFF, FINANCE
   isActive  Boolean  @default(true) @map("is_active")
+  
+  // Performance: Keep these for quick reference if using FIXED strategy
   shiftStartTime String? @map("shift_start_time") // HH:mm
   shiftEndTime   String? @map("shift_end_time")   // HH:mm
+  
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -82,7 +106,7 @@ model Settings {
   officeLng           Float?  @map("office_lng")
   officeStartTime     String? @map("office_start_time")
   officeEndTime       String? @map("office_end_time")
-  hasOvernightShift   Boolean? @default(false) @map("has_overnight_shift") // New: Support Shift Malam
+  hasOvernightShift   Boolean? @default(false) @map("has_overnight_shift")
   telegramBotToken    String? @map("telegram_bot_token")
   telegramGroupId     String? @map("telegram_group_id")
   telegramOwnerChatId String? @map("telegram_owner_chat_id")
@@ -129,8 +153,14 @@ model Attendance {
   locationLng       Float?    @map("location_lng")
   createdAt         DateTime? @map("created_at") @db.Timestamptz(6)
   tenantId          String?   @default("sdm") @map("tenant_id")
+  
+  // New: Advanced Attendance Tracking
+  shiftId           String?   @map("shift_id")
+  workDuration      Int?      @map("work_duration") // Minutes (for Flexible Strategy)
+  
   tenant            Tenant?   @relation(fields: [tenantId], references: [id])
   user              User?     @relation(fields: [userId], references: [id])
+  shift             Shift?    @relation(fields: [shiftId], references: [id])
 
   @@index([tenantId, createdAt(sort: Desc)], map: "idx_attendance_tenant_date")
   @@map("attendance")

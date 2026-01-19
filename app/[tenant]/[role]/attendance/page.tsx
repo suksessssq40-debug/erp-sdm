@@ -16,6 +16,8 @@ export default function AttendancePage() {
   return (
     <AttendanceModule 
       currentUser={store.currentUser} 
+      currentTenant={store.currentTenant}
+      shifts={store.shifts}
       settings={store.settings} 
       attendanceLog={store.attendance} 
       onAddAttendance={store.addAttendance} 

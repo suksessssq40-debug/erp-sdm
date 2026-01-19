@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Attendance, AppSettings, User, UserRole } from '@/types';
+import { Attendance, AppSettings, User, UserRole, Tenant, Shift } from '@/types';
 import { calculateDistance } from '../utils';
 import { Camera, MapPin, AlertCircle, CheckCircle2, History, Clock, LogOut, Loader2 } from 'lucide-react';
 import { OFFICE_RADIUS_METERS } from '../constants';
@@ -8,6 +8,8 @@ import { useToast } from './Toast';
 
 interface AttendanceProps {
   currentUser: User;
+  currentTenant: Tenant | null;
+  shifts: Shift[];
   settings: AppSettings;
   attendanceLog: Attendance[];
   onAddAttendance: (record: Attendance) => void;
@@ -43,13 +45,22 @@ const LATE_CHECK_IN_QUOTES = [
   "Otw-nya kelamaan ya? 😂 Lain kali pakai pesawat pribadi aja. Semangat kerjanya!"
 ];
 
-const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, attendanceLog, onAddAttendance, onUpdateAttendance, onUpdateSettings, toast, uploadFile }) => {
+const AttendanceModule: React.FC<AttendanceProps> = ({ 
+    currentUser, currentTenant, shifts, settings, attendanceLog, 
+    onAddAttendance, onUpdateAttendance, onUpdateSettings, toast, uploadFile 
+}) => {
   const [stage, setStage] = useState<'IDLE' | 'CHECKING_LOCATION' | 'SELFIE' | 'LATE_REASON' | 'SUCCESS'>('IDLE');
   const [isCheckOut, setIsCheckOut] = useState(false);
   const [location, setLocation] = useState<{lat: number, lng: number} | null>(null);
   const [isLate, setIsLate] = useState(false);
   const [lateReason, setLateReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // New: Multi-Strategy Handling
+  const strategy = currentTenant?.workStrategy || 'FIXED';
+  const radiusLimit = currentTenant?.radiusTolerance || 50;
+  const graceMinutes = currentTenant?.lateGracePeriod || 15;
+  const [selectedShiftId, setSelectedShiftId] = useState<string>('');
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -174,23 +185,53 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
 
   const handleStartCheckIn = () => {
     setIsCheckOut(false);
+    
+    // 1. Shift check (Requirement for SHIFT units)
+    if (strategy === 'SHIFT' && !selectedShiftId) {
+        toast.error("Harap pilih SHIFT Anda terlebih dahulu.");
+        return;
+    }
+
     if (!liveLocation && !currentUser.isFreelance) {
       toast.error("Sedang mencari lokasi... Tunggu indikator jarak muncul.");
       return;
     }
-    const dist = currentDistance || 0;
-    const now = new Date();
-    const [h, m] = (settings.officeHours?.start || '08:00').split(':').map(Number);
-    const startTime = new Date();
-    startTime.setHours(h, m, 0);
-    const isLateCheck = now > startTime;
-    setIsLate(isLateCheck);
-    setLocation(liveLocation as any);
 
-    if (!currentUser.isFreelance && dist > OFFICE_RADIUS_METERS) {
-      toast.error(`Gagal: Lokasi masih terlalu jauh (${Math.round(dist)}m). Mendekatlah ke kantor.`);
+    // 2. Radius check (Dynamic based on Tenant config)
+    const dist = currentDistance || 0;
+    if (!currentUser.isFreelance && dist > radiusLimit) {
+      toast.error(`Gagal: Lokasi masih terlalu jauh (${Math.round(dist)}m). Mendekatlah ke kantor (Batas: ${radiusLimit}m).`);
       return;
     }
+
+    // 3. Late check (Strategy-based)
+    const now = new Date();
+    const jakartaTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
+    let isLateCheck = false;
+    let limitTimeStr = '08:00';
+
+    if (strategy === 'FIXED') {
+        limitTimeStr = settings.officeHours?.start || '08:00';
+    } else if (strategy === 'SHIFT') {
+        const s = shifts.find(sh => sh.id === selectedShiftId);
+        limitTimeStr = s?.startTime || '08:00';
+    } else if (strategy === 'FLEXIBLE') {
+        isLateCheck = false;
+    }
+
+    if (strategy !== 'FLEXIBLE') {
+        const [h, m] = limitTimeStr.split(':').map(Number);
+        const startTime = new Date(jakartaTime); // Use jakartaTime as base
+        startTime.setHours(h, m, 0);
+        
+        // Apply grace period
+        startTime.setMinutes(startTime.getMinutes() + graceMinutes);
+        
+        isLateCheck = jakartaTime > startTime;
+    }
+
+    setIsLate(isLateCheck);
+    setLocation(liveLocation as any);
     setStage(isLateCheck ? 'LATE_REASON' : 'SELFIE');
   };
 
@@ -254,7 +295,8 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
               isLate,
               lateReason: isLate ? lateReason : undefined,
               selfieUrl: url,
-              location: location || { lat: 0, lng: 0 }
+              location: location || { lat: 0, lng: 0 },
+              shiftId: selectedShiftId || undefined
             };
             await onAddAttendance(record);
           }
@@ -345,23 +387,51 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
                 </div>
               </div>
 
-              <div className="space-y-4">
-                <h3 className="text-3xl font-black text-slate-800 tracking-tight">Portal Absensi SDM</h3>
-                <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Silahkan lakukan absensi masuk atau pulang harian</p>
+                <div className="space-y-4 w-full">
+                <h3 className="text-3xl font-black text-slate-800 tracking-tight text-center">Portal Absensi</h3>
+                
+                <div className="flex justify-center gap-2">
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${
+                        strategy === 'FIXED' ? 'bg-blue-50 border-blue-200 text-blue-600' :
+                        strategy === 'SHIFT' ? 'bg-purple-50 border-purple-200 text-purple-600' :
+                        'bg-amber-50 border-amber-200 text-amber-600'
+                    }`}>
+                        STRATEGY: {strategy}
+                    </span>
+                    <span className="px-3 py-1 rounded-full bg-slate-50 border border-slate-200 text-slate-500 text-[10px] font-black uppercase tracking-widest">
+                        RAD: {radiusLimit}M
+                    </span>
+                </div>
+
+                {strategy === 'SHIFT' && !myAttendanceToday && stage === 'IDLE' && (
+                    <div className="max-w-xs mx-auto w-full space-y-2">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Pilih Shift Hari Ini</p>
+                        <select 
+                            value={selectedShiftId}
+                            onChange={(e) => setSelectedShiftId(e.target.value)}
+                            className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-sm font-bold focus:border-purple-500 outline-none transition cursor-pointer"
+                        >
+                            <option value="">-- Pilih Shift --</option>
+                            {shifts.map(s => (
+                                <option key={s.id} value={s.id}>{s.name} ({s.startTime} - {s.endTime})</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
                 
                 {/* LIVE GPS INDICATOR */}
                 {!myAttendanceToday && stage === 'IDLE' && (
-                  <div className={`p-4 rounded-2xl flex items-center justify-between border shadow-sm transition-colors duration-500
+                  <div className={`p-4 rounded-2xl flex items-center justify-between border shadow-sm transition-colors duration-500 max-w-sm mx-auto
                     ${gpsLoading ? 'bg-slate-50 border-slate-200' : 
-                      (currentDistance || 0) <= OFFICE_RADIUS_METERS ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-700'}
+                      (currentDistance || 0) <= radiusLimit ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-700'}
                   `}>
                     <div className="flex items-center gap-3">
-                       <div className={`w-3 h-3 rounded-full animate-pulse ${gpsLoading ? 'bg-slate-400' : (currentDistance || 0) <= OFFICE_RADIUS_METERS ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
+                       <div className={`w-3 h-3 rounded-full animate-pulse ${gpsLoading ? 'bg-slate-400' : (currentDistance || 0) <= radiusLimit ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
                        <div>
                           <p className="text-[10px] font-black uppercase tracking-widest opacity-70">STATUS LOKASI</p>
                           <p className="text-xs font-black">
                              {gpsLoading ? 'MENCARI GPS...' : 
-                              (currentDistance || 0) <= OFFICE_RADIUS_METERS ? `DALAM AREA (${Math.round(currentDistance!)}m)` : `DILUAR AREA (${Math.round(currentDistance!)}m)`}
+                              (currentDistance || 0) <= radiusLimit ? `DALAM AREA (${Math.round(currentDistance!)}m)` : `DILUAR AREA (${Math.round(currentDistance!)}m)`}
                           </p>
                        </div>
                     </div>
@@ -537,26 +607,50 @@ const AttendanceModule: React.FC<AttendanceProps> = ({ currentUser, settings, at
           <div className="bg-slate-900 text-white p-8 rounded-[3rem] shadow-2xl space-y-6 animate-in slide-in-from-right duration-700">
              <h4 className="font-black text-xs uppercase tracking-[0.2em] text-blue-400 border-b border-white/10 pb-4">Owner Configurations</h4>
              <div className="space-y-6">
-                <div className="flex justify-between items-center">
-                   <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">JAM MASUK</span>
-                   <input 
-                      type="time" 
-                      className="bg-white/5 border-none rounded-xl px-4 py-2 text-xs font-black text-white outline-none focus:bg-white/10" 
-                      value={settings.officeHours.start}
-                      onChange={e => onUpdateSettings({ officeHours: { ...settings.officeHours, start: e.target.value } })}
-                    />
-                </div>
-                <div className="flex justify-between items-center">
-                   <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">JAM PULANG</span>
-                   <input 
-                      type="time" 
-                      className="bg-white/5 border-none rounded-xl px-4 py-2 text-xs font-black text-white outline-none focus:bg-white/10" 
-                      value={settings.officeHours.end}
-                      onChange={e => onUpdateSettings({ officeHours: { ...settings.officeHours, end: e.target.value } })}
-                    />
-                </div>
+                {strategy === 'FIXED' ? (
+                  <>
+                    <div className="flex justify-between items-center">
+                       <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">JAM MASUK</span>
+                       <input 
+                          type="time" 
+                          className="bg-white/5 border-none rounded-xl px-4 py-2 text-xs font-black text-white outline-none focus:bg-white/10" 
+                          value={settings.officeHours.start}
+                          onChange={e => onUpdateSettings({ officeHours: { ...settings.officeHours, start: e.target.value } })}
+                        />
+                    </div>
+                    <div className="flex justify-between items-center">
+                       <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">JAM PULANG</span>
+                       <input 
+                          type="time" 
+                          className="bg-white/5 border-none rounded-xl px-4 py-2 text-xs font-black text-white outline-none focus:bg-white/10" 
+                          value={settings.officeHours.end}
+                          onChange={e => onUpdateSettings({ officeHours: { ...settings.officeHours, end: e.target.value } })}
+                        />
+                    </div>
+                  </>
+                ) : strategy === 'SHIFT' ? (
+                  <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+                     <p className="text-[10px] font-black text-purple-400 uppercase tracking-widest mb-2">MODE SHIFT AKTIF</p>
+                     {selectedShiftId ? (
+                       <div className="space-y-1">
+                          <p className="text-xs font-bold text-white uppercase">{shifts.find(s => s.id === selectedShiftId)?.name}</p>
+                          <p className="text-[10px] font-black text-slate-400">
+                             Jam: {shifts.find(s => s.id === selectedShiftId)?.startTime} - {shifts.find(s => s.id === selectedShiftId)?.endTime}
+                          </p>
+                       </div>
+                     ) : (
+                       <p className="text-[10px] font-bold text-slate-500 italic">Pilih shift di portal utama untuk melihat detail jam kerja.</p>
+                     )}
+                  </div>
+                ) : (
+                  <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+                    <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest mb-1">MODE FLEXIBLE</p>
+                    <p className="text-[10px] font-bold text-slate-500 italic">Target durasi kerja harian aktif.</p>
+                  </div>
+                )}
+
                 <div className="pt-4 border-t border-white/5">
-                   <p className="text-[9px] font-black text-slate-600 uppercase tracking-[0.3em] mb-2">RADIUS AKTIF: {OFFICE_RADIUS_METERS}M</p>
+                   <p className="text-[9px] font-black text-slate-500 uppercase tracking-[0.3em] mb-2">RADIUS AKTIF: {radiusLimit}M</p>
                    <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2">TITIK LOKASI KANTOR</p>
                    <p className="text-[10px] font-mono text-blue-400 bg-blue-400/10 p-3 rounded-xl border border-blue-400/20 mb-3">{settings.officeLocation.lat.toFixed(6)}, {settings.officeLocation.lng.toFixed(6)}</p>
                    

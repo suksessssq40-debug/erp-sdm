@@ -2,11 +2,11 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAppStore } from '@/context/StoreContext';
-import { UserRole, Attendance } from '@/types';
+import { UserRole, Attendance, Shift, Tenant } from '@/types';
 import { useRouter } from 'next/navigation';
 import { 
     Calendar, Download, Search, MapPin, Clock, ArrowRightSquare, 
-    ChevronLeft, User, AlertTriangle
+    ChevronLeft, User, AlertTriangle, Layers
 } from 'lucide-react';
 
 export default function AttendanceReportPage() {
@@ -75,13 +75,16 @@ export default function AttendanceReportPage() {
 
     // Export Logic
     const handleExport = () => {
-        const headers = ['Tanggal', 'User ID', 'Nama', 'Jam Masuk', 'Jam Pulang', 'Status', 'Alasan Terlambat'];
+        const headers = ['Tanggal', 'User ID', 'Nama', 'Strategi', 'Shift', 'Jam Masuk', 'Jam Pulang', 'Status', 'Alasan Terlambat'];
         const rows = filteredData.map(d => {
             const u = store.users.find(u => u.id === d.userId);
+            const s = store.shifts.find(sh => sh.id === d.shiftId);
             return [
                 d.date,
                 d.userId,
                 u?.name || 'Unknown',
+                store.currentTenant?.workStrategy || 'FIXED',
+                s?.name || '-',
                 d.timeIn,
                 d.timeOut || '-',
                 d.isLate ? 'TERLAMBAT' : 'TEPAT WAKTU',
@@ -170,6 +173,7 @@ export default function AttendanceReportPage() {
                             <tr className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-widest border-b border-slate-100">
                                 <th className="p-6">Tanggal</th>
                                 <th className="p-6">Nama Pegawai</th>
+                                <th className="p-6">Shift / Mode</th>
                                 <th className="p-6">Jam Masuk</th>
                                 <th className="p-6">Jam Pulang</th>
                                 <th className="p-6 text-center">Status</th>
@@ -209,6 +213,18 @@ export default function AttendanceReportPage() {
                                                         )}
                                                     </div>
                                                     <span className="group-hover:text-blue-600 transition">{user?.name || 'Unknown User'}</span>
+                                                </div>
+                                            </td>
+                                            <td className="p-6">
+                                                <div className="flex flex-col gap-1">
+                                                    <span className="text-[10px] uppercase font-black text-slate-400 tracking-tight">
+                                                        {store.shifts.find(s => s.id === record.shiftId)?.name || store.currentTenant?.workStrategy || 'FIXED'}
+                                                    </span>
+                                                    {record.shiftId && (
+                                                        <span className="text-[9px] font-mono text-slate-400">
+                                                            ({store.shifts.find(s => s.id === record.shiftId)?.startTime} - {store.shifts.find(s => s.id === record.shiftId)?.endTime})
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </td>
                                             <td className="p-6 text-emerald-600">{record.timeIn || '--:--'}</td>
@@ -335,7 +351,24 @@ export default function AttendanceReportPage() {
                                      </div>
                                  </div>
 
-                                 {/* Status Cards */}
+                                 {/* Shift Context Card */}
+                                 {selectedRecord.shiftId && (
+                                     <div className="p-5 rounded-[2rem] bg-purple-50 border border-purple-100">
+                                         <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-purple-400">DETAIL SHIFT</p>
+                                         <div className="flex items-center justify-between">
+                                            <p className="text-lg font-black text-purple-600">
+                                                {store.shifts.find(s => s.id === selectedRecord.shiftId)?.name}
+                                            </p>
+                                            <div className="text-right">
+                                                <p className="text-[10px] font-black text-purple-400">JADWAL</p>
+                                                <p className="text-xs font-mono font-bold text-purple-600">
+                                                    {store.shifts.find(s => s.id === selectedRecord.shiftId)?.startTime} - {store.shifts.find(s => s.id === selectedRecord.shiftId)?.endTime}
+                                                </p>
+                                            </div>
+                                         </div>
+                                     </div>
+                                 )}
+
                                  <div className="grid grid-cols-2 gap-4">
                                      <div className={`p-5 rounded-[2rem] border ${selectedRecord.isLate ? 'bg-rose-50 border-rose-100' : 'bg-emerald-50 border-emerald-100'}`}>
                                          <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${selectedRecord.isLate ? 'text-rose-400' : 'text-emerald-400'}`}>STATUS KEHADIRAN</p>
@@ -352,22 +385,14 @@ export default function AttendanceReportPage() {
                                                  
                                                  if (!tIn || !tOut || tOut === '-') return '-';
                                                  
-                                                 // Helper to parse "HH:mm" or "HH.mm" (Indonesian locale) safely
                                                  const parseMinutes = (timeStr: string) => {
                                                      if (!timeStr) return null;
-                                                     // 1. Normalize separators: replace dots with colons (common in id-ID locale e.g. 08.30)
                                                      const normalized = timeStr.toString().replace(/\./g, ':');
-                                                     
-                                                     // 2. Remove non-digit/non-colon chars
                                                      const clean = normalized.replace(/[^\d:]/g, '');
-                                                     
-                                                     // 3. Split by colon
                                                      const parts = clean.split(':');
                                                      if (parts.length < 2) return null;
-                                                     
                                                      const h = parseInt(parts[0], 10);
                                                      const m = parseInt(parts[1], 10);
-                                                     
                                                      if (isNaN(h) || isNaN(m)) return null;
                                                      return h * 60 + m;
                                                  };

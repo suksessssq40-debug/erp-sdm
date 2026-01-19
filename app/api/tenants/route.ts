@@ -31,7 +31,7 @@ export async function POST(request: Request) {
   try {
     const user = await authorize([UserRole.OWNER, UserRole.SUPERADMIN]);
     const body = await request.json();
-    const { id, name, description, features } = body;
+    const { id, name, description, features, workStrategy, radiusTolerance, lateGracePeriod } = body;
     
     const selectedFeatures = Array.isArray(features) ? features : [];
 
@@ -57,7 +57,10 @@ export async function POST(request: Request) {
                 name,
                 description: description || '',
                 isActive: true,
-                featuresJson: JSON.stringify(selectedFeatures)
+                featuresJson: JSON.stringify(selectedFeatures),
+                workStrategy: workStrategy || 'FIXED',
+                radiusTolerance: Number(radiusTolerance) || 50,
+                lateGracePeriod: Number(lateGracePeriod) || 15
             }
         });
 

@@ -65,15 +65,21 @@ export async function POST(request: Request) {
     const serverTimeStr = jakartaTime.toLocaleTimeString('id-ID', { hour12: false, hour: '2-digit', minute: '2-digit' }).replace(/\./g, ':');
     const serverDateStr = jakartaTime.toDateString(); 
 
-    // Settings for this Tenant
-    const settings = await prisma.settings.findFirst({ where: { tenantId } });
-    const startHour = settings?.officeStartTime || '08:00';
+    // 1. Fetch Tenant Configuration
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      include: { settings: true }
+    });
 
-    // User check within Tenant
-    const user = await prisma.user.findUnique({ 
-        where: { id: payload.id, tenantId } // Security: Must match tenant
-    } as any);
-    
+    if (!tenant) return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
+
+    const strategy = tenant.workStrategy || 'FIXED';
+    const radiusLimit = tenant.radiusTolerance || 50;
+    const graceMinutes = tenant.lateGracePeriod || 15;
+    const settings = tenant.settings;
+
+    // 2. Location Validation (Only for STAFF and non-Flexible if needed, but let's apply to non-Freelance)
+    const user = await prisma.user.findUnique({ where: { id: payload.id } });
     if (user && !user.isFreelance && settings?.officeLat && settings?.officeLng) {
        const dist = calculateDistance(
           Number(a.location.lat), 
@@ -82,44 +88,63 @@ export async function POST(request: Request) {
           Number(settings.officeLng)
        );
        
-       if (dist > OFFICE_RADIUS_METERS) {
+       if (dist > radiusLimit) {
           return NextResponse.json({ 
-             error: `GAGAL: Lokasi Anda terdeteksi ${Math.round(dist)}m dari kantor. Batas radius adalah ${OFFICE_RADIUS_METERS}m.` 
+             error: `GAGAL: Lokasi Anda terdeteksi ${Math.round(dist)}m dari kantor. Batas radius adalah ${radiusLimit}m.` 
           }, { status: 400 });
        }
     }
-    
-    const [h, m] = serverTimeStr.split(':').map(Number);
-    const [limitH, limitM] = startHour.split(':').map(Number);
-    const isLateCalculated = (h > limitH) || (h === limitH && m > limitM);
+
+    // 3. Late Calculation based on Strategy
+    let isLateCalculated = false;
+    let effectiveStartTime = '08:00';
+    let shiftId = a.shiftId || null;
+
+    if (strategy === 'FIXED') {
+      effectiveStartTime = settings?.officeStartTime || '08:00';
+    } else if (strategy === 'SHIFT') {
+      if (!shiftId) return NextResponse.json({ error: 'Shift ID is required for this unit' }, { status: 400 });
+      const shift = await prisma.shift.findUnique({ where: { id: shiftId } });
+      if (!shift) return NextResponse.json({ error: 'Invalid Shift ID' }, { status: 400 });
+      effectiveStartTime = shift.startTime;
+    } else if (strategy === 'FLEXIBLE') {
+      isLateCalculated = false; // No lateness in flexible mode
+    }
+
+    if (strategy !== 'FLEXIBLE') {
+      const [currH, currM] = serverTimeStr.split(':').map(Number);
+      const [limitH, limitM] = effectiveStartTime.split(':').map(Number);
+      
+      const currTotal = currH * 60 + currM;
+      const limitTotal = limitH * 60 + limitM;
+      
+      // Check if current time exceeds limit + grace period
+      isLateCalculated = currTotal > (limitTotal + graceMinutes);
+    }
 
     const attendanceData: any = {
         id: a.id,
-        userId: a.userId,
+        userId: payload.id,
+        tenantId,
         date: serverDateStr,
         timeIn: serverTimeStr,
         timeOut: null,
-        isLate: (isLateCalculated ? 1 : 0) as any,
+        isLate: isLateCalculated ? 1 : 0,
         lateReason: isLateCalculated ? (a.lateReason || 'Terlambat') : null,
         selfieUrl: a.selfieUrl,
-        checkoutSelfieUrl: null,
         locationLat: a.location.lat,
         locationLng: a.location.lng,
-        createdAt: new Date() // Explicitly set timestamp to prevent NULLs
+        shiftId: shiftId,
+        createdAt: new Date()
     };
 
-    try {
-        await prisma.attendance.create({
-            data: { ...attendanceData, tenantId }
-        });
-    } catch (err) {
-        console.error("Attendance Create Error:", err);
-        return NextResponse.json({ error: 'Gagal mencatat absensi' }, { status: 500 });
-    }
+    const created = await prisma.attendance.create({
+        data: attendanceData
+    });
 
-    return NextResponse.json(a, { status: 201 });
+    return NextResponse.json(created, { status: 201 });
   } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: 'Failed' }, { status: 500 });
+    console.error("Attendance POST Error:", error);
+    return NextResponse.json({ error: 'Failed to record attendance' }, { status: 500 });
   }
 }

@@ -2,8 +2,10 @@
 
 import React, { useState, useRef } from 'react';
 import { Plus, Bot, Layout as LayoutIcon, Unlock, Download, Upload, Pencil, Trash2, X, Save } from 'lucide-react';
-import { User, UserRole } from '../types';
+import { User, UserRole, Tenant, Shift } from '@/types';
+import { useStore } from '../store';
 import { useToast } from './Toast';
+import { AccessTower } from './AccessTower';
 
 interface UserManagementProps {
   users: User[];
@@ -13,9 +15,11 @@ interface UserManagementProps {
   onDeleteUser: (id: string) => Promise<void>;
   onResetDevice: (id: string) => Promise<boolean>;
   toast: ReturnType<typeof useToast>;
+  store: ReturnType<typeof useStore>;
 }
 
-export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUser, onAddUser, onUpdateUser, onDeleteUser, onResetDevice, toast }) => {
+export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUser, onAddUser, onUpdateUser, onDeleteUser, onResetDevice, toast, store }) => {
+  const [activeTab, setActiveTab] = useState<'DIRECTORY' | 'ACCESS_TOWER'>('DIRECTORY');
   const [showAdd, setShowAdd] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -24,7 +28,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
   const [filter, setFilter] = useState('');
   
   // State for Add/Edit Form
-  const [formData, setFormData] = useState({ name: '', username: '', telegramId: '', telegramUsername: '', role: 'STAFF', password: '', passwordConfirm: '', isFreelance: false });
+  const [formData, setFormData] = useState({ name: '', username: '', telegramId: '', telegramUsername: '', role: 'STAFF', password: '', passwordConfirm: '', isFreelance: false, tenantId: currentUser?.tenantId || 'sdm' });
   
   // Ref for file input
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -32,7 +36,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
   const filteredUsers = users.filter(u => u.name.toLowerCase().includes(filter.toLowerCase()) || u.username.toLowerCase().includes(filter.toLowerCase()));
 
   const resetForm = () => {
-    setFormData({ name: '', username: '', telegramId: '', telegramUsername: '', role: 'STAFF', password: '', passwordConfirm: '', isFreelance: false });
+    setFormData({ name: '', username: '', telegramId: '', telegramUsername: '', role: 'STAFF', password: '', passwordConfirm: '', isFreelance: false, tenantId: currentUser?.tenantId || 'sdm' });
     setTargetUser(null);
   };
 
@@ -46,20 +50,13 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
       role: user.role,
       isFreelance: user.isFreelance || false,
       password: '', // Password not shown for security
-      passwordConfirm: ''
+      passwordConfirm: '',
+      tenantId: user.tenantId
     });
     setShowEdit(true);
   };
 
   const handleDelete = async (user: User) => {
-    // Custom Confirm UI logic handled by native confirm for now as requested "Change ALL alert to Toast" 
-    // applies to INFO alerts. Dangerous actions usually still safe to confirm natively, 
-    // BUT user said "User management... change all alert to toast".
-    // I will use a simple confirmation toast logic or just use window.confirm but wrapped nicely if possible.
-    // To strictly follow "No Alert", I'd need a custom confirm modal. 
-    // I'll stick to window.confirm for DESTRUCTIVE actions as it is standard safety, 
-    // BUT I will suppress the success/error alerts and use Toasts.
-    
     if (window.confirm(`Yakin ingin menghapus user ${user.name}? Tindakan ini permanen.`)) {
        try {
          await onDeleteUser(user.id);
@@ -105,7 +102,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
           telegramUsername: formData.telegramUsername,
           role: formData.role as UserRole,
           isFreelance: formData.isFreelance,
-          password: formData.password || undefined // Only update if filled
+          password: formData.password || undefined, // Only update if filled
+          tenantId: formData.tenantId
         };
         await onUpdateUser(updatedUser);
         toast.success(`Data user ${updatedUser.name} berhasil diperbarui.`);
@@ -225,43 +223,66 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
   };
 
   return (
-    <div className="space-y-10 animate-in fade-in duration-500">
-      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6">
-        <div>
-          <h3 className="text-3xl font-black text-slate-800 tracking-tight leading-none italic">Manajemen Tim</h3>
-          <p className="text-xs font-black text-slate-400 uppercase tracking-[0.3em] mt-3">Sistem Pengaturan Hak Akses SDM Core</p>
-        </div>
-        <div className="flex flex-wrap gap-4 items-center">
-           <input 
-             className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold w-full md:w-64 outline-none focus:border-blue-500 shadow-sm" 
-             placeholder="Cari tim..." 
-             value={filter} 
-             onChange={e => setFilter(e.target.value)} 
-           />
-           
-           {/* Action Buttons Group */}
-           <div className="flex gap-2">
-              <button onClick={handleDownloadTemplate} className="bg-emerald-50 text-emerald-600 p-3 rounded-xl hover:bg-emerald-600 hover:text-white transition border border-emerald-100 shadow-sm" title="Download Template Import">
-                 <LayoutIcon size={20} />
-              </button>
-              <button onClick={handleExportUsers} className="bg-slate-50 text-slate-600 p-3 rounded-xl hover:bg-slate-600 hover:text-white transition border border-slate-200 shadow-sm" title="Export Semua Data User">
-                 <Download size={20} />
-              </button>
-              <button onClick={() => fileInputRef.current?.click()} className="bg-blue-50 text-blue-600 p-3 rounded-xl hover:bg-blue-600 hover:text-white transition border border-blue-100 shadow-sm" title="Import User dari Excel/CSV">
-                 <Upload size={20} />
-              </button>
-              <input type="file" ref={fileInputRef} className="hidden" accept=".csv" onChange={handleImportFile} />
-              
-              <button 
-                onClick={() => { resetForm(); setShowAdd(true); }} 
-                className="bg-slate-900 text-white px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center space-x-2 shadow-xl hover:bg-blue-600 transition shrink-0"
-              >
-                  <Plus size={16} /> <span className="hidden md:inline">TAMBAH ANGGOTA</span>
-                  <span className="md:hidden">BARU</span>
-              </button>
-           </div>
-        </div>
-      </div>
+    <div className="space-y-10 animate-in fade-in duration-500 pb-20">
+      
+      {/* PROTOCOL TABS */}
+      {currentUser?.role === UserRole.OWNER && (
+          <div className="flex gap-1 bg-slate-100 p-1.5 rounded-2xl w-fit border border-slate-200 shadow-inner">
+             <button 
+                onClick={() => setActiveTab('DIRECTORY')}
+                className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'DIRECTORY' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
+             >
+                User Directory
+             </button>
+             <button 
+                onClick={() => setActiveTab('ACCESS_TOWER')}
+                className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'ACCESS_TOWER' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
+             >
+                Access Control Tower
+             </button>
+          </div>
+      )}
+
+      {activeTab === 'ACCESS_TOWER' ? (
+          <AccessTower store={store} />
+      ) : (
+          <>
+          <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6">
+            <div>
+              <h3 className="text-3xl font-black text-slate-800 tracking-tight leading-none italic uppercase">Directory SDM</h3>
+              <p className="text-xs font-black text-slate-400 uppercase tracking-[0.3em] mt-3">Identity Management Protocol</p>
+            </div>
+            <div className="flex flex-wrap gap-4 items-center">
+               <input 
+                 className="bg-white border-2 border-slate-100 rounded-xl px-6 py-4 text-sm font-bold w-full md:w-80 outline-none focus:border-indigo-500 shadow-sm transition-all" 
+                 placeholder="Search team members..." 
+                 value={filter} 
+                 onChange={e => setFilter(e.target.value)} 
+               />
+               
+               {/* Action Buttons Group */}
+               <div className="flex gap-2">
+                  <button onClick={handleDownloadTemplate} className="bg-emerald-50 text-emerald-600 p-4 rounded-xl hover:bg-emerald-600 hover:text-white transition border border-emerald-100 shadow-sm" title="Download Template Import">
+                     <LayoutIcon size={20} />
+                  </button>
+                  <button onClick={handleExportUsers} className="bg-slate-50 text-slate-600 p-4 rounded-xl hover:bg-slate-600 hover:text-white transition border border-slate-200 shadow-sm" title="Export Semua Data User">
+                     <Download size={20} />
+                  </button>
+                  <button onClick={() => fileInputRef.current?.click()} className="bg-indigo-50 text-indigo-600 p-4 rounded-xl hover:bg-indigo-600 hover:text-white transition border border-indigo-100 shadow-sm" title="Import User dari Excel/CSV">
+                     <Upload size={20} />
+                  </button>
+                  <input type="file" ref={fileInputRef} className="hidden" accept=".csv" onChange={handleImportFile} />
+                  
+                  <button 
+                    onClick={() => { resetForm(); setShowAdd(true); }} 
+                    className="bg-slate-900 text-white px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center space-x-3 shadow-xl hover:bg-indigo-600 transition shrink-0"
+                  >
+                      <Plus size={18} /> <span className="hidden md:inline">ADD NEW IDENTITY</span>
+                      <span className="md:hidden">ADD</span>
+                  </button>
+               </div>
+            </div>
+          </div>
 
       <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
@@ -495,6 +516,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
           </div>
         </div>
       )}
+      </>
+    )}
     </div>
   );
 };

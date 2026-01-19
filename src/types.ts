@@ -13,12 +13,27 @@ export interface Tenant {
   description?: string;
   isActive: boolean;
   featuresJson?: string; // Modular Features JSON string: "['finance', 'attendance']"
+  
+  // New: Advanced Config
+  workStrategy?: 'FIXED' | 'SHIFT' | 'FLEXIBLE';
+  radiusTolerance?: number;
+  lateGracePeriod?: number;
+
   _count?: {
     users: number;
     projects: number;
     requests: number;
     attendance: number;
   };
+}
+
+export interface Shift {
+  id: string;
+  tenantId: string;
+  name: string;
+  startTime: string; // HH:mm
+  endTime: string;   // HH:mm
+  isOvernight: boolean;
 }
 
 export interface User {
@@ -142,6 +157,7 @@ export interface Attendance {
   selfieUrl: string;
   location: { lat: number; lng: number };
   createdAt?: number; // Optional because legacy data might not have it loaded in all contexts
+  shiftId?: string;
 }
 
 export enum TransactionType {

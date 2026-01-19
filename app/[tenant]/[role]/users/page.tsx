@@ -17,6 +17,7 @@ export default function UsersPage() {
        onDeleteUser={store.deleteUser}
        onResetDevice={store.resetDevice} 
        toast={toast} 
+       store={store}
     />
   );
 }
