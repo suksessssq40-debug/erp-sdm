@@ -104,6 +104,7 @@ export async function GET(request: Request) {
           let message = `🔔 *LAPORAN HARIAN OWNER* \n🏢 Unit: *${escapeMd(tenant.name.toUpperCase())}*\n📅 Data: *${escapeMd(displayDateStr)}* (${contextLabel})\n\n`;
           let hasData = false;
 
+
           // -- MODULE: FINANCE --
           if (targetModules.includes("omset")) {
              const resFin = await pool.query(`
@@ -119,45 +120,81 @@ export async function GET(request: Request) {
              message += `💰 *KEUANGAN*\n`;
              message += `📥 Masuk: Rp ${Number(income).toLocaleString('id-ID')}\n`;
              message += `📤 Keluar: Rp ${Number(expense).toLocaleString('id-ID')}\n`;
-             message += `💵 *PROFIT: Rp ${net.toLocaleString('id-ID')}*\n\n`;
+             message += `💵 *NET: Rp ${net.toLocaleString('id-ID')}*\n\n`;
              hasData = true;
           }
 
-          // -- MODULE: ATTENDANCE --
+          // -- MODULE: ATTENDANCE (DETAILED) --
           if (targetModules.includes("attendance")) {
-             // Improve Query: Count distinct users just in case
-             // Logic: Check records matching the date string
+             // 1. Get Shift Breakdown and Overall Counts
              const resAtt = await pool.query(`
                 SELECT 
-                   COUNT(*) FILTER (WHERE time_in IS NOT NULL) as present_count,
-                   COUNT(*) FILTER (WHERE is_late = true) as late_count
-                FROM attendance 
-                WHERE date = $1 AND tenant_id = $2
+                   a.shift_id,
+                   s.name as shift_name,
+                   COUNT(*) as count
+                FROM attendance a
+                LEFT JOIN shifts s ON a.shift_id = s.id
+                WHERE a.date = $1 AND a.tenant_id = $2 AND a.time_in IS NOT NULL
+                GROUP BY a.shift_id, s.name
              `, [sqlDateStr, tenantId]);
-             const { present_count, late_count } = resAtt.rows[0];
 
-             message += `👥 *ABSENSI SDM*\n`;
-             message += `✅ Hadir: ${present_count} orang\n`;
-             message += `⚠️ Terlambat: ${late_count} orang\n\n`;
+             // 2. Get Late List with Reasons
+             const resLate = await pool.query(`
+                SELECT 
+                   u.name,
+                   a.late_reason
+                FROM attendance a
+                JOIN users u ON a.user_id = u.id
+                WHERE a.date = $1 AND a.tenant_id = $2 AND a.is_late = true
+             `, [sqlDateStr, tenantId]);
+
+             const totalPresent = resAtt.rows.reduce((sum: number, r: any) => sum + Number(r.count), 0);
+             const totalLate = resLate.rows.length;
+
+             message += `👥 *ABSENSI SDM (${totalPresent} Hadir)*\n`;
+             
+             // Shift Detail
+             if (resAtt.rows.length > 0) {
+                resAtt.rows.forEach((r: any) => {
+                   const shiftName = r.shift_name ? r.shift_name : 'Non-Shift';
+                   message += `   • ${shiftName}: ${r.count}\n`;
+                });
+             } else {
+                message += `   _(Tidak ada absensi masuk)_\n`;
+             }
+
+             // Late Detail
+             if (totalLate > 0) {
+                message += `\n⚠️ *TERLAMBAT (${totalLate} Orang):*\n`;
+                resLate.rows.forEach((r: any, idx: number) => {
+                   const reason = r.late_reason ? `("${escapeMd(r.late_reason)}")` : '';
+                   message += `   ${idx+1}. ${escapeMd(r.name)} ${reason}\n`;
+                });
+             } else {
+                message += `   ✨ *Semua On-Time*\n`;
+             }
+             message += `\n`;
              hasData = true;
           }
 
           // -- MODULE: PROJECT --
           if (targetModules.includes("projects")) {
              const resProj = await pool.query(`
-                SELECT status, COUNT(*) as cnt FROM projects WHERE tenant_id = $1 GROUP BY status
+                SELECT status, COUNT(*) as cnt FROM projects WHERE tenant_id = $1 GROUP BY status ORDER BY status
              `, [tenantId]);
              
              message += `📊 *PROJECT STATUS*\n`;
+             const statusEmoji: Record<string, string> = { 
+                DONE: '✅', PREVIEW: '👀', DOING: '🔥', TODO: '📋', ON_GOING: '🚀', REVISION: '🛠️' 
+             };
+
              if (resProj.rows.length === 0) {
-                message += `_(Tidak ada project aktif)_\n`;
+                message += `   _(Tidak ada project aktif)_\n`;
              } else {
                 resProj.rows.forEach((row: any) => {
-                   let icon = '🔹';
-                   if(row.status === 'DONE') icon = '✅';
-                   if(row.status === 'DOING') icon = '🔥';
-                   if(row.status === 'TODO') icon = '📋';
-                   message += `${icon} ${row.status}: ${row.cnt}\n`;
+                   const s = row.status;
+                   const icon = statusEmoji[s] || '🔹';
+                   message += `   ${icon} ${s}: ${row.cnt}\n`;
                 });
              }
              message += `\n`;
@@ -171,14 +208,14 @@ export async function GET(request: Request) {
               `, [tenantId]);
               const totalPending = resReq.rows.reduce((sum: number, r: any) => sum + Number(r.cnt), 0);
               
-              message += `📩 *PERMOHONAN (${totalPending})*\n`;
               if (totalPending > 0) {
+                 message += `📩 *PERMOHONAN (${totalPending} Pending)*\n`;
                  resReq.rows.forEach((r: any) => {
-                    message += `- ${r.type}: ${r.cnt}\n`;
+                    message += `   • ${r.type}: ${r.cnt}\n`;
                  });
-                 message += `_Mohon cek dashboard untuk persetujuan._\n\n`;
+                 message += `   _Cek dashboard untuk approval._\n\n`;
               } else {
-                 message += `_Semua beres._\n\n`;
+                 message += `📩 *PERMOHONAN*\n   ✅ Bersih (Nihil)\n\n`;
               }
               hasData = true;
           }
