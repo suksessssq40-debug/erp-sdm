@@ -19,10 +19,16 @@ export const TenantSwitcher = () => {
   const toast = useToast();
 
   useEffect(() => {
-    if (isOpen && tenants.length === 0) {
+    if (isOpen && tenants.length === 0 && !loading) {
         const token = currentUser ? localStorage.getItem('sdm_erp_auth_token') : null;
-        if (!token) return;
+        if (!token) {
+            console.error("[TenantSwitcher] No token found in localStorage");
+            return;
+        }
 
+        setLoading(true);
+        console.log("[TenantSwitcher] Fetching tenants...");
+        
         fetch('/api/auth/my-tenants', {
             headers: {
                 'Authorization': `Bearer ${token}`
@@ -33,12 +39,27 @@ export const TenantSwitcher = () => {
                     toast.error("Session expired");
                     return [];
                 }
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.error || `Server Error ${res.status}`);
+                }
                 return res.json();
             })
             .then(data => {
-                if(Array.isArray(data)) setTenants(data);
+                console.log("[TenantSwitcher] Tenants loaded:", data);
+                if(Array.isArray(data)) {
+                    setTenants(data);
+                } else {
+                    console.error("[TenantSwitcher] API returned non-array data:", data);
+                }
             })
-            .catch(err => console.error(err));
+            .catch(err => {
+                console.error("[TenantSwitcher] Failed to load tenants:", err);
+                toast.error("Gagal memuat daftar unit");
+            })
+            .finally(() => {
+                setLoading(false);
+            });
     }
   }, [isOpen]);
 
@@ -128,8 +149,15 @@ export const TenantSwitcher = () => {
                             {t.current && <Check size={16} className="text-blue-500" />}
                         </button>
                     ))}
-                    {tenants.length === 0 && (
-                        <div className="p-4 text-center text-slate-500 text-xs">Loading units...</div>
+                    {loading && (
+                        <div className="p-4 text-center text-slate-500 text-xs animate-pulse italic">
+                             Refreshing business units...
+                        </div>
+                    )}
+                    {!loading && tenants.length === 0 && (
+                        <div className="p-4 text-center text-slate-500 text-xs">
+                             No business units found.
+                        </div>
                     )}
                 </div>
                 

@@ -6,10 +6,25 @@ const pool = new Pool({ connectionString: PROD_URL });
 
 async function audit() {
   try {
-    const res = await pool.query(`SELECT tenant_id, office_lat, office_lng FROM settings`);
-    console.log(`\nSettings Table Content:`);
-    res.rows.forEach(s => console.log(` - Tenant: ${s.tenant_id}, Lat: ${s.office_lat}, Lng: ${s.office_lng}`));
+    console.log("--- DEEP AUDIT TENANT ACCESS ---");
+    const res = await pool.query(`
+        SELECT u.id, u.username, u.role, ta.tenant_id 
+        FROM users u
+        LEFT JOIN tenant_access ta ON u.id = ta.user_id
+        WHERE u.role IN ('MANAGER', 'FINANCE', 'OWNER')
+    `);
     
+    const summary = {};
+    res.rows.forEach(r => {
+        if (!summary[r.username]) summary[r.username] = { id: r.id, role: r.role, tenants: [] };
+        if (r.tenant_id) summary[r.username].tenants.push(r.tenant_id);
+    });
+
+    Object.keys(summary).forEach(username => {
+        const u = summary[username];
+        console.log(` - ${username} (${u.role}): [${u.tenants.length}] tenants -> ${u.tenants.join(', ') || '❌ NO ACCESS'}`);
+    });
+
   } catch (e) {
     console.error("Audit failed:", e);
   } finally {
