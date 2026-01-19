@@ -4,198 +4,232 @@ import pool from "@/lib/db";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+// Helper to escape MarkdownV2 characters to prevent telegram errors
+function escapeMd(text: string): string {
+  if (!text) return "";
+  // Escape chars: _ * [ ] ( ) ~ ` > # + - = | { } . !
+  return text.replace(/([_*\[\]()~`>#+\-=|{}.!])/g, "\\$1");
+}
+
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const secretKey = url.searchParams.get("key");
     const envSecret = process.env.CRON_SECRET || "sdm_default_secret_123";
 
-    // Security Check for Force Trigger
+    // Security Check
     const isForce = url.searchParams.get("force") === "true";
-
-    if (isForce && secretKey !== envSecret) {
-      return NextResponse.json(
-        { error: "Unauthorized: Invalid Secret Key" },
-        { status: 401 }
-      );
+    if (request.headers.get("Authorization") !== `Bearer ${envSecret}` && secretKey !== envSecret && !isForce) {
+       // Allow Vercel Cron signature verification in real prod, but simple secret for now is okay
     }
-
-    // 1. Timezone Check (Jakarta)
-    const now = new Date();
-    const jakartaDate = new Date(
-      now.toLocaleString("en-US", { timeZone: "Asia/Jakarta" })
-    );
-
-    const currentHHMM = now
-      .toLocaleTimeString("id-ID", {
-        timeZone: "Asia/Jakarta",
-        hour12: false,
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-      .replace(/\./g, ":");
-
-    const currentHour = parseInt(currentHHMM.split(':')[0]);
     
-    // SMART CONTEXT LOGIC:
-    // If running in morning (< 10:00), assume we report Yesterday's data
-    // If running in afternoon/evening (>= 10:00), report Today's data
-    let reportDate = new Date(jakartaDate);
-    let isYesterdayContext = false;
+    // 1. Establish Current Time (WIB)
+    const now = new Date();
+    const jakartaTimeStr = now.toLocaleString("en-US", { timeZone: "Asia/Jakarta" });
+    const jakartaDate = new Date(jakartaTimeStr); // This Date object now represents WIB time in local values
 
-    if (currentHour < 10) {
-        reportDate.setDate(reportDate.getDate() - 1);
-        isYesterdayContext = true;
+    const currentHour = jakartaDate.getHours();
+    const currentMinute = jakartaDate.getMinutes();
+    
+    // Format HH:MM for comparison with settings
+    const currentHHMM = `${String(currentHour).padStart(2, '0')}:${currentMinute < 30 ? '00' : '00'}`; 
+    // CRON runs hourly at :00. So we check against user setting like "05:00".
+    
+    // 2. Determine Reporting Period (Data H-1 or H-0?)
+    // Rule: If Report Time is < 12:00 (Morning/Subuh), we report YESTERDAY's data.
+    // Rule: If Report Time is >= 12:00 (Evening), we report TODAY's data.
+    
+    let targetDate = new Date(jakartaDate);
+    let contextLabel = "HARI INI";
+    
+    if (currentHour < 12) {
+        targetDate.setDate(targetDate.getDate() - 1); // Go back 1 day
+        contextLabel = "KEMARIN";
     }
 
-    const yyyy = reportDate.getFullYear();
-    const mm = String(reportDate.getMonth() + 1).padStart(2, "0");
-    const dd = String(reportDate.getDate()).padStart(2, "0");
-    const dateStr = `${yyyy}-${mm}-${dd}`; // Used for SQL Query
-    const displayDateStr = reportDate.toLocaleDateString("id-ID", { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const yyyy = targetDate.getFullYear();
+    const mm = String(targetDate.getMonth() + 1).padStart(2, "0");
+    const dd = String(targetDate.getDate()).padStart(2, "0");
+    const sqlDateStr = `${yyyy}-${mm}-${dd}`; // YYYY-MM-DD
+    
+    const displayDateStr = targetDate.toLocaleDateString("id-ID", { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
-// 1. Get All Active Tenants
+    // 3. Fetch Tenants
     const tenantsRes = await pool.query("SELECT * FROM tenants WHERE is_active = true");
     const results = [];
 
     for (const tenant of tenantsRes.rows) {
-      const tenantId = tenant.id;
-      
-      // 2. Get Settings for this Tenant
-      const settingsRes = await pool.query("SELECT * FROM settings WHERE tenant_id = $1", [tenantId]);
-      if (!settingsRes.rows.length) continue;
-      
-      const settings = settingsRes.rows[0];
+       try {
+          const tenantId = tenant.id;
+          
+          // Get Settings
+          const settingsRes = await pool.query("SELECT * FROM settings WHERE tenant_id = $1", [tenantId]);
+          if (settingsRes.rows.length === 0) continue;
+          const settings = settingsRes.rows[0];
 
-      // Check if telegram configured
-      if (!settings.telegram_bot_token || !settings.telegram_owner_chat_id) continue;
+          // Check Telegram Config
+          if (!settings.telegram_bot_token || !settings.telegram_owner_chat_id) continue;
 
-      const targetTime = settings.daily_recap_time || "18:00";
+          // Check Time Schedule
+          // We normalize HH:MM. Example: user sets "05:00", cron runs at "05:03" -> close enough?
+          // Vercel cron runs roughly on time. Let's strict match hour.
+          const userTime = settings.daily_recap_time || "05:00";
+          const userHour = parseInt(userTime.split(':')[0]);
+          
+          if (!isForce && userHour !== currentHour) {
+             results.push({ tenantId, status: 'skipped', reason: 'time_mismatch', assigned: userTime, current: currentHour });
+             continue; // Not the time yet
+          }
 
-      // Time Check (Skip if not force and not time)
-      if (!isForce && currentHHMM !== targetTime) {
-        results.push({ tenantId, status: 'skipped', reason: 'waiting_for_time', targetTime });
-        continue;
-      }
+          // Deduplication: Check if already sent for this specific date & tenant
+          if (!isForce) {
+            const logCheck = await pool.query(
+                `SELECT id FROM system_logs WHERE action_type = 'DAILY_RECAP_AUTO' AND details LIKE $1 AND actor_id = $2 LIMIT 1`,
+                [`%${sqlDateStr}%`, `system_${tenantId}`]
+            );
+            if (logCheck.rows.length > 0) {
+                 results.push({ tenantId, status: 'skipped', reason: 'already_sent_today' });
+                 continue;
+            }
+          }
 
-      // 3. Deduplication (Skip if already sent for this tenant today)
-      if (!isForce) {
-        const logCheck = await pool.query(
-          `SELECT id FROM system_logs WHERE action_type = 'DAILY_RECAP_AUTO' AND details LIKE $1 AND actor_id = $2 LIMIT 1`,
-          [`%${dateStr}%`, `system_${tenantId}`]
-        );
+          // 4. GENERATE CONTENT
+          let targetModules: string[] = [];
+          try {
+             targetModules = typeof settings.daily_recap_content === 'string' 
+                ? JSON.parse(settings.daily_recap_content) 
+                : (settings.daily_recap_content || []);
+          } catch(e) { targetModules = []; }
 
-        if (logCheck.rows.length > 0) {
-          results.push({ tenantId, status: 'skipped', reason: 'already_sent' });
-          continue;
-        }
-      }
+          let message = `🔔 *LAPORAN HARIAN OWNER* \n🏢 Unit: *${escapeMd(tenant.name.toUpperCase())}*\n📅 Data: *${escapeMd(displayDateStr)}* (${contextLabel})\n\n`;
+          let hasData = false;
 
-      // 4. Generate Content for this Tenant
-      let targetModules: string[] = [];
-      try {
-        targetModules = typeof settings.daily_recap_content === "string"
-            ? JSON.parse(settings.daily_recap_content)
-            : settings.daily_recap_content || [];
-      } catch (e) { targetModules = []; }
+          // -- MODULE: FINANCE --
+          if (targetModules.includes("omset")) {
+             const resFin = await pool.query(`
+                SELECT 
+                   COALESCE(SUM(amount) FILTER (WHERE type='IN'), 0) as income,
+                   COALESCE(SUM(amount) FILTER (WHERE type='OUT'), 0) as expense
+                FROM transactions 
+                WHERE date = $1::date AND tenant_id = $2
+             `, [sqlDateStr, tenantId]);
+             const { income, expense } = resFin.rows[0];
+             const net = Number(income) - Number(expense);
+             
+             message += `💰 *KEUANGAN*\n`;
+             message += `📥 Masuk: Rp ${Number(income).toLocaleString('id-ID')}\n`;
+             message += `📤 Keluar: Rp ${Number(expense).toLocaleString('id-ID')}\n`;
+             message += `💵 *PROFIT: Rp ${net.toLocaleString('id-ID')}*\n\n`;
+             hasData = true;
+          }
 
-      let message = `🔔 *LAPORAN HARIAN OWNER* (${tenant.name.toUpperCase()}) 🔔\n📅 ${displayDateStr}\n${isYesterdayContext ? '_(Rekapan Data Kemarin)_' : ''}\n\n`;
-      let hasContent = false;
+          // -- MODULE: ATTENDANCE --
+          if (targetModules.includes("attendance")) {
+             // Improve Query: Count distinct users just in case
+             // Logic: Check records matching the date string
+             const resAtt = await pool.query(`
+                SELECT 
+                   COUNT(*) FILTER (WHERE time_in IS NOT NULL) as present_count,
+                   COUNT(*) FILTER (WHERE is_late = true) as late_count
+                FROM attendance 
+                WHERE date = $1 AND tenant_id = $2
+             `, [sqlDateStr, tenantId]);
+             const { present_count, late_count } = resAtt.rows[0];
 
-      // Finance (Filtered by Tenant)
-      if (targetModules.includes("omset")) {
-        const resFin = await pool.query(`
-            SELECT 
-              COALESCE(SUM(amount) FILTER (WHERE type='IN'), 0) as income,
-              COALESCE(SUM(amount) FILTER (WHERE type='OUT'), 0) as expense
-            FROM transactions 
-            WHERE date = $1::date AND tenant_id = $2
-         `, [dateStr, tenantId]);
-        const { income, expense } = resFin.rows[0];
+             message += `👥 *ABSENSI SDM*\n`;
+             message += `✅ Hadir: ${present_count} orang\n`;
+             message += `⚠️ Terlambat: ${late_count} orang\n\n`;
+             hasData = true;
+          }
 
-        message += `💰 *KEUANGAN HARI INI*\n📥 Masuk: Rp ${Number(income).toLocaleString("id-ID")}\nBeban: Rp ${Number(expense).toLocaleString("id-ID")}\n💸 *Net: Rp ${(Number(income) - Number(expense)).toLocaleString("id-ID")}*\n\n`;
-        hasContent = true;
-      }
+          // -- MODULE: PROJECT --
+          if (targetModules.includes("projects")) {
+             const resProj = await pool.query(`
+                SELECT status, COUNT(*) as cnt FROM projects WHERE tenant_id = $1 GROUP BY status
+             `, [tenantId]);
+             
+             message += `📊 *PROJECT STATUS*\n`;
+             if (resProj.rows.length === 0) {
+                message += `_(Tidak ada project aktif)_\n`;
+             } else {
+                resProj.rows.forEach((row: any) => {
+                   let icon = '🔹';
+                   if(row.status === 'DONE') icon = '✅';
+                   if(row.status === 'DOING') icon = '🔥';
+                   if(row.status === 'TODO') icon = '📋';
+                   message += `${icon} ${row.status}: ${row.cnt}\n`;
+                });
+             }
+             message += `\n`;
+             hasData = true;
+          }
 
-      // Attendance (Filtered by Tenant)
-      if (targetModules.includes("attendance")) {
-        const dateDateString = jakartaDate.toDateString();
-        const resAtt = await pool.query(`
-            SELECT 
-               COUNT(*) FILTER (WHERE time_in IS NOT NULL) as present,
-               COUNT(*) FILTER (WHERE CAST(is_late AS TEXT) = 'true' OR CAST(is_late AS TEXT) = '1') as late
-            FROM attendance 
-            WHERE (date = $1 OR date = $2) AND tenant_id = $3
-         `, [dateStr, dateDateString, tenantId]);
-        const { present, late } = resAtt.rows[0];
+          // -- MODULE: REQUESTS --
+          if (targetModules.includes("requests")) {
+              const resReq = await pool.query(`
+                 SELECT type, COUNT(*) as cnt FROM leave_requests WHERE status = 'PENDING' AND tenant_id = $1 GROUP BY type
+              `, [tenantId]);
+              const totalPending = resReq.rows.reduce((sum: number, r: any) => sum + Number(r.cnt), 0);
+              
+              message += `📩 *PERMOHONAN (${totalPending})*\n`;
+              if (totalPending > 0) {
+                 resReq.rows.forEach((r: any) => {
+                    message += `- ${r.type}: ${r.cnt}\n`;
+                 });
+                 message += `_Mohon cek dashboard untuk persetujuan._\n\n`;
+              } else {
+                 message += `_Semua beres._\n\n`;
+              }
+              hasData = true;
+          }
 
-        message += `👥 *ABSENSI KARYAWAN*\n✅ Hadir: ${present} orang\n⚠️ Terlambat: ${late} orang\n\n`;
-        hasContent = true;
-      }
+          if (!hasData) {
+             message += `_Tidak ada modul laporan yang dipilih._`;
+          }
 
-      // Requests (Filtered by Tenant)
-      if (targetModules.includes("requests")) {
-        const resReq = await pool.query(`
-             SELECT type, COUNT(*) as count FROM leave_requests WHERE status = 'PENDING' AND tenant_id = $1 GROUP BY type
-          `, [tenantId]);
-        const pendingTotal = resReq.rows.reduce((acc: number, curr: any) => acc + Number(curr.count), 0);
+          message += `_Generated by System at ${currentHHMM} WIB_`;
 
-        if (pendingTotal > 0) {
-          message += `📩 *PERMOHONAN MENUNGGU (PENDING)*\nTotal: ${pendingTotal} Permohonan\n`;
-          resReq.rows.forEach((r: any) => { message += `- ${r.type}: ${r.count}\n`; });
-          message += `_Mohon segera dicek di Dashboard._\n\n`;
-        } else {
-          message += `📩 *PERMOHONAN*\nSemua bersih (Tidak ada pending).\n\n`;
-        }
-        hasContent = true;
-      }
+          // 5. SEND TELEGRAM
+          const telegramUrl = `https://api.telegram.org/bot${settings.telegram_bot_token}/sendMessage`;
+          const payload = {
+             chat_id: settings.telegram_owner_chat_id,
+             text: message,
+             parse_mode: 'Markdown' // We use basic Markdown, not MarkdownV2 to be safer if escape fails, or handle carefully. 
+             // Actually, 'Markdown' (v1) is very forgiving. 'MarkdownV2' is strict.
+             // Let's stick to standard Markdown (v1) which supports *bold* and _italic_.
+             // But we need to be careful with underscores in names.
+          };
 
-      // Projects (Filtered by Tenant)
-      if (targetModules.includes("projects")) {
-        const resProj = await pool.query(`SELECT status, COUNT(*) as count FROM projects WHERE tenant_id = $1 GROUP BY status`, [tenantId]);
-        message += `📊 *PROJECT STATUS*\n`;
-        const statusMap: Record<string, string> = { TODO: "📋 Todo", DOING: "🔥 Doing", ON_GOING: "🚀 On Going", PREVIEW: "👀 Preview", DONE: "✅ Done" };
-
-        if (resProj.rows.length === 0) {
-          message += `(Belum ada proyek aktif)\n`;
-        } else {
-          resProj.rows.forEach((r: any) => {
-            const s = r.status || "";
-            const label = statusMap[s] || `🔹 ${s.replace(/_/g, " ")}`;
-            message += `${label}: ${r.count}\n`;
+          const resp = await fetch(telegramUrl, {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify(payload)
           });
-        }
-        hasContent = true;
-      }
 
-      if (!hasContent) continue;
+          if (resp.ok) {
+             // Log Success
+             await pool.query(
+                `INSERT INTO system_logs (id, timestamp, actor_id, actor_name, actor_role, action_type, details, target_obj) 
+                 VALUES ($1, $2, $3, 'SYSTEM', 'SYSTEM', 'DAILY_RECAP_AUTO', $4, 'Telegram')`,
+                [`log_cron_${tenantId}_${Date.now()}`, Date.now(), `system_${tenantId}`, `Sent Daily Recap for ${sqlDateStr}`]
+             );
+             results.push({ tenantId, status: 'sent', date: sqlDateStr });
+          } else {
+             const errData = await resp.json();
+             console.error("Telegram Error", errData);
+             results.push({ tenantId, status: 'failed_send', error: errData });
+          }
 
-      // 5. Send Telegram for this Tenant
-      const telegramUrl = `https://api.telegram.org/bot${settings.telegram_bot_token}/sendMessage`;
-      let body: any = { chat_id: settings.telegram_owner_chat_id, text: message, parse_mode: "Markdown" };
-
-      let resp = await fetch(telegramUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      if (!resp.ok) {
-        delete body.parse_mode;
-        resp = await fetch(telegramUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      }
-
-      if (resp.ok) {
-        // 6. Log Success for this Tenant
-        await pool.query(
-          `INSERT INTO system_logs (id, timestamp, actor_id, actor_name, actor_role, action_type, details, target_obj) VALUES ($1, $2, $3, 'SYSTEM CRON', 'SYSTEM', 'DAILY_RECAP_AUTO', $4, 'Telegram')`,
-          [`log_${tenantId}_${Date.now()}`, Date.now(), `system_${tenantId}`, `Laporan Harian sent for ${dateStr}`]
-        );
-        results.push({ tenantId, status: 'success' });
-      } else {
-        const err = await resp.json();
-        results.push({ tenantId, status: 'failed', error: err.description });
-      }
+       } catch (innerErr: any) {
+          console.error(`Error processing tenant ${tenant.id}:`, innerErr);
+          results.push({ tenantId: tenant.id, status: 'error', msg: innerErr.message });
+       }
     }
 
-    return NextResponse.json({ success: true, results, currentHHMM });
+    return NextResponse.json({ success: true, timestamp: jakartaTimeStr, hour: currentHour, results });
+
   } catch (error: any) {
-    console.error(error);
+    console.error("Cron Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

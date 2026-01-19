@@ -1,8 +1,8 @@
 {
   "crons": [
     {
-      "path": "/api/cron/daily-recap?key=sdm_default_secret_123",
-      "schedule": "0 22 * * *" 
+      "path": "/api/cron/daily-recap",
+      "schedule": "0 * * * *"
     }
   ]
 }
