@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
+import { cookies } from "next/headers";
+import jwt from "jsonwebtoken";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -14,8 +16,8 @@ function escapeMd(text: string): string {
 export async function GET(request: Request) {
   try {
     // 1. SECURITY CHECK (Gembok Pintu)
-    // Gunakan Environment Variable di Vercel, atau Fallback ke Hardcoded Secret (aman untuk private repo)
     const CRON_SECRET = process.env.CRON_SECRET || 'Internal_Cron_Secret_2026_Secure';
+    const JWT_SECRET = process.env.JWT_SECRET || 'sdm_super_secret_key_2024'; // Pastikan sama dengan auth
     
     const authHeader = request.headers.get('authorization');
     const token = authHeader?.replace('Bearer ', '');
@@ -23,9 +25,24 @@ export async function GET(request: Request) {
     // Izinkan jika token cocok, ATAU jika ada parameter ?key=... (untuk testing manual browser)
     const url = new URL(request.url);
     const queryKey = url.searchParams.get("key");
-    const isForce = url.searchParams.get("force") === "true"; // Restore isForce for testing logic below
+    const isForce = url.searchParams.get("force") === "true"; 
 
-    if (token !== CRON_SECRET && queryKey !== CRON_SECRET) {
+    // -- VIP CHECK: Apakah ini Admin yang sedang login? --
+    let isAdmin = false;
+    const cookieStore = cookies();
+    const sessionToken = cookieStore.get('token')?.value;
+
+    if (sessionToken) {
+        try {
+            const decoded: any = jwt.verify(sessionToken, JWT_SECRET);
+            if (decoded && (decoded.role === 'OWNER' || decoded.role === 'ADMIN' || decoded.role === 'super_admin')) {
+                isAdmin = true;
+            }
+        } catch(e) { /* Invalid Token */ }
+    }
+
+    // Gembok Utama: Tolak jika BUKAN Secret Key DAN BUKAN Admin
+    if (token !== CRON_SECRET && queryKey !== CRON_SECRET && !isAdmin) {
          return NextResponse.json({ error: 'Unauthorized: Access Denied. Kunci Salah.' }, { status: 401 });
     }
     
