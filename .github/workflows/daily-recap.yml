@@ -1,0 +1,23 @@
+name: Trigger Daily Recap (Cron)
+
+on:
+  schedule:
+    - cron: "0 * * * *" # Jalan setiap jam (Hourly)
+  workflow_dispatch: # Tombol manual buat test di GitHub Actions
+
+jobs:
+  trigger-cron:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Vercel Cron API
+        run: |
+          echo "Triggering Daily Recap..."
+          response=$(curl -s -o /dev/null -w "%{http_code}" -X GET "https://erp.datasdm.com/api/cron/daily-recap" \
+          -H "Authorization: Bearer Internal_Cron_Secret_2026_Secure")
+
+          if [ "$response" -eq 200 ]; then
+            echo "✅ Success! HTTP 200 OK"
+          else
+            echo "❌ Failed! HTTP $response"
+            exit 1
+          fi

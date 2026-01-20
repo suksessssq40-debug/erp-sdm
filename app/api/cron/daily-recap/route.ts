@@ -13,14 +13,20 @@ function escapeMd(text: string): string {
 
 export async function GET(request: Request) {
   try {
+    // 1. SECURITY CHECK (Gembok Pintu)
+    // Gunakan Environment Variable di Vercel, atau Fallback ke Hardcoded Secret (aman untuk private repo)
+    const CRON_SECRET = process.env.CRON_SECRET || 'Internal_Cron_Secret_2026_Secure';
+    
+    const authHeader = request.headers.get('authorization');
+    const token = authHeader?.replace('Bearer ', '');
+    
+    // Izinkan jika token cocok, ATAU jika ada parameter ?key=... (untuk testing manual browser)
     const url = new URL(request.url);
-    const secretKey = url.searchParams.get("key");
-    const envSecret = process.env.CRON_SECRET || "sdm_default_secret_123";
+    const queryKey = url.searchParams.get("key");
+    const isForce = url.searchParams.get("force") === "true"; // Restore isForce for testing logic below
 
-    // Security Check
-    const isForce = url.searchParams.get("force") === "true";
-    if (request.headers.get("Authorization") !== `Bearer ${envSecret}` && secretKey !== envSecret && !isForce) {
-       // Allow Vercel Cron signature verification in real prod, but simple secret for now is okay
+    if (token !== CRON_SECRET && queryKey !== CRON_SECRET) {
+         return NextResponse.json({ error: 'Unauthorized: Access Denied. Kunci Salah.' }, { status: 401 });
     }
     
     // 1. Establish Current Time (WIB)
