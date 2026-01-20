@@ -99,7 +99,8 @@ export const AppSettings = ({ store, toast }: any) => {
     setIsTesting(true);
     try {
       // Anti-cache param + Force mode (so it doesn't block real schedule)
-      const res = await fetch(`/api/cron/daily-recap?force=true&v=${Date.now()}`); 
+      // Anti-cache param + Force mode + SECRET KEY (Required for security check)
+      const res = await fetch(`/api/cron/daily-recap?force=true&v=${Date.now()}&key=Internal_Cron_Secret_2026_Secure`); 
       const data = await res.json();
       
       if (!res.ok) {
