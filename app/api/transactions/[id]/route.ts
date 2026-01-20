@@ -34,8 +34,8 @@ export async function PUT(request: Request, { params }: { params: { id: string }
         const old = await tx.transaction.findUnique({ where: { id } });
         if (!old) throw new Error('Transaction not found');
 
-        // 1. Undo Old Impact (if it was paid)
-        if (old.status === 'PAID' && old.accountId) {
+        // 1. Undo Old Impact (Operational Basis - Always Undo)
+        if (old.accountId) {
             try {
                 const oldAmount = Number(old.amount);
                 const undoChange = old.type === 'IN' ? -oldAmount : oldAmount;
@@ -66,8 +66,8 @@ export async function PUT(request: Request, { params }: { params: { id: string }
             } as any
         });
 
-        // 3. Apply New Impact (if it is now paid)
-        if (body.status === 'PAID' && accountId) {
+        // 3. Apply New Impact (Operational Basis - Always Apply)
+        if (accountId) {
             try {
                 const newAmount = Number(body.amount);
                 const applyChange = body.type === 'IN' ? newAmount : -newAmount;
@@ -102,7 +102,7 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
         const old = await tx.transaction.findUnique({ where: { id } });
         if (!old) return;
 
-        if (old.status === 'PAID' && old.accountId) {
+        if (old.accountId) {
             try {
                 const oldAmount = Number(old.amount);
                 const undoChange = old.type === 'IN' ? -oldAmount : oldAmount;
