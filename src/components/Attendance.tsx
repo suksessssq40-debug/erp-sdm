@@ -265,6 +265,13 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
   const capturePhoto = () => {
     if (isSubmitting || !canvasRef.current || !videoRef.current) return;
     const video = videoRef.current;
+    
+    // SECURITY CHECK: Ensure video stream is actualy ready and playing
+    if (video.readyState !== 4) { // 4 = HAVE_ENOUGH_DATA
+        toast.error("Kamera belum siap, coba lagi dalam 1 detik.");
+        return;
+    }
+
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     
@@ -272,10 +279,18 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
       setIsSubmitting(true);
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
+      
+      // Mirror effect for selfie feeling
       ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1); 
+      
       ctx.drawImage(video, 0, 0);
-      // OPTIMIZATION: Use WebP with 0.6 quality (High compression, Good quality)
-      const dataUrl = canvas.toDataURL('image/webp', 0.6);
+      
+      // CRITICAL FIX: Revert to JPEG for 100% Mobile Compatibility
+      // WebP caused blank images on some devices/browsers due to encoding timing or support issues.
+      // JPEG quality 0.6 offers great compression similar to WebP but is safer.
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+      
       if (video.srcObject) (video.srcObject as MediaStream).getTracks().forEach(t => t.stop());
 
       const finalize = async (url: string) => {
@@ -324,8 +339,10 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
         const ab = new ArrayBuffer(byteString.length);
         const ia = new Uint8Array(ab);
         for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
-        const blob = new Blob([ab], { type: 'image/webp' });
-        const file = new File([blob], `selfie_${Date.now()}.webp`, { type: 'image/webp' });
+        
+        // Fix: Use generic jpeg type
+        const blob = new Blob([ab], { type: 'image/jpeg' });
+        const file = new File([blob], `selfie_${Date.now()}.jpg`, { type: 'image/jpeg' });
 
         toast.info("Mengupload selfie...");
         uploadFile(file).then(finalize).catch(() => {
@@ -333,6 +350,7 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
           setIsSubmitting(false);
           setStage('SELFIE');
         });
+
       } else {
         finalize(dataUrl);
       }
