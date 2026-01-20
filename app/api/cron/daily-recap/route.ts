@@ -1,3 +1,4 @@
+
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { cookies } from "next/headers";
@@ -6,18 +7,20 @@ import jwt from "jsonwebtoken";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-// Helper to escape MarkdownV2 characters to prevent telegram errors
-function escapeMd(text: string): string {
+// Helper to escape HTML characters for Telegram
+function escapeHtml(text: string): string {
   if (!text) return "";
-  // Escape chars: _ * [ ] ( ) ~ ` > # + - = | { } . !
-  return text.replace(/([_*\[\]()~`>#+\-=|{}.!])/g, "\\$1");
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 export async function GET(request: Request) {
   try {
     // 1. SECURITY CHECK (Gembok Pintu)
     const CRON_SECRET = process.env.CRON_SECRET || 'Internal_Cron_Secret_2026_Secure';
-    const JWT_SECRET = process.env.JWT_SECRET || 'sdm_super_secret_key_2024'; // Pastikan sama dengan auth
+    const JWT_SECRET = process.env.JWT_SECRET || 'sdm_erp_dev_secret'; // FIXED: Match Login Secret
     
     const authHeader = request.headers.get('authorization');
     const token = authHeader?.replace('Bearer ', '');
@@ -29,16 +32,18 @@ export async function GET(request: Request) {
 
     // -- VIP CHECK: Apakah ini Admin yang sedang login? --
     let isAdmin = false;
-    const cookieStore = cookies();
-    const sessionToken = cookieStore.get('token')?.value;
 
-    if (sessionToken) {
+    // Coba baca token dari Header ATAU Cookie
+    const candidateToken = token || cookies().get('token')?.value;
+
+    if (candidateToken) {
         try {
-            const decoded: any = jwt.verify(sessionToken, JWT_SECRET);
+            // Cek apakah token ini valid JWT milik Admin?
+            const decoded: any = jwt.verify(candidateToken, JWT_SECRET);
             if (decoded && (decoded.role === 'OWNER' || decoded.role === 'ADMIN' || decoded.role === 'super_admin')) {
                 isAdmin = true;
             }
-        } catch(e) { /* Invalid Token */ }
+        } catch(e) { }
     }
 
     // Gembok Utama: Tolak jika BUKAN Secret Key DAN BUKAN Admin
@@ -46,28 +51,32 @@ export async function GET(request: Request) {
          return NextResponse.json({ error: 'Unauthorized: Access Denied. Kunci Salah.' }, { status: 401 });
     }
     
-    // 1. Establish Current Time (WIB)
+    // 2. Establish Current Time (WIB)
     const now = new Date();
     const jakartaTimeStr = now.toLocaleString("en-US", { timeZone: "Asia/Jakarta" });
-    const jakartaDate = new Date(jakartaTimeStr); // This Date object now represents WIB time in local values
-
+    const jakartaDate = new Date(jakartaTimeStr); 
     const currentHour = jakartaDate.getHours();
-    const currentMinute = jakartaDate.getMinutes();
-    
-    // Format HH:MM for comparison with settings
-    const currentHHMM = `${String(currentHour).padStart(2, '0')}:${currentMinute < 30 ? '00' : '00'}`; 
-    // CRON runs hourly at :00. So we check against user setting like "05:00".
-    
-    // 2. Determine Reporting Period (Data H-1 or H-0?)
-    // Rule: If Report Time is < 12:00 (Morning/Subuh), we report YESTERDAY's data.
-    // Rule: If Report Time is >= 12:00 (Evening), we report TODAY's data.
-    
+
     let targetDate = new Date(jakartaDate);
     let contextLabel = "HARI INI";
-    
-    if (currentHour < 12) {
-        targetDate.setDate(targetDate.getDate() - 1); // Go back 1 day
-        contextLabel = "KEMARIN";
+    let reportTitle = "LAPORAN HARIAN TERKINI";
+
+    // LOGIKA TANGGAL PINTAR (Smart Date Logic)
+    // Skenario A: Manual Trigger (Tombol) -> Selalu ingin data Real-time HARI INI.
+    if (isForce) {
+        contextLabel = "SNAPSHOT SAAT INI";
+        reportTitle = "📢 LAPORAN SITUASI TERKINI"; // Realtime
+    } 
+    // Skenario B: Cron Job Pagi (misal jam 5 subuh) -> Berarti rekap data KEMARIN.
+    else if (currentHour < 12) {
+        targetDate.setDate(targetDate.getDate() - 1); 
+        contextLabel = "KEMARIN (FULL DAY)";
+        reportTitle = "🔔 REKAP HARIAN FINAL (KEMARIN)";
+    }
+    // Skenario C: Cron Job Sore/Malam -> Rekap progress HARI INI.
+    else {
+        contextLabel = "HARI INI (ON-GOING)";
+        reportTitle = "🔔 LAPORAN HARIAN SEMENTARA";
     }
 
     const yyyy = targetDate.getFullYear();
@@ -94,8 +103,6 @@ export async function GET(request: Request) {
           if (!settings.telegram_bot_token || !settings.telegram_owner_chat_id) continue;
 
           // Check Time Schedule
-          // We normalize HH:MM. Example: user sets "05:00", cron runs at "05:03" -> close enough?
-          // Vercel cron runs roughly on time. Let's strict match hour.
           const userTime = settings.daily_recap_time || "05:00";
           const userHour = parseInt(userTime.split(':')[0]);
           
@@ -104,9 +111,10 @@ export async function GET(request: Request) {
              continue; // Not the time yet
           }
 
-          // Deduplication: Check if already sent for this specific date & tenant
+          // Deduplication check...
           if (!isForce) {
-            const logCheck = await pool.query(
+             // ... [Log check remains same logic, just ensure variable names match] ...
+             const logCheck = await pool.query(
                 `SELECT id FROM system_logs WHERE action_type = 'DAILY_RECAP_AUTO' AND details LIKE $1 AND actor_id = $2 LIMIT 1`,
                 [`%${sqlDateStr}%`, `system_${tenantId}`]
             );
@@ -116,7 +124,7 @@ export async function GET(request: Request) {
             }
           }
 
-          // 4. GENERATE CONTENT
+          // 4. GENERATE CONTENT (HTML MODE)
           let targetModules: string[] = [];
           try {
              targetModules = typeof settings.daily_recap_content === 'string' 
@@ -124,7 +132,7 @@ export async function GET(request: Request) {
                 : (settings.daily_recap_content || []);
           } catch(e) { targetModules = []; }
 
-          let message = `🔔 *LAPORAN HARIAN OWNER* \n🏢 Unit: *${escapeMd(tenant.name.toUpperCase())}*\n📅 Data: *${escapeMd(displayDateStr)}* (${contextLabel})\n\n`;
+          let message = `<b>${reportTitle}</b> \n🏢 Unit: <b>${escapeHtml(tenant.name.toUpperCase())}</b>\n📅 Data: <b>${escapeHtml(displayDateStr)}</b> (${contextLabel})\n\n`;
           let hasData = false;
 
 
@@ -140,10 +148,10 @@ export async function GET(request: Request) {
              const { income, expense } = resFin.rows[0];
              const net = Number(income) - Number(expense);
              
-             message += `💰 *KEUANGAN*\n`;
+             message += `💰 <b>KEUANGAN</b>\n`;
              message += `📥 Masuk: Rp ${Number(income).toLocaleString('id-ID')}\n`;
              message += `📤 Keluar: Rp ${Number(expense).toLocaleString('id-ID')}\n`;
-             message += `💵 *NET: Rp ${net.toLocaleString('id-ID')}*\n\n`;
+             message += `💵 <b>NET: Rp ${net.toLocaleString('id-ID')}</b>\n\n`;
              hasData = true;
           }
 
@@ -168,33 +176,33 @@ export async function GET(request: Request) {
                    a.late_reason
                 FROM attendance a
                 JOIN users u ON a.user_id = u.id
-                WHERE a.date = $1 AND a.tenant_id = $2 AND a.is_late = true
+                WHERE a.date = $1 AND a.tenant_id = $2 AND a.is_late = 1
              `, [sqlDateStr, tenantId]);
 
              const totalPresent = resAtt.rows.reduce((sum: number, r: any) => sum + Number(r.count), 0);
              const totalLate = resLate.rows.length;
 
-             message += `👥 *ABSENSI SDM (${totalPresent} Hadir)*\n`;
+             message += `👥 <b>ABSENSI SDM (${totalPresent} Hadir)</b>\n`;
              
              // Shift Detail
              if (resAtt.rows.length > 0) {
                 resAtt.rows.forEach((r: any) => {
                    const shiftName = r.shift_name ? r.shift_name : 'Non-Shift';
-                   message += `   • ${shiftName}: ${r.count}\n`;
+                   message += `   • ${escapeHtml(shiftName)}: ${r.count}\n`;
                 });
              } else {
-                message += `   _(Tidak ada absensi masuk)_\n`;
+                message += `   <i>(Tidak ada absensi masuk)</i>\n`;
              }
 
              // Late Detail
              if (totalLate > 0) {
-                message += `\n⚠️ *TERLAMBAT (${totalLate} Orang):*\n`;
+                message += `\n⚠️ <b>TERLAMBAT (${totalLate} Orang):</b>\n`;
                 resLate.rows.forEach((r: any, idx: number) => {
-                   const reason = r.late_reason ? `("${escapeMd(r.late_reason)}")` : '';
-                   message += `   ${idx+1}. ${escapeMd(r.name)} ${reason}\n`;
+                   const reason = r.late_reason ? `("${escapeHtml(r.late_reason)}")` : '';
+                   message += `   ${idx+1}. ${escapeHtml(r.name)} ${reason}\n`;
                 });
              } else {
-                message += `   ✨ *Semua On-Time*\n`;
+                message += `   ✨ <b>Semua On-Time</b>\n`;
              }
              message += `\n`;
              hasData = true;
@@ -206,13 +214,13 @@ export async function GET(request: Request) {
                 SELECT status, COUNT(*) as cnt FROM projects WHERE tenant_id = $1 GROUP BY status ORDER BY status
              `, [tenantId]);
              
-             message += `📊 *PROJECT STATUS*\n`;
+             message += `📊 <b>PROJECT STATUS</b>\n`;
              const statusEmoji: Record<string, string> = { 
                 DONE: '✅', PREVIEW: '👀', DOING: '🔥', TODO: '📋', ON_GOING: '🚀', REVISION: '🛠️' 
              };
 
              if (resProj.rows.length === 0) {
-                message += `   _(Tidak ada project aktif)_\n`;
+                message += `   <i>(Tidak ada project aktif)</i>\n`;
              } else {
                 resProj.rows.forEach((row: any) => {
                    const s = row.status;
@@ -226,70 +234,75 @@ export async function GET(request: Request) {
 
           // -- MODULE: REQUESTS --
           if (targetModules.includes("requests")) {
-              const resReq = await pool.query(`
-                 SELECT type, COUNT(*) as cnt FROM leave_requests WHERE status = 'PENDING' AND tenant_id = $1 GROUP BY type
-              `, [tenantId]);
-              const totalPending = resReq.rows.reduce((sum: number, r: any) => sum + Number(r.cnt), 0);
-              
-              if (totalPending > 0) {
-                 message += `📩 *PERMOHONAN (${totalPending} Pending)*\n`;
-                 resReq.rows.forEach((r: any) => {
-                    message += `   • ${r.type}: ${r.cnt}\n`;
-                 });
-                 message += `   _Cek dashboard untuk approval._\n\n`;
-              } else {
-                 message += `📩 *PERMOHONAN*\n   ✅ Bersih (Nihil)\n\n`;
-              }
-              hasData = true;
+             const resReq = await pool.query(`
+                SELECT COUNT(*) as cnt FROM leave_requests WHERE tenant_id = $1 AND status = 'PENDING'
+             `, [tenantId]);
+             const pendingCount = Number(resReq.rows[0].cnt);
+             
+             if (pendingCount > 0) {
+                message += `📩 <b>PERMOHONAN PENDING</b>\n`;
+                message += `   ⚠️ Ada ${pendingCount} permohonan perlu approval.\n\n`;
+                hasData = true;
+             }
           }
 
-          if (!hasData) {
-             message += `_Tidak ada modul laporan yang dipilih._`;
-          }
+          // SEND TELEGRAM if has data
+          if (hasData) {
+             const telegramUrl = `https://api.telegram.org/bot${settings.telegram_bot_token}/sendMessage`;
+             const teleRes = await fetch(telegramUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                   chat_id: settings.telegram_owner_chat_id,
+                   text: message,
+                   parse_mode: 'HTML'
+                })
+             });
+             
+             const teleJson = await teleRes.json();
+             if (!teleRes.ok) {
+                 console.error("TELEGRAM ERROR:", teleJson);
+                 throw new Error(`Telegram error: ${teleJson.description}`);
+             }
 
-          message += `_Generated by System at ${currentHHMM} WIB_`;
-
-          // 5. SEND TELEGRAM
-          const telegramUrl = `https://api.telegram.org/bot${settings.telegram_bot_token}/sendMessage`;
-          const payload = {
-             chat_id: settings.telegram_owner_chat_id,
-             text: message,
-             parse_mode: 'Markdown' // We use basic Markdown, not MarkdownV2 to be safer if escape fails, or handle carefully. 
-             // Actually, 'Markdown' (v1) is very forgiving. 'MarkdownV2' is strict.
-             // Let's stick to standard Markdown (v1) which supports *bold* and _italic_.
-             // But we need to be careful with underscores in names.
-          };
-
-          const resp = await fetch(telegramUrl, {
-             method: 'POST',
-             headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify(payload)
-          });
-
-          if (resp.ok) {
-             // Log Success
-             await pool.query(
-                `INSERT INTO system_logs (id, timestamp, actor_id, actor_name, actor_role, action_type, details, target_obj) 
-                 VALUES ($1, $2, $3, 'SYSTEM', 'SYSTEM', 'DAILY_RECAP_AUTO', $4, 'Telegram')`,
-                [`log_cron_${tenantId}_${Date.now()}`, Date.now(), `system_${tenantId}`, `Sent Daily Recap for ${sqlDateStr}`]
-             );
-             results.push({ tenantId, status: 'sent', date: sqlDateStr });
+             // LOG SUCCESS
+             if (!isForce) {
+                await pool.query(
+                    `INSERT INTO system_logs (id, timestamp, actor_id, actor_name, actor_role, action_type, details, target, tenant_id)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+                    [
+                        Math.random().toString(36).substr(2, 9),
+                        Date.now(),
+                        `system_${tenantId}`,
+                        'System Cron',
+                        'SYSTEM',
+                        'DAILY_RECAP_AUTO',
+                        `Sent daily recap for ${sqlDateStr}`,
+                        'Telegram',
+                        tenantId
+                    ]
+                );
+             }
+             results.push({ tenantId, status: 'sent', recipient: settings.telegram_owner_chat_id });
           } else {
-             const errData = await resp.json();
-             console.error("Telegram Error", errData);
-             results.push({ tenantId, status: 'failed_send', error: errData });
+             results.push({ tenantId, status: 'skipped', reason: 'no_data_selected' });
           }
 
-       } catch (innerErr: any) {
-          console.error(`Error processing tenant ${tenant.id}:`, innerErr);
-          results.push({ tenantId: tenant.id, status: 'error', msg: innerErr.message });
+       } catch (err: any) {
+          console.error(`Error processing tenant ${tenant.name}:`, err);
+          results.push({ tenantId: tenant.id, status: 'error', error: err.message });
        }
     }
 
-    return NextResponse.json({ success: true, timestamp: jakartaTimeStr, hour: currentHour, results });
+    return NextResponse.json({ 
+        success: true, 
+        serverTimeWIB: jakartaTimeStr,
+        targetTime: contextLabel,
+        results 
+    });
 
   } catch (error: any) {
-    console.error("Cron Error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('Cron Error:', error);
+    return NextResponse.json({ error: 'Internal Server Error', details: error.message }, { status: 500 });
   }
 }

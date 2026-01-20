@@ -99,8 +99,12 @@ export const AppSettings = ({ store, toast }: any) => {
     setIsTesting(true);
     try {
       // Anti-cache param + Force mode (so it doesn't block real schedule)
-      // Anti-cache param + Force mode + SECRET KEY (Required for security check)
-      const res = await fetch(`/api/cron/daily-recap?force=true&v=${Date.now()}&key=Internal_Cron_Secret_2026_Secure`); 
+      const token = (store as any).authToken || localStorage.getItem('sdm_erp_auth_token') || '';
+      const res = await fetch(`/api/cron/daily-recap?force=true&v=${Date.now()}`, {
+          headers: {
+              'Authorization': `Bearer ${token}`
+          }
+      }); 
       const data = await res.json();
       
       if (!res.ok) {
