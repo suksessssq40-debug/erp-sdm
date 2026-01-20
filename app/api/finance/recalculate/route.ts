@@ -11,8 +11,8 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(request: Request) {
   try {
-    // Highly restricted: Only Owner can trigger a full sync
-    await authorize(['OWNER']);
+    // Highly restricted: Only Owner can trigger a full sync, BUT Finance needs it too for daily ops
+    await authorize(['OWNER', 'FINANCE']);
 
     const accounts = await prisma.financialAccount.findMany();
     const results = [];
