@@ -18,12 +18,11 @@ export async function POST(request: Request) {
     const results = [];
 
     for (const account of accounts) {
-      // Calculate sum of PAID transactions for this specific account
+      // Calculate sum of ALL transactions for this specific account
       const stats = await prisma.transaction.aggregate({
         _sum: { amount: true },
         where: {
           accountId: account.id,
-          status: 'PAID',
           type: 'IN'
         }
       });
@@ -32,7 +31,6 @@ export async function POST(request: Request) {
         _sum: { amount: true },
         where: {
           accountId: account.id,
-          status: 'PAID',
           type: 'OUT'
         }
       });

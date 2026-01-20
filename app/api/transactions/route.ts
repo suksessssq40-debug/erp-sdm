@@ -99,14 +99,14 @@ export async function POST(request: Request) {
           } as any
         });
 
-        // 2. Update Financial Account Balance if PAID (Resilient)
-        if ((t.status === 'PAID' || !t.status) && accountId) {
+        // 2. Update Financial Account Balance (Operational Basis - All Status Updates Balance)
+        if (accountId) {
             try {
                 const amount = Number(t.amount);
                 const change = t.type === 'IN' ? amount : -amount;
                 
                 await (tx.financialAccount as any).update({
-                    where: { id: accountId, tenantId }, // Security: Double check tenant
+                    where: { id: accountId, tenantId }, 
                     data: { balance: { increment: change } }
                 });
             } catch (e) {
