@@ -25,12 +25,25 @@ export const ImportTransactionModal: React.FC<ImportModalProps> = ({ isOpen, onC
     if (!file) return;
 
     setIsProcessing(true);
+    setReport(null); // Reset prev report
+
     const formData = new FormData();
     formData.append('file', file);
+
+    const token = typeof window !== 'undefined' ? localStorage.getItem('sdm_erp_auth_token') : '';
+
+    if (!token) {
+        toast.error("Sesi habis. Silakan login ulang.");
+        setIsProcessing(false);
+        return;
+    }
 
     try {
       const res = await fetch('/api/finance/import', {
         method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`
+        },
         body: formData,
       });
       const data = await res.json();
@@ -39,15 +52,18 @@ export const ImportTransactionModal: React.FC<ImportModalProps> = ({ isOpen, onC
         setReport({ processed: data.processed, errors: data.errors || [] });
         if (data.processed > 0) {
             toast.success(`Berhasil mengimport ${data.processed} transaksi!`);
-            onSuccess(); // Refresh parent list
+            onSuccess();
         } else {
-            toast.warning("Tidak ada transaksi yang berhasil diimport.");
+            toast.warning("File diproses tapi tidak ada transaksi valid.");
         }
       } else {
+        // ERROR DARI SERVER (Misal Auth Required) - Jangan tampilkan Report 0/0
         toast.error(data.error || 'Gagal import');
+        setReport(null); // Tetap di form upload
       }
     } catch (err) {
-      toast.error('Terjadi kesalahan saat upload');
+      toast.error('Terjadi kesalahan koneksi/server');
+      setReport(null);
     } finally {
       setIsProcessing(false);
     }
@@ -100,14 +116,14 @@ export const ImportTransactionModal: React.FC<ImportModalProps> = ({ isOpen, onC
                         </ul>
                     </div>
                 </div>
-                <p className="mt-2 text-[10px] italic text-slate-400 text-center">* Tips: Gunakan NAMA Akun yang persis sama dengan di sistem agar tidak error.</p>
+                <p className="mt-2 text-[10px] italic text-slate-400 text-center">* Tips: Gunakan Template terbaru yang ada Dropdown Akun-nya.</p>
             </div>
         )}
 
         {/* UPLOAD & RESULT */}
         {!report ? (
             <div className="space-y-6">
-                 <label className="block w-full h-32 border-4 border-dashed border-slate-100 rounded-3xl flex flex-col items-center justify-center cursor-pointer hover:border-emerald-200 hover:bg-emerald-50 transition group">
+                 <label className="w-full h-32 border-4 border-dashed border-slate-100 rounded-3xl flex flex-col items-center justify-center cursor-pointer hover:border-emerald-200 hover:bg-emerald-50 transition group">
                     <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleFileChange} />
                     {file ? (
                         <div className="text-center">
@@ -158,7 +174,7 @@ export const ImportTransactionModal: React.FC<ImportModalProps> = ({ isOpen, onC
                     </div>
                 )}
                 
-                <button onClick={onClose} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold uppercase tracking-widest hover:bg-slate-700 transition">
+                <button onClick={() => { setReport(null); setFile(null); onClose(); onSuccess(); }} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold uppercase tracking-widest hover:bg-slate-700 transition">
                     Tutup
                 </button>
             </div>

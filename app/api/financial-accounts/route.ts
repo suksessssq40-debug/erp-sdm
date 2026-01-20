@@ -17,6 +17,7 @@ export async function GET() {
       accountNumber: row.account_number,
       description: row.description,
       isActive: row.is_active,
+      balance: row.balance, // FIX: Sertakan saldo
       tenantId: row.tenant_id
     }));
     return NextResponse.json(accounts);

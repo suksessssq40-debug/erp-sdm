@@ -1,169 +1,185 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import * as XLSX from 'xlsx';
-
-// Helper to determine transaction type and accounts
-// Logic:
-// If Debit Account is a 'Financial Account' (Bank/Cash) -> Money IN (Type IN, Account=Debit, CoA=Credit)
-// If Credit Account is a 'Financial Account' -> Money OUT (Type OUT, Account=Credit, CoA=Debit)
-// If both -> Transfer? (Not handled yet, prioritize standard In/Out)
-// If neither -> General Journal (Not supported by simple Transaction model yet)
+import ExcelJS from 'exceljs';
+import { authorize } from '@/lib/auth';
 
 export async function POST(request: Request) {
   try {
+    const user = await authorize(['OWNER', 'FINANCE']);
+    const { tenantId } = user;
+
     const formData = await request.formData();
     const file = formData.get('file') as File;
     
-    if (!file) {
-      return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
-    }
+    if (!file) return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
 
     const buffer = await file.arrayBuffer();
-    const workbook = XLSX.read(buffer, { type: 'buffer' });
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-    const jsonData = XLSX.utils.sheet_to_json(sheet);
-
-
-    // Fetch necessary master data for mapping
-    const financialAccounts = await prisma.financialAccount.findMany({ select: { id: true, name: true, bankName: true } });
-    const coas = await prisma.chartOfAccount.findMany({ select: { id: true, code: true, name: true } });
-
-    const errors: string[] = [];
-    let successCount = 0;
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
     
-    // Normalization Helpers
-    const normalize = (str: any) => String(str || '').trim().toLowerCase().replace(/\s+/g, ' ');
-    
-    // Create Lookup Maps for Speed & Accuracy
-    // Map: normalized_name -> object
-    const finAccMap = new Map();
-    financialAccounts.forEach(f => {
-        finAccMap.set(normalize(f.name), f);
-        finAccMap.set(normalize(f.bankName), f);
-        // Also map combined "BankName - Name" just in case
-        finAccMap.set(normalize(`${f.bankName} - ${f.name}`), f);
-    });
-
-    const coaMap = new Map();
-    coas.forEach(c => {
-        coaMap.set(normalize(c.code), c); // Prioritize Code "411000"
-        coaMap.set(normalize(c.name), c); // Name "Penjualan"
-        coaMap.set(normalize(`${c.code} - ${c.name}`), c); // Full "411000 - Penjualan"
-        coaMap.set(normalize(`${c.code} ${c.name}`), c); // Space "411000 Penjualan"
-    });
-
-    for (let i = 0; i < jsonData.length; i++) {
-      const row = jsonData[i] as any;
-      const rowNum = i + 2; // +1 header +1 zero-index
-
-      // Map Columns from Template
-      // Support variations: "AKUN_DEBET", "AKUN DEBET", "DEBET"
-      const dateRaw = row['TANGGAL'] || row['Tanggal'] || row['Date'];
-      const desc = row['KETERANGAN'] || row['Keterangan'] || row['Description'] || `Import Row ${rowNum}`;
-      const debitRaw = row['AKUN_DEBET'] || row['AKUN DEBET'] || row['DEBET'] || row['Debit'];
-      const creditRaw = row['AKUN_KREDIT'] || row['AKUN KREDIT'] || row['KREDIT'] || row['Credit'];
-      const amount = Number(row['NOMINAL'] || row['Nominal'] || row['Amount'] || 0);
-
-      if (!debitRaw || !creditRaw) { 
-          // Skip empty rows silently or log?
-          if (amount > 0) errors.push(`Baris ${rowNum}: Kolom Debit/Kredit kosong.`);
-          continue;
-      }
-      if (amount <= 0) {
-          // Skip zero amounts
-          continue;
-      }
-
-      // Resolve Accounts
-      const finAccDebit = finAccMap.get(normalize(debitRaw));
-      const finAccCredit = finAccMap.get(normalize(creditRaw));
-
-      let type = '';
-      let accountId = '';
-      let coaId = '';
-      let finalAccountName = '';
-
-      // LOGIC MATRIX
-      
-      // CASE 1: TRANSFER (Bank to Bank) - Not supported yet or treat as specific type?
-      if (finAccDebit && finAccCredit) {
-           errors.push(`Baris ${rowNum}: Transfer antar dua Bank (${debitRaw} ke ${creditRaw}) belum didukung via Import Excel. Gunakan fitur pindah buku manual.`);
-           continue;
-      }
-
-      // CASE 2: INCOME (Debit = Bank)
-      else if (finAccDebit) {
-          type = 'IN';
-          accountId = finAccDebit.id;
-          finalAccountName = finAccDebit.name; // For legacy field
-
-          // Check the other side (Credit) MUST be COA
-          const coa = coaMap.get(normalize(creditRaw));
-          if (coa) {
-              coaId = coa.id;
-          } else {
-              // Try fuzzy or error? STRICT MODE: Error.
-              errors.push(`Baris ${rowNum} (Masuk): Akun Kredit '${creditRaw}' tidak dikenali sebagai COA di sistem.`);
-              continue;
-          }
-      }
-
-      // CASE 3: EXPENSE (Credit = Bank)
-      else if (finAccCredit) {
-          type = 'OUT';
-          accountId = finAccCredit.id;
-          finalAccountName = finAccCredit.name;
-
-          // Check the other side (Debit) MUST be COA
-          const coa = coaMap.get(normalize(debitRaw));
-          if (coa) {
-              coaId = coa.id;
-          } else {
-              errors.push(`Baris ${rowNum} (Keluar): Akun Debit '${debitRaw}' tidak dikenali sebagai COA di sistem.`);
-              continue;
-          }
-      }
-
-      // CASE 4: MUTASI NON-KAS (No Bank Involved)
-      else {
-           errors.push(`Baris ${rowNum}: Tidak ditemukan Akun KAS/BANK di kolom Debit maupun Kredit. Transaksi non-tunai belum didukung.`);
-           continue;
-      }
-
-      // Date Parsing
-      let date = new Date();
-      if (typeof dateRaw === 'number') {
-          date = new Date(Math.round((dateRaw - 25569)*86400*1000));
-      } else if (dateRaw) {
-          // parsing string dates can be tricky. Assume YYYY-MM-DD or use library if needed.
-          // Try standard constructor
-          const p = new Date(dateRaw);
-          if (!isNaN(p.getTime())) date = p;
-      }
-
-      // Create Transaction
-      await prisma.transaction.create({
-          data: {
-              id: `IMP_${Math.random().toString(36).substr(2,9)}`,
-              date: date,
-              amount: amount,
-              type,
-              description: desc,
-              accountId: accountId,
-              coaId: coaId,
-              account: finalAccountName,
-              status: 'PAID',
-              category: `${coaMap.get(normalize(creditRaw))?.name || coaMap.get(normalize(debitRaw))?.name}`, // Fallback for legacy display
-              createdAt: new Date()
-          }
-      });
-      successCount++;
+    // 1. CARI SHEET DATA
+    let sheet = workbook.getWorksheet('Template Import') || workbook.getWorksheet('Sheet1');
+    if (!sheet) {
+        workbook.eachSheet((sh) => {
+            const n = sh.name.toUpperCase();
+            if (n !== 'REFERUENSI' && n !== 'CARA ISI PANDUAN' && !sheet) sheet = sh;
+        });
     }
 
-    return NextResponse.json({ success: true, processed: successCount, errors });
-  } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: 'Failed to process file' }, { status: 500 });
+    if (!sheet || sheet.actualRowCount <= 1) {
+        return NextResponse.json({ error: 'Data tidak ditemukan di sheet.' }, { status: 400 });
+    }
+
+    // 2. LOAD MASTER DATA
+    const [accounts, coas, units] = await Promise.all([
+        prisma.financialAccount.findMany({ where: { tenantId } }),
+        prisma.chartOfAccount.findMany({ where: { tenantId } }),
+        prisma.businessUnit.findMany({ where: { tenantId } })
+    ]);
+
+    const accMap = new Map();
+    const coaMap = new Map();
+    const unitMap = new Map();
+    const normalize = (s: string) => s ? s.toString().toLowerCase().trim().replace(/\s+/g, ' ') : '';
+
+    accounts.forEach(a => {
+        accMap.set(normalize(a.name), a);
+        accMap.set(normalize(a.bankName), a); 
+        accMap.set(normalize(`${a.bankName} - ${a.name}`), a);
+        if (a.name.includes('-')) {
+             a.name.split('-').forEach(p => { if(p.trim().length > 2) accMap.set(normalize(p), a); });
+        }
+    });
+
+    coas.forEach(c => {
+        coaMap.set(normalize(c.code), c); 
+        coaMap.set(normalize(c.name), c); 
+        coaMap.set(normalize(`${c.code} - ${c.name}`), c);
+        if (c.name.includes('-')) {
+             c.name.split('-').forEach(p => { if(p.trim().length > 2) coaMap.set(normalize(p), c); });
+        }
+    });
+
+    units.forEach(u => {
+        unitMap.set(normalize(u.name), u);
+        if (u.name.includes(' ')) {
+             u.name.split(' ').forEach(p => { if(p.trim().length > 3) unitMap.set(normalize(p), u); });
+        }
+    });
+
+    const validRows: any[] = [];
+    const errors: string[] = [];
+
+    // 3. PARSING DATA
+    sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+        if (rowNumber === 1) return;
+
+        const dateCell = row.getCell(1).value;
+        const descCell = row.getCell(2).value;
+        const debitCell = row.getCell(3).value;
+        const creditCell = row.getCell(4).value;
+        const amountCell = row.getCell(5).value;
+        const unitCell = row.getCell(6).value;
+        const statusCell = row.getCell(7).value;
+
+        // PARSE NOMINAL (ROBUST)
+        const amount = (() => {
+            if (typeof amountCell === 'number') return amountCell;
+            if (!amountCell) return 0;
+            let s = amountCell.toString().replace(/[Rp\s.]/gi, '').replace(',', '.');
+            return parseFloat(s);
+        })();
+        if (!amount || amount <= 0) return;
+
+        // DETECTION
+        const dStr = normalize(debitCell as string);
+        const cStr = normalize(creditCell as string);
+        const dBank = accMap.get(dStr);
+        const cBank = accMap.get(cStr);
+        const dCoa = coaMap.get(dStr);
+        const cCoa = coaMap.get(cStr);
+
+        let type: 'IN' | 'OUT' | null = null;
+        let accountId: string | null = null; 
+        let coaId: string | null = null;
+        let accountName = '';
+        let categoryName = '';
+
+        if (dBank) {
+            type = 'IN'; accountId = dBank.id; accountName = dBank.name;
+            if (cCoa) { coaId = cCoa.id; categoryName = cCoa.name; }
+        } else if (cBank) {
+            type = 'OUT'; accountId = cBank.id; accountName = cBank.name;
+            if (dCoa) { coaId = dCoa.id; categoryName = dCoa.name; }
+        }
+
+        if (!type || !accountId) return;
+
+        // STATUS MAPPING (Must match Prisma Enum: UNPAID/PAID)
+        const sNorm = normalize(statusCell as string);
+        const finalStatus = (sNorm.includes('unpaid') || sNorm.includes('belum') || sNorm.includes('pending')) ? 'UNPAID' : 'PAID';
+
+        // UNIT
+        const uIdx = unitMap.get(normalize(unitCell as string));
+        const businessUnitId = uIdx ? uIdx.id : (units[0]?.id || '');
+
+        let finalDate = new Date();
+        if (dateCell instanceof Date) finalDate = dateCell;
+
+        validRows.push({
+            date: finalDate, amount, type, desc: descCell?.toString() || `Import Brs ${rowNumber}`,
+            accountId, coaId, businessUnitId, status: finalStatus, account: accountName, category: categoryName || 'Import'
+        });
+    });
+
+    // 4. DATABASE SAVE & BALANCE UPDATE (MENGGUNAKAN NAMA MODEL YANG BENAR)
+    if (validRows.length > 0) {
+        await prisma.$transaction(async (tx) => {
+            for (const row of validRows) {
+                const trxId = `IMP_${Math.random().toString(36).substring(2, 11).toUpperCase()}`;
+                
+                // A. Simpan Transaksi (Pakai model 'transaction' atau 'transaction')
+                await (tx as any).transaction.create({
+                    data: {
+                        id: trxId,
+                        tenantId,
+                        date: row.date,
+                        amount: row.amount,
+                        type: row.type,
+                        description: row.desc,
+                        accountId: row.accountId,
+                        coaId: row.coaId,
+                        businessUnitId: row.businessUnitId,
+                        account: row.account,
+                        status: row.status, // Isinya 'UNPAID' atau 'PAID'
+                        category: row.category,
+                        createdAt: new Date()
+                    }
+                });
+
+                // B. UPDATE SALDO (PASTIKAN NAMA MODEL SESUAI SCHEMA)
+                // Di Prisma Client, biasanya model dibaca sebagai untaCase (financialAccount)
+                const change = row.type === 'IN' ? row.amount : -row.amount;
+                
+                // DEBUG: Kita update saldo secara eksplisit
+                await (tx as any).financialAccount.update({
+                    where: { id: row.accountId },
+                    data: { balance: { increment: change } }
+                });
+                
+                console.log(`[IMPORT SUCCESS] Account ${row.account} updated by ${change}`);
+            }
+        });
+    }
+
+    return NextResponse.json({ 
+        success: true, 
+        processed: validRows.length, 
+        message: `Berhasil import ${validRows.length} transaksi. Selesaikan kemarahan Finance sekarang!` 
+    });
+
+  } catch (error: any) {
+    console.error('CRITICAL IMPORT ERROR:', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
