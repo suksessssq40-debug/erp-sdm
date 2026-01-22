@@ -3,63 +3,57 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
 
-export const dynamic = 'force-dynamic';
-
-/**
- * UTILITY API: Recalculate all account balances based on transaction history.
- * Run this once after schema migration or if balances become desynced.
- */
-export async function POST(request: Request) {
+export async function POST() {
   try {
-    // Highly restricted: Only Owner can trigger a full sync, BUT Finance needs it too for daily ops
-    await authorize(['OWNER', 'FINANCE']);
+    const user = await authorize(['OWNER', 'FINANCE']);
+    const { tenantId } = user;
 
-    const accounts = await prisma.financialAccount.findMany();
-    const results = [];
-
-    for (const account of accounts) {
-      // Calculate sum of ALL transactions for this specific account
-      const stats = await prisma.transaction.aggregate({
-        _sum: { amount: true },
-        where: {
-          accountId: account.id,
-          type: 'IN'
-        }
-      });
-
-      const outStats = await prisma.transaction.aggregate({
-        _sum: { amount: true },
-        where: {
-          accountId: account.id,
-          type: 'OUT'
-        }
-      });
-
-      const totalIn = Number(stats._sum.amount || 0);
-      const totalOut = Number(outStats._sum.amount || 0);
-      const newBalance = totalIn - totalOut;
-
-      // Update the account balance
-      await (prisma.financialAccount as any).update({
-        where: { id: account.id },
-        data: { balance: newBalance }
-      });
-
-      results.push({
-        account: account.name,
-        totalIn,
-        totalOut,
-        newBalance
-      });
-    }
-
-    return NextResponse.json({
-      message: 'Financial account balances synchronized successfully',
-      details: results
+    // 1. Ambil Semua Akun
+    const accounts = await prisma.financialAccount.findMany({
+      where: { tenantId }
     });
 
-  } catch (error) {
-    console.error('Sync Error:', error);
-    return NextResponse.json({ error: (error as any).message || 'Failed to sync balances' }, { status: 500 });
+    // 2. Lakukan Rekalkulasi Per Akun (Auto-Healing)
+    await prisma.$transaction(async (tx) => {
+        for (const acc of accounts) {
+            // Hitung semua transaksi terkait akun ini (Semua Status - Operational Basis)
+            const sumRes = await tx.transaction.aggregate({
+                where: { 
+                    tenantId,
+                    accountId: acc.id
+                },
+                _sum: { amount: true }
+            });
+
+            // Pisahkan IN dan OUT untuk akurasi maksimal
+            const income = await tx.transaction.aggregate({
+                where: { tenantId, accountId: acc.id, type: 'IN' },
+                _sum: { amount: true }
+            });
+            const expense = await tx.transaction.aggregate({
+                where: { tenantId, accountId: acc.id, type: 'OUT' },
+                _sum: { amount: true }
+            });
+
+            const newBalance = Number(income._sum.amount || 0) - Number(expense._sum.amount || 0);
+
+            // Update Saldo Akun dengan Angka Murni dari Jurnal
+            await (tx as any).financialAccount.update({
+                where: { id: acc.id },
+                data: { balance: newBalance }
+            });
+            
+            console.log(`[RECALCULATE] Account ${acc.name} synced to: ${newBalance}`);
+        }
+    });
+
+    return NextResponse.json({ 
+        success: true, 
+        message: 'Auto-Healing Selesai: Semua saldo akun telah disinkronkan ulang dengan jurnal transaksi secara akurat.' 
+    });
+
+  } catch (error: any) {
+    console.error('Recalculate Error:', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

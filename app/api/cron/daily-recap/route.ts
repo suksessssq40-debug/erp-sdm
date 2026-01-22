@@ -99,6 +99,22 @@ export async function GET(request: Request) {
           if (settingsRes.rows.length === 0) continue;
           const settings = settingsRes.rows[0];
 
+          // --- [AUTO-HEALING] Sinkronisasi Saldo Akun Setiap Hari ---
+          console.log(`[AUTO-HEALING] Calibrating balances for tenant: ${tenantId}`);
+          const accountsRes = await pool.query("SELECT id FROM financial_accounts WHERE tenant_id = $1", [tenantId]);
+          for (const acc of accountsRes.rows) {
+              await pool.query(`
+                UPDATE financial_accounts 
+                SET balance = (
+                    SELECT COALESCE(SUM(CASE WHEN type = 'IN' THEN amount ELSE -amount END), 0)
+                    FROM transactions 
+                    WHERE account_id = $1 AND tenant_id = $2
+                )
+                WHERE id = $1 AND tenant_id = $2
+              `, [acc.id, tenantId]);
+          }
+          // --- END AUTO-HEALING ---
+
           // Check Telegram Config
           if (!settings.telegram_bot_token || !settings.telegram_owner_chat_id) continue;
 

@@ -12,7 +12,7 @@ interface ImportModalProps {
 export const ImportTransactionModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onSuccess, toast }) => {
   const [file, setFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [report, setReport] = useState<{ processed: number, errors: string[] } | null>(null);
+  const [report, setReport] = useState<{ processed: number, errors: string[], batchId?: string } | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -21,11 +21,39 @@ export const ImportTransactionModal: React.FC<ImportModalProps> = ({ isOpen, onC
     }
   };
 
+  const handleUndo = async () => {
+    if (!report?.batchId) return;
+    if (!confirm("Apakah Anda yakin ingin membatalkan import terakhir ini? Saldo akan dikembalikan otomatis.")) return;
+
+    setIsProcessing(true);
+    try {
+        const token = localStorage.getItem('sdm_erp_auth_token') || '';
+        const res = await fetch('/api/finance/import/undo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ batchId: report.batchId })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            toast.success(data.message);
+            setReport(null);
+            setFile(null);
+            onSuccess();
+        } else {
+            toast.error(data.error);
+        }
+    } catch (e) {
+        toast.error("Gagal melakukan Undo");
+    } finally {
+        setIsProcessing(false);
+    }
+  };
+
   const handleUpload = async () => {
     if (!file) return;
 
     setIsProcessing(true);
-    setReport(null); // Reset prev report
+    setReport(null); 
 
     const formData = new FormData();
     formData.append('file', file);
@@ -49,20 +77,19 @@ export const ImportTransactionModal: React.FC<ImportModalProps> = ({ isOpen, onC
       const data = await res.json();
 
       if (res.ok) {
-        setReport({ processed: data.processed, errors: data.errors || [] });
+        setReport({ processed: data.processed, errors: data.errors || [], batchId: data.batchId });
         if (data.processed > 0) {
             toast.success(`Berhasil mengimport ${data.processed} transaksi!`);
             onSuccess();
         } else {
-            toast.warning("File diproses tapi tidak ada transaksi valid.");
+            toast.warning("File diproses tapi tidak ada transaksi baru.");
         }
       } else {
-        // ERROR DARI SERVER (Misal Auth Required) - Jangan tampilkan Report 0/0
         toast.error(data.error || 'Gagal import');
-        setReport(null); // Tetap di form upload
+        setReport(null);
       }
     } catch (err) {
-      toast.error('Terjadi kesalahan koneksi/server');
+      toast.error('Terjadi kesalahan koneksi');
       setReport(null);
     } finally {
       setIsProcessing(false);
@@ -116,7 +143,6 @@ export const ImportTransactionModal: React.FC<ImportModalProps> = ({ isOpen, onC
                         </ul>
                     </div>
                 </div>
-                <p className="mt-2 text-[10px] italic text-slate-400 text-center">* Tips: Gunakan Template terbaru yang ada Dropdown Akun-nya.</p>
             </div>
         )}
 
@@ -158,14 +184,14 @@ export const ImportTransactionModal: React.FC<ImportModalProps> = ({ isOpen, onC
                          </div>
                          <div className="bg-white px-4 py-3 rounded-xl shadow-sm border border-slate-200">
                              <span className="block text-2xl font-black text-rose-500">{report.errors.length}</span>
-                             <span className="text-[10px] font-bold text-slate-400 uppercase">Gagal</span>
+                             <span className="text-[10px] font-bold text-slate-400 uppercase">Gagal/Skip</span>
                          </div>
                     </div>
                 </div>
 
                 {report.errors.length > 0 && (
                     <div className="max-h-40 overflow-y-auto bg-rose-50 rounded-xl p-4 border border-rose-100 custom-scrollbar">
-                        <p className="text-[10px] font-bold text-rose-700 mb-2 flex items-center gap-2"><AlertCircle size={12}/> Detail Error:</p>
+                        <p className="text-[10px] font-bold text-rose-700 mb-2 flex items-center gap-2"><AlertCircle size={12}/> Detail:</p>
                         <ul className="space-y-1">
                             {report.errors.map((err, idx) => (
                                 <li key={idx} className="text-[10px] text-rose-600 font-medium font-mono">• {err}</li>
@@ -174,9 +200,18 @@ export const ImportTransactionModal: React.FC<ImportModalProps> = ({ isOpen, onC
                     </div>
                 )}
                 
-                <button onClick={() => { setReport(null); setFile(null); onClose(); onSuccess(); }} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold uppercase tracking-widest hover:bg-slate-700 transition">
-                    Tutup
-                </button>
+                <div className="grid grid-cols-2 gap-4">
+                    <button 
+                        onClick={handleUndo} 
+                        disabled={isProcessing || report.processed === 0}
+                        className="py-4 bg-rose-100 text-rose-600 rounded-2xl font-bold uppercase text-[10px] tracking-widest hover:bg-rose-200 transition disabled:opacity-30 flex items-center justify-center gap-2"
+                    >
+                        {isProcessing ? '...' : <><AlertCircle size={14}/> Batalkan (Undo)</>}
+                    </button>
+                    <button onClick={() => { setReport(null); setFile(null); onClose(); onSuccess(); }} className="py-4 bg-slate-900 text-white rounded-2xl font-bold uppercase text-[10px] tracking-widest hover:bg-slate-700 transition">
+                        Selesai
+                    </button>
+                </div>
             </div>
         )}
       </div>

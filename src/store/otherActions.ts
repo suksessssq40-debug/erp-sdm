@@ -8,9 +8,17 @@ export const createOtherActions = (
   authHeaders: Record<string, string>,
   addLog: (actionType: SystemActionType, details: string, target?: string, metadata?: any) => Promise<void>
 ) => {
-  const fetchRequests = async () => {
+  const fetchRequests = async (startDate?: string, endDate?: string) => {
     try {
-      const res = await fetch(`${API_BASE}/api/requests`, { headers: authHeaders });
+      let url = `${API_BASE}/api/requests`;
+      const params = new URLSearchParams();
+      if (startDate) params.append('start', startDate);
+      if (endDate) params.append('end', endDate);
+      
+      const queryString = params.toString();
+      if (queryString) url += `?${queryString}`;
+
+      const res = await fetch(url, { headers: authHeaders });
       if (res.ok) {
         const data = await res.json();
         setState(prev => ({ ...prev, requests: data }));

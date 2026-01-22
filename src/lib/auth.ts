@@ -16,6 +16,7 @@ export interface AuthPayload {
   telegramId?: string;
   telegramUsername?: string;
   features?: any;
+  jobTitle?: string;
 }
 
 export async function getUser(): Promise<AuthPayload | null> {

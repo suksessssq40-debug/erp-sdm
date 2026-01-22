@@ -12,6 +12,13 @@ export const AccessTower: React.FC<{ store: ReturnType<typeof useStore> }> = ({ 
     const [userAccess, setUserAccess] = useState<any[]>([]);
     const toast = useToast();
 
+    // CRITICAL FIX: Fetch Tenants on Mount so Matrix is not empty
+    useEffect(() => {
+        if (store.fetchTenants) {
+            store.fetchTenants();
+        }
+    }, []);
+
     const filteredUsers = store.users.filter(u => 
         u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
         u.username.toLowerCase().includes(searchTerm.toLowerCase())

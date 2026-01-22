@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, DailyReport, UserRole } from '../types';
 import { Plus, CheckCircle2, History, Link as LinkIcon, Image as ImageIcon, Send, Eye, X, Pencil, Trash2, Calendar } from 'lucide-react';
 import { useToast } from './Toast';
-
+import { useAppStore } from '../context/StoreContext';
 
 interface DailyReportProps {
   currentUser: User;
@@ -15,38 +15,56 @@ interface DailyReportProps {
 }
 
 const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, reports, onAddReport, onUpdateReport, onDeleteReport, toast }) => {
+  const store = useAppStore();
 
   const [showAdd, setShowAdd] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingReport, setEditingReport] = useState<DailyReport | null>(null);
   const [selectedReport, setSelectedReport] = useState<DailyReport | null>(null);
-  const [monthFilter, setMonthFilter] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
+  
+  // SERVER-SIDE FILTER STATE (Auto Fetch)
+  const today = new Date();
+  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+  const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+
+  const [filterStart, setFilterStart] = useState(firstDay);
+  const [filterEnd, setFilterEnd] = useState(lastDay);
+  
+  // Auto-Fetch when Date Range Changes
+  useEffect(() => {
+    if (store.fetchDailyReports) {
+        // debounce slightly to avoid double fetch on rapid mount, 
+        // strictly usage of effect dependency ensures it runs on change
+        const timer = setTimeout(() => {
+            store.fetchDailyReports(filterStart, filterEnd);
+        }, 500); // 500ms delay to allow typing/picking
+        return () => clearTimeout(timer);
+    }
+  }, [filterStart, filterEnd]);
+
+  // FORM STATE
+  const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]); // Default Today
   const [activities, setActivities] = useState([{ task: '', quantity: 1, unit: '', link: '' }]);
 
   const handleAddActivity = () => setActivities([...activities, { task: '', quantity: 1, unit: '', link: '' }]);
   const handleRemoveActivity = (idx: number) => setActivities(activities.filter((_, i) => i !== idx));
 
-
-
+  // Access Control & Other Logic...
   const submitReport = async () => {
     if (activities.some(a => !a.task)) {
       toast.warning("Harap isi semua tugas harian sebelum menyimpan laporan.");
       return;
     }
     
-    if (isSubmitting) return; // Prevent Double Click
+    if (isSubmitting) return; 
     setIsSubmitting(true);
 
     try {
-      // FIX: Use Jakarta Timezone for Date String (YYYY-MM-DD)
-      // If we use toISOString(), 1 AM Jakarta (18 PM UTC) becomes Yesterday. We must adhere to Jakarta day.
-      const jakartaDateStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Jakarta' });
-      const isoDate = jakartaDateStr; 
-      
+      const selectedDateStr = reportDate;
       const reportData: DailyReport = {
         id: editingReport ? editingReport.id : Math.random().toString(36).substr(2, 9),
         userId: currentUser.id,
-        date: editingReport ? editingReport.date : isoDate, // Keep original date if editing
+        date: selectedDateStr,
         activities: activities.map(a => ({ 
             ...a, 
             quantity: Number(a.quantity),
@@ -59,16 +77,13 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
           toast.success("Laporan berhasil diperbarui!");
       } else {
           await onAddReport(reportData);
-          // Trigger Telegram only on Create (to avoid spam on edit)
-          // toast.info("Memproses notifikasi...");
-          // PER OWNER REQUEST: Disable Daily Report Telegram Notification (Only Daily Recap Cron remains)
-          // await sendTelegramReport(reportData);
-          toast.success(`Laporan harian berhasil disimpan!`);
+          toast.success(`Laporan tanggal ${selectedDateStr} berhasil disimpan!`);
       }
 
       setShowAdd(false);
       setActivities([{ task: '', quantity: 1, unit: '', link: '' }]);
       setEditingReport(null);
+      // Auto-refresh handled by useEffect or state update in onAddReport
     } catch (err: any) {
       toast.error(err?.message || 'Gagal menyimpan laporan harian.');
     } finally {
@@ -76,25 +91,14 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
     }
   };
 
-  // ACCESS CONTROL
-  // 1. View All: Owner, Manager, Finance must see ALL reports from ALL history (Superadmin view)
   const canViewAll = [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(currentUser.role);
-  
-  // 2. Create Report: Staff, Manager, Finance can create. Owner usually monitors but logic allows != Owner.
   const canReport = currentUser.role !== UserRole.OWNER; 
-
-  // Filter Logic:
-  // - Management: Sees EVERYTHING (Filtered by Month)
-  // - Staff: Sees only OWN reports (Filtered by Month)
-  
-  const filteredByRole = canViewAll 
-    ? reports 
-    : reports.filter(r => r.userId === currentUser.id);
-
-  const displayReports = filteredByRole.filter(r => r.date.startsWith(monthFilter));
+  const filteredByRole = canViewAll ? reports : reports.filter(r => r.userId === currentUser.id);
+  const displayReports = filteredByRole;
 
   const prepareEdit = (report: DailyReport) => {
       setEditingReport(report);
+      setReportDate(report.date);
       setActivities(report.activities.map(a => ({
           task: a.task,
           quantity: a.quantity,
@@ -116,27 +120,42 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
 
   return (
     <div className="space-y-6">
-      {/* ... header ... */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div className="flex flex-col gap-2">
           <h3 className="text-xl font-bold text-slate-800">Laporan Harian</h3>
           <p className="text-sm text-slate-500 uppercase font-black tracking-widest">Update aktivitas tim Sukses Digital Media</p>
           
-          {/* Month Filter */}
-          <div className="flex items-center gap-2 mt-2">
-             <Calendar size={16} className="text-slate-400" />
-             <input 
-                type="month" 
-                value={monthFilter}
-                onChange={e => setMonthFilter(e.target.value)}
-                className="bg-slate-50 border border-slate-200 text-xs font-bold text-slate-700 rounded-lg px-3 py-1 outline-none focus:border-blue-500 transition"
-             />
+          {/* Server Side Date Filter (Auto Trigger) */}
+          <div className="flex flex-wrap items-center gap-2 mt-2 bg-white p-2 rounded-xl border border-slate-200 w-fit shadow-sm animate-in fade-in">
+             <div className="flex items-center gap-1 px-2 border-r border-slate-100">
+                <span className="text-[10px] font-black uppercase text-slate-400">DARI</span>
+                <input 
+                    type="date" 
+                    value={filterStart}
+                    onChange={e => setFilterStart(e.target.value)}
+                    className="bg-transparent text-xs font-bold text-slate-700 outline-none w-24 cursor-pointer"
+                />
+             </div>
+             <div className="flex items-center gap-1 px-2">
+                <span className="text-[10px] font-black uppercase text-slate-400">SAMPAI</span>
+                <input 
+                    type="date" 
+                    value={filterEnd}
+                    onChange={e => setFilterEnd(e.target.value)}
+                    className="bg-transparent text-xs font-bold text-slate-700 outline-none w-24 cursor-pointer"
+                />
+             </div>
+             {/* Auto-loading indicator */}
+             <div className="px-2">
+                 <div className="h-2 w-2 bg-emerald-500 rounded-full animate-pulse" title="Live Sync Active"></div>
+             </div>
           </div>
         </div>
         {canReport && (
           <button 
             onClick={() => {
                 setEditingReport(null);
+                setReportDate(new Date().toISOString().split('T')[0]); 
                 setActivities([{ task: '', quantity: 1, unit: '', link: '' }]);
                 setShowAdd(true);
             }}
@@ -148,6 +167,7 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
       </div>
 
       <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
+        {/* Table content unchanged */}
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead className="bg-slate-50 border-b border-slate-100">
@@ -220,13 +240,13 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
           </table>
           {displayReports.length === 0 && (
              <div className="p-12 text-center text-slate-300 font-bold uppercase tracking-widest text-xs">
-               Belum ada laporan aktivitas
+               Tidak ada laporan aktivitas pada rentang tanggal ini.
              </div>
           )}
         </div>
       </div>
 
-      {/* View Detail Modal */}
+      {/* View Detail Modal ... (Unchanged) ... */}
       {selectedReport && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4" onClick={() => setSelectedReport(null)}>
            <div className="bg-white rounded-[2.5rem] w-full max-w-lg p-8 shadow-2xl overflow-hidden flex flex-col border border-white/20 animate-in zoom-in duration-300 relative" onClick={e => e.stopPropagation()}>
@@ -262,10 +282,23 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
       {showAdd && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4">
           <div className="bg-white rounded-[3.5rem] w-full max-w-xl p-12 shadow-2xl overflow-hidden flex flex-col border border-white/20 max-h-[90vh]">
-            <h3 className="text-3xl font-black text-slate-800 mb-10 uppercase tracking-tight leading-none italic">
+            <h3 className="text-3xl font-black text-slate-800 mb-6 uppercase tracking-tight leading-none italic">
                 {editingReport ? 'Edit Laporan' : 'Log Aktivitas'}<br/>
                 <span className="text-blue-600">{editingReport ? 'Perbarui Data' : 'Produktivitas Harian'}</span>
             </h3>
+
+            {/* NEW: Date Picker for Backdate */}
+            <div className="mb-6 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] block mb-2">TANGGAL PELAPORAN</label>
+                <input 
+                    type="date"
+                    className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold text-slate-800 outline-none focus:border-blue-500"
+                    value={reportDate}
+                    onChange={e => setReportDate(e.target.value)}
+                />
+                <p className="text-[10px] text-slate-400 mt-2 italic">*Anda bisa memilih tanggal mundur jika lupa input kemarin.</p>
+            </div>
+
             <div className="flex-1 overflow-y-auto space-y-8 pr-4 custom-scrollbar">
               {activities.map((act, idx) => (
                 <div key={idx} className="bg-slate-50 p-6 md:p-8 rounded-[2.5rem] space-y-6 border border-slate-100 relative group animate-in slide-in-from-right duration-300">

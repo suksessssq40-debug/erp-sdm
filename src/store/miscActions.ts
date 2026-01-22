@@ -31,9 +31,17 @@ export const createMiscActions = (
     }
   };
 
-  const fetchDailyReports = async () => {
+  const fetchDailyReports = async (startDate?: string, endDate?: string) => {
     try {
-      const res = await fetch(`${API_BASE}/api/daily-reports`, { headers: authHeaders });
+      let url = `${API_BASE}/api/daily-reports`;
+      const params = new URLSearchParams();
+      if (startDate) params.append('start', startDate);
+      if (endDate) params.append('end', endDate);
+      
+      const queryString = params.toString();
+      if (queryString) url += `?${queryString}`;
+
+      const res = await fetch(url, { headers: authHeaders });
       if (res.ok) {
         const data = await res.json();
         setState(prev => ({ ...prev, dailyReports: data }));

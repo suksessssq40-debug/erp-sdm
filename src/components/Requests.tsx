@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { User, LeaveRequest, RequestType, RequestStatus, UserRole } from '../types';
 import { FileText, Plus, Check, X, Clock, AlertCircle, ImageIcon, UploadCloud, History, CheckCircle2, Eye } from 'lucide-react';
 import { useToast } from './Toast';
+import { useAppStore } from '../context/StoreContext';
 
 interface RequestsProps {
   currentUser: User;
@@ -15,9 +16,30 @@ interface RequestsProps {
 }
 
 const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests, onAddRequest, onUpdateRequest, toast, uploadFile }) => {
+  const store = useAppStore();
+
   const [showAdd, setShowAdd] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<LeaveRequest | null>(null);
   const [attachment, setAttachment] = useState<string | null>(null);
+  
+  // SERVER-SIDE FILTER STATE (Auto Fetch)
+  const today = new Date();
+  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+  const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+
+  const [filterStart, setFilterStart] = useState(firstDay);
+  const [filterEnd, setFilterEnd] = useState(lastDay);
+
+  // Auto-Fetch when Date Range Changes
+  useEffect(() => {
+    if (store.fetchRequests) {
+        const timer = setTimeout(() => {
+            store.fetchRequests(filterStart, filterEnd);
+        }, 500);
+        return () => clearTimeout(timer);
+    }
+  }, [filterStart, filterEnd]);
+
   const [formData, setFormData] = useState({
     type: RequestType.IZIN,
     description: '',
@@ -91,6 +113,8 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
       setAttachment(null);
       setFormData({ type: RequestType.IZIN, description: '', startDate: new Date().toISOString().split('T')[0], endDate: new Date().toISOString().split('T')[0] });
       toast.success(`Permohonan dikirim.`);
+      // Refresh list
+      if (store.fetchRequests) store.fetchRequests(filterStart, filterEnd);
     } catch (err: any) {
       toast.error("Gagal mengirim permohonan.");
     }
@@ -136,12 +160,38 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h3 className="text-xl font-bold text-slate-800">Izin & Cuti</h3>
           <p className="text-sm text-slate-500 uppercase font-black tracking-widest">
             {isManagement ? 'Portal Approval Manajemen' : 'Portal Kehadiran'}
           </p>
+          
+           {/* Server Side Date Filter (Auto Trigger) */}
+          <div className="flex flex-wrap items-center gap-2 mt-2 bg-white p-2 rounded-xl border border-slate-200 w-fit shadow-sm animate-in fade-in">
+             <div className="flex items-center gap-1 px-2 border-r border-slate-100">
+                <span className="text-[10px] font-black uppercase text-slate-400">DARI</span>
+                <input 
+                    type="date" 
+                    value={filterStart}
+                    onChange={e => setFilterStart(e.target.value)}
+                    className="bg-transparent text-xs font-bold text-slate-700 outline-none w-24 cursor-pointer"
+                />
+             </div>
+             <div className="flex items-center gap-1 px-2">
+                <span className="text-[10px] font-black uppercase text-slate-400">SAMPAI</span>
+                <input 
+                    type="date" 
+                    value={filterEnd}
+                    onChange={e => setFilterEnd(e.target.value)}
+                    className="bg-transparent text-xs font-bold text-slate-700 outline-none w-24 cursor-pointer"
+                />
+             </div>
+             {/* Auto-loading indicator */}
+             <div className="px-2">
+                 <div className="h-2 w-2 bg-emerald-500 rounded-full animate-pulse" title="Live Sync Active"></div>
+             </div>
+          </div>
         </div>
         {canCreate && (
           <button onClick={() => setShowAdd(true)} className="bg-blue-600 text-white px-6 py-3 rounded-2xl flex items-center gap-2 font-black text-xs uppercase tracking-widest hover:bg-blue-700 shadow-lg shadow-blue-200 transition">

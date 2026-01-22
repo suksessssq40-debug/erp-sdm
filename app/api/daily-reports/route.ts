@@ -7,14 +7,30 @@ export async function GET(request: Request) {
     const user = await authorize();
     const { tenantId } = user;
     
+    const { searchParams } = new URL(request.url);
+    const startDate = searchParams.get('start');
+    const endDate = searchParams.get('end');
+
     const isAdmin = ['OWNER', 'MANAGER', 'FINANCE'].includes(user.role);
     const where: any = { tenantId };
     if (!isAdmin) where.userId = user.id;
 
+    // Smart Filter: If date range provided, use it. Else, default (limit 200).
+    if (startDate && endDate) {
+        where.date = {
+            gte: startDate,
+            lte: endDate
+        };
+    } else if (startDate) {
+         where.date = {
+            gte: startDate
+        };
+    }
+
     const reports = await prisma.dailyReport.findMany({
        where,
-       orderBy: [{ createdAt: 'desc' }, { date: 'desc' }],
-       take: 200 
+       orderBy: { date: 'desc' }, // Sort by Report Date (Logically correct)
+       take: startDate ? undefined : 200 // If filtering by date, fetch all matches. If no filter, limit to 200 safety.
     });
 
     const formatted = reports.map(r => ({

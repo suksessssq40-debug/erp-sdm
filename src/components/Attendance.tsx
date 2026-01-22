@@ -286,9 +286,8 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
       
       ctx.drawImage(video, 0, 0);
       
-      // CRITICAL FIX: Revert to JPEG for 100% Mobile Compatibility
-      // WebP caused blank images on some devices/browsers due to encoding timing or support issues.
-      // JPEG quality 0.6 offers great compression similar to WebP but is safer.
+      // CRITICAL FIX: Revert to JPEG for 100% Mobile Compatibility & Compression
+      // JPEG quality 0.6 offers great compression (~50-80KB) preventing DB Blowout
       const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
       
       if (video.srcObject) (video.srcObject as MediaStream).getTracks().forEach(t => t.stop());
