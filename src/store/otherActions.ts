@@ -45,25 +45,47 @@ export const createOtherActions = (
   };
 
   const updateRequest = async (req: LeaveRequest) => {
+    // Optimistic Update
     setState(prev => ({
       ...prev,
-      requests: prev.requests.map(r => (r.id === req.id ? req : r))
+      requests: prev.requests.map(r => (r.id === req.id ? { ...r, ...req } : r))
     }));
+
     try {
       const res = await fetch(`${API_BASE}/api/requests/${req.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify(req)
       });
-      if (!res.ok) throw new Error('Failed to update request');
+      if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || 'Failed to update request');
+      }
       const updated: LeaveRequest = await res.json();
       setState(prev => ({
         ...prev,
         requests: prev.requests.map(r => (r.id === updated.id ? updated : r))
       }));
-      addLog(SystemActionType.REQUEST_APPROVE, `Request ${updated.status}: ${updated.type}`, updated.id);
+      addLog(SystemActionType.REQUEST_APPROVE, `Updated request: ${updated.type} (${updated.status})`, updated.id);
     } catch (e) {
       console.error(e);
+      // Rollback on error might be needed, but for now we re-fetch or log
+      throw e;
+    }
+  };
+
+  const deleteRequest = async (id: string) => {
+    setState(prev => ({ ...prev, requests: prev.requests.filter(r => r.id !== id) }));
+    try {
+      const res = await fetch(`${API_BASE}/api/requests/${id}`, {
+        method: 'DELETE',
+        headers: { ...authHeaders }
+      });
+      if (!res.ok) throw new Error('Failed to delete request');
+      addLog(SystemActionType.REQUEST_APPROVE, `Deleted request: ${id}`, id);
+    } catch (e) {
+      console.error(e);
+      throw e;
     }
   };
 
@@ -221,7 +243,7 @@ export const createOtherActions = (
   };
 
   return { 
-    fetchRequests, addRequest, updateRequest, 
+    fetchRequests, addRequest, updateRequest, deleteRequest,
     addFinancialAccount, updateFinancialAccount, deleteFinancialAccount,
     addCategory, updateCategory, deleteCategory,
     addBusinessUnit, updateBusinessUnit, deleteBusinessUnit,

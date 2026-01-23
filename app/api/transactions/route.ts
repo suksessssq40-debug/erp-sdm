@@ -22,34 +22,47 @@ export async function GET(request: Request) {
     }
 
     // Update GET Query
+    // Force date sorting to be absolute
     const transactions = await prisma.transaction.findMany({
         where: whereClause,
-        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        orderBy: [
+            { date: 'desc' }, 
+            { createdAt: 'desc' }
+        ],
         take: limit,
         include: { coa: true } as any 
     });
     
     // Map to safe format (Date to String)
-    const safeTransactions = transactions.map((t: any) => ({
-        id: t.id,
-        date: t.date ? t.date.toISOString().split('T')[0] : '',
-        amount: Number(t.amount),
-        type: t.type,
-        category: t.coa ? `${t.coa.code} - ${t.coa.name}` : t.category, 
-        description: t.description,
-        account: t.account,
-        businessUnitId: t.businessUnitId,
-        imageUrl: t.imageUrl,
-        tenantId: t.tenantId,
-        coaId: t.coaId,
-        coa: t.coa ? {
-            ...t.coa,
-            createdAt: t.coa.createdAt ? t.coa.createdAt.toString() : null
-        } : null, 
-        contactName: t.contactName,
-        status: t.status,
-        dueDate: t.dueDate ? t.dueDate.toISOString().split('T')[0] : null
-    }));
+    const safeTransactions = transactions.map((t: any) => {
+        // Fix Date Timezone Issue: Ensure we take the date part string directly if possible,
+        // or construct safely without timezone shift
+        const dateObj = new Date(t.date);
+        // Use UTC methods to avoid local timezone shift if the DB stores as UTC date
+        const dateStr = t.date ? dateObj.toISOString().split('T')[0] : '';
+        
+        return {
+            id: t.id,
+            date: dateStr,
+            amount: Number(t.amount),
+            type: t.type,
+            category: t.coa ? `${t.coa.code} - ${t.coa.name}` : t.category, 
+            description: t.description,
+            account: t.account,
+            businessUnitId: t.businessUnitId,
+            imageUrl: t.imageUrl,
+            tenantId: t.tenantId,
+            coaId: t.coaId,
+            coa: t.coa ? {
+                ...t.coa,
+                createdAt: t.coa.createdAt ? t.coa.createdAt.toString() : null
+            } : null, 
+            contactName: t.contactName,
+            status: t.status,
+            dueDate: t.dueDate ? t.dueDate.toISOString().split('T')[0] : null,
+            createdAt: t.createdAt // Include createdAt for debugging
+        };
+    });
 
     return NextResponse.json(safeTransactions);
   } catch (error) {

@@ -1,13 +1,12 @@
- 
 import React, { useState, useEffect } from 'react';
 import { User, LeaveRequest, RequestType, RequestStatus, UserRole } from '../types';
-import { FileText, Plus, Check, X, Clock, AlertCircle, ImageIcon, UploadCloud, History, CheckCircle2, Eye } from 'lucide-react';
+import { FileText, Plus, Check, X, Clock, AlertCircle, ImageIcon, UploadCloud, History, CheckCircle2, Eye, Edit, Trash2, MoreVertical } from 'lucide-react';
 import { useToast } from './Toast';
 import { useAppStore } from '../context/StoreContext';
 
 interface RequestsProps {
   currentUser: User;
-  users: User[]; // Added users prop
+  users: User[];
   requests: LeaveRequest[];
   onAddRequest: (req: LeaveRequest) => void;
   onUpdateRequest: (req: LeaveRequest) => void;
@@ -19,8 +18,10 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
   const store = useAppStore();
 
   const [showAdd, setShowAdd] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<LeaveRequest | null>(null);
   const [attachment, setAttachment] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   // SERVER-SIDE FILTER STATE (Auto Fetch)
   const today = new Date();
@@ -38,7 +39,7 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
         }, 500);
         return () => clearTimeout(timer);
     }
-  }, [filterStart, filterEnd]);
+  }, [filterStart, filterEnd, store.fetchRequests]);
 
   const [formData, setFormData] = useState({
     type: RequestType.IZIN,
@@ -58,18 +59,16 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
   }, [selectedRequest]);
 
   // PERMISSION LOGIC
-  const isManagement = [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(currentUser.role);
-  // Allow everyone to create (except Owner usually, but Manager/Finance can)
+  const isManagement = [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(currentUser.role as UserRole);
   const canCreate = currentUser.role !== UserRole.OWNER; 
 
   // DATA VISIBILITY
-  // Management sees ALL, Staff sees OWN
   const visibleRequests = isManagement 
     ? requests 
     : requests.filter(r => r.userId === currentUser.id);
 
   const sortRequests = (data: LeaveRequest[]) => {
-     return [...data].sort((a, b) => b.createdAt - a.createdAt);
+     return [...data].sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
   };
 
   const validateRequest = () => {
@@ -97,27 +96,72 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
     return true;
   };
 
+  const handleEdit = (req: LeaveRequest) => {
+    setEditId(req.id);
+    setFormData({
+        type: req.type as RequestType,
+        description: req.description || '',
+        startDate: req.startDate as any,
+        endDate: req.endDate as any
+    });
+    setAttachment(req.attachmentUrl || null);
+    setShowAdd(true);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm("Apakah Anda yakin ingin menghapus data permohonan ini? Tindakan ini tidak dapat dibatalkan.")) return;
+    
+    try {
+        if (store.deleteRequest) {
+            await store.deleteRequest(id);
+            toast.success("Berhasil menghapus data.");
+        }
+    } catch (e: any) {
+        toast.error("Gagal menghapus data: " + (e.message || "Error unknown"));
+    }
+  };
+
   const handleSubmit = async () => {
     if (!validateRequest()) return;
+    setIsSubmitting(true);
     try {
-      const req: LeaveRequest = {
-        id: Math.random().toString(36).substr(2, 9),
-        userId: currentUser.id,
-        status: RequestStatus.PENDING,
-        createdAt: Date.now(),
-        attachmentUrl: attachment || undefined,
-        ...formData
-      };
-      await onAddRequest(req);
-      setShowAdd(false);
-      setAttachment(null);
-      setFormData({ type: RequestType.IZIN, description: '', startDate: new Date().toISOString().split('T')[0], endDate: new Date().toISOString().split('T')[0] });
-      toast.success(`Permohonan dikirim.`);
-      // Refresh list
+      if (editId) {
+          const original = requests.find(r => r.id === editId);
+          if (original) {
+              await onUpdateRequest({
+                  ...original,
+                  ...formData,
+                  attachmentUrl: attachment || undefined
+              });
+              toast.success("Perubahan disimpan.");
+          }
+      } else {
+        const req: LeaveRequest = {
+            id: Math.random().toString(36).substr(2, 9),
+            userId: currentUser.id,
+            status: RequestStatus.PENDING,
+            createdAt: Date.now() as any,
+            attachmentUrl: attachment || undefined,
+            ...formData
+          };
+          await onAddRequest(req);
+          toast.success(`Permohonan dikirim.`);
+      }
+      
+      handleCloseModal();
       if (store.fetchRequests) store.fetchRequests(filterStart, filterEnd);
     } catch (err: any) {
-      toast.error("Gagal mengirim permohonan.");
+      toast.error("Gagal memproses permohonan.");
+    } finally {
+        setIsSubmitting(false);
     }
+  };
+
+  const handleCloseModal = () => {
+    setShowAdd(false);
+    setEditId(null);
+    setAttachment(null);
+    setFormData({ type: RequestType.IZIN, description: '', startDate: new Date().toISOString().split('T')[0], endDate: new Date().toISOString().split('T')[0] });
   };
 
   const handleAction = async (req: LeaveRequest, status: RequestStatus) => {
@@ -135,10 +179,10 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
         approverId: currentUser.id,
         approverName: currentUser.name,
         actionNote: actionNote,
-        actionAt: Date.now()
+        actionAt: Date.now() as any
       });
       toast.success(`Permohonan ${status === RequestStatus.APPROVED ? 'DISETUJUI' : 'DITOLAK'}`);
-      setSelectedRequest(null); // Close modal immediately
+      setSelectedRequest(null); 
     } catch (err: any) {
       console.error(err);
       toast.error("Gagal memproses aksi. Coba refresh halaman.");
@@ -187,7 +231,6 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                     className="bg-transparent text-xs font-bold text-slate-700 outline-none w-24 cursor-pointer"
                 />
              </div>
-             {/* Auto-loading indicator */}
              <div className="px-2">
                  <div className="h-2 w-2 bg-emerald-500 rounded-full animate-pulse" title="Live Sync Active"></div>
              </div>
@@ -215,6 +258,9 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
             <tbody className="divide-y divide-slate-50 text-xs font-bold text-slate-600">
               {sortRequests(visibleRequests).map(req => {
                 const applicant = users.find(u => u.id === req.userId);
+                const canEdit = isManagement || (req.userId === currentUser.id && req.status === RequestStatus.PENDING);
+                const canDelete = isManagement;
+
                 return (
                   <tr 
                     key={req.id} 
@@ -225,7 +271,7 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                        <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 font-black text-xs border-2 border-white shadow-sm overflow-hidden">
                              {applicant?.avatarUrl ? (
-                                <img src={applicant.avatarUrl} alt={applicant.name} className="w-full h-full object-cover" />
+                                <img src={applicant.avatarUrl} alt={applicant?.name} className="w-full h-full object-cover" />
                              ) : (
                                 applicant?.name.charAt(0)
                              )}
@@ -248,7 +294,7 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                         {req.endDate !== req.startDate && ` - ${new Date(req.endDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}`}
                         <br/>
                         <span className="text-[9px] text-slate-400 font-normal uppercase tracking-wider">
-                           Diajukan: {new Date(req.createdAt).toLocaleDateString()}
+                           Diajukan: {new Date(Number(req.createdAt)).toLocaleDateString()}
                         </span>
                     </td>
                     <td className="px-6 py-5 max-w-xs truncate opacity-80 group-hover:opacity-100">
@@ -265,14 +311,23 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                         </span>
                     </td>
                     <td className="px-6 py-5 text-right">
-                       {isManagement && req.status === RequestStatus.PENDING ? (
-                          <div className="flex justify-end gap-2" onClick={e => e.stopPropagation()}>
-                             <button onClick={() => handleAction(req, RequestStatus.APPROVED)} className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white flex items-center justify-center transition shadow-sm"><Check size={14} /></button>
-                             <button onClick={() => handleAction(req, RequestStatus.REJECTED)} className="w-8 h-8 rounded-full bg-rose-50 text-rose-600 hover:bg-rose-500 hover:text-white flex items-center justify-center transition shadow-sm"><X size={14} /></button>
-                          </div>
-                       ) : (
-                          <button className="text-[10px] font-bold text-blue-500 hover:underline">LIHAT DETAIL</button>
-                       )}
+                       <div className="flex justify-end gap-1" onClick={e => e.stopPropagation()}>
+                          {isManagement && req.status === RequestStatus.PENDING && (
+                             <>
+                                <button onClick={() => handleAction(req, RequestStatus.APPROVED)} title="Setujui" className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white flex items-center justify-center transition shadow-sm"><Check size={14} /></button>
+                                <button onClick={() => handleAction(req, RequestStatus.REJECTED)} title="Tolak" className="w-8 h-8 rounded-full bg-rose-50 text-rose-600 hover:bg-rose-500 hover:text-white flex items-center justify-center transition shadow-sm"><X size={14} /></button>
+                             </>
+                          )}
+                          {canEdit && (
+                            <button onClick={() => handleEdit(req)} title="Edit" className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 hover:bg-blue-500 hover:text-white flex items-center justify-center transition shadow-sm"><Edit size={14}/></button>
+                          )}
+                          {canDelete && (
+                            <button onClick={() => handleDelete(req.id)} title="Hapus" className="w-8 h-8 rounded-full bg-slate-50 text-slate-400 hover:bg-rose-500 hover:text-white flex items-center justify-center transition shadow-sm"><Trash2 size={14}/></button>
+                          )}
+                          {!canEdit && !canDelete && !isManagement && (
+                             <button className="text-[10px] font-bold text-blue-500 hover:underline">DETAIL</button>
+                          )}
+                       </div>
                     </td>
                   </tr>
                 );
@@ -285,11 +340,10 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
         </div>
       </div>
 
-      {/* DETAIL MODAL WITH AUDIT LOG */}
+      {/* DETAIL MODAL */}
       {selectedRequest && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={() => setSelectedRequest(null)}>
-           <div className="bg-white rounded-[2.5rem] w-full max-w-2xl p-8 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-white/20" onClick={e => e.stopPropagation()}>
-              
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" onClick={() => setSelectedRequest(null)}>
+           <div className="bg-white rounded-[2.5rem] w-full max-w-2xl p-8 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
               <div className="flex justify-between items-start mb-8">
                  <div className="flex items-center gap-4">
                     <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 font-black text-xl overflow-hidden border-4 border-white shadow-lg">
@@ -339,8 +393,8 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                        {selectedRequest.attachmentUrl && (
                           <div className="space-y-1">
                               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">LAMPIRAN BUKTI</p>
-                              <a href={selectedRequest.attachmentUrl} target="_blank" className="block relative aspect-video rounded-xl overflow-hidden group shadow-sm bg-slate-100">
-                                  <img src={selectedRequest.attachmentUrl} className="w-full h-full object-cover transition duration-500 group-hover:scale-110" />
+                              <a href={selectedRequest.attachmentUrl} target="_blank" rel="noreferrer" className="block relative aspect-video rounded-xl overflow-hidden group shadow-sm bg-slate-100">
+                                  <img src={selectedRequest.attachmentUrl} alt="Bukti" className="w-full h-full object-cover transition duration-500 group-hover:scale-110" />
                                   <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
                                       <p className="text-white text-[10px] font-black uppercase tracking-widest">LIHAT GAMBAR</p>
                                   </div>
@@ -350,7 +404,6 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                   </div>
               </div>
 
-              {/* AUDIT LOG SECTION */}
               <div className="border-t border-slate-100 pt-6">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
                        <History size={12}/> AUDIT LOG & APPROVAL
@@ -376,7 +429,7 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                                      </span>
                                   </p>
                                   <p className="text-[10px] opacity-70 font-bold mt-1">
-                                     Pada: {selectedRequest.actionAt ? new Date(selectedRequest.actionAt).toLocaleString('id-ID') : '-'}
+                                     Pada: {selectedRequest.actionAt ? new Date(Number(selectedRequest.actionAt)).toLocaleString('id-ID') : '-'}
                                   </p>
                                </div>
                            </div>
@@ -388,7 +441,6 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                       </div>
                   )}
 
-                  {/* ACTION BUTTONS FOR MANAGEMENT */}
                   {isManagement && selectedRequest.status === RequestStatus.PENDING && (
                       <div className="mt-6 space-y-4">
                            <div>
@@ -411,23 +463,56 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
         </div>
       )}
 
-      {/* ADD MODAL */}
+      {/* CREATE / EDIT MODAL */}
       {showAdd && (
-         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 p-4 backdrop-blur-md" onClick={() => setShowAdd(false)}>
+         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 p-4 backdrop-blur-md" onClick={handleCloseModal}>
              <div className="bg-white p-10 rounded-[2.5rem] w-full max-w-lg shadow-2xl animate-in fade-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-                 <h3 className="text-2xl font-black text-slate-800 mb-6 uppercase">Buat Permohonan</h3>
-                 <div className="space-y-4">
-                     {/* Form Inputs Simplified for this rewrite step, can match previous full form */}
-                     <div className="grid grid-cols-3 gap-2">
-                        {[RequestType.IZIN, RequestType.SAKIT, RequestType.CUTI].map(t => (
-                            <button key={t} onClick={() => setFormData({...formData, type: t})} className={`py-3 rounded-xl text-[10px] font-black uppercase ${formData.type === t ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>{t}</button>
-                        ))}
+                 <h3 className="text-2xl font-black text-slate-800 mb-6 uppercase">{editId ? 'Edit Permohonan' : 'Buat Permohonan'}</h3>
+                 <div className="space-y-5">
+                     <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Jenis Permohonan</label>
+                        <div className="grid grid-cols-3 gap-2">
+                            {[RequestType.IZIN, RequestType.SAKIT, RequestType.CUTI].map(t => (
+                                <button key={t} onClick={() => setFormData({...formData, type: t})} className={`py-3 rounded-xl text-[10px] font-black uppercase transition-all ${formData.type === t ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>{t}</button>
+                            ))}
+                        </div>
                      </div>
-                     <input type="date" className="w-full p-4 bg-slate-50 rounded-xl font-bold text-xs outline-none" value={formData.startDate} onChange={e => setFormData({...formData, startDate: e.target.value})} />
-                     <input type="date" className="w-full p-4 bg-slate-50 rounded-xl font-bold text-xs outline-none" value={formData.endDate || formData.startDate} onChange={e => setFormData({...formData, endDate: e.target.value})} />
-                     <textarea className="w-full p-4 bg-slate-50 rounded-xl font-bold text-xs outline-none h-24 resize-none" placeholder="Alasan..." value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
-                     <input type="file" onChange={handleFileChange} className="text-xs" />
-                     <button onClick={handleSubmit} className="w-full py-4 bg-slate-900 text-white rounded-xl font-black uppercase text-xs tracking-widest mt-4 hover:bg-blue-600 transition">Kirim Pengajuan</button>
+                     
+                     <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Mulai</label>
+                            <input type="date" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-xl font-bold text-xs outline-none focus:border-blue-200 transition" value={formData.startDate} onChange={e => setFormData({...formData, startDate: e.target.value})} />
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Selesai</label>
+                            <input type="date" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-xl font-bold text-xs outline-none focus:border-blue-200 transition" value={formData.endDate || formData.startDate} onChange={e => setFormData({...formData, endDate: e.target.value})} />
+                        </div>
+                     </div>
+
+                     <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Alasan Keperluan</label>
+                        <textarea className="w-full p-4 bg-slate-50 border border-slate-100 rounded-xl font-bold text-xs outline-none h-24 resize-none focus:border-blue-200 transition" placeholder="Tuliskan alasan lengkap..." value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
+                     </div>
+
+                     <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Bukti / Lampiran (Opsional)</label>
+                        {!attachment ? (
+                            <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-200 rounded-2xl cursor-pointer hover:bg-slate-50 transition">
+                                <UploadCloud className="text-slate-300 mb-2" size={24}/>
+                                <p className="text-[10px] font-black text-slate-400 uppercase">Klik untuk upload bukti</p>
+                                <input type="file" onChange={handleFileChange} className="hidden" accept="image/*" />
+                            </label>
+                        ) : (
+                            <div className="relative h-32 rounded-2xl overflow-hidden group shadow-inner border border-slate-100">
+                                <img src={attachment} alt="Bukti" className="w-full h-full object-cover" />
+                                <button onClick={() => setAttachment(null)} className="absolute top-2 right-2 p-2 bg-rose-500 text-white rounded-xl shadow-lg opacity-0 group-hover:opacity-100 transition"><Trash2 size={16}/></button>
+                            </div>
+                        )}
+                     </div>
+
+                     <button onClick={handleSubmit} disabled={isSubmitting} className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black uppercase text-xs tracking-[0.2em] mt-2 border-b-4 border-slate-700 active:border-b-0 active:translate-y-1 hover:bg-blue-600 hover:border-blue-800 transition-all shadow-xl shadow-slate-200 disabled:opacity-50">
+                        {isSubmitting ? 'MEMPROSES...' : editId ? 'SIMPAN PERUBAHAN' : 'KIRIM PENGAJUAN'}
+                     </button>
                  </div>
              </div>
          </div>

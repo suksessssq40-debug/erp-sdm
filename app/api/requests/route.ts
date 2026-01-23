@@ -90,6 +90,17 @@ export async function POST(request: Request) {
             const startDate = new Date(r.startDate);
             const endDate = new Date(r.endDate || r.startDate);
             
+            // Extract Company Name from Settings
+            let companyName = tenantId.toUpperCase();
+            try {
+                if (telegramSettings.companyProfileJson) {
+                    const profile = JSON.parse(telegramSettings.companyProfileJson);
+                    if (profile.name) companyName = profile.name;
+                }
+            } catch (e) {
+                console.error("[Telegram] Error parsing company profile:", e);
+            }
+            
             // Calculate Duration
             const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
@@ -97,11 +108,11 @@ export async function POST(request: Request) {
             const fmtDate = (d: Date) => d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
             
             const message = [
+                `🏢 <b>${companyName.toUpperCase()}</b>`,
                 `✨ <b><u>PENGAJUAN ${r.type.toUpperCase()}</u></b> ✨`,
                 ``,
                 `👤 <b>Karyawan:</b> ${user.name}`,
                 `💼 <b>Jabatan:</b> ${user.jobTitle || 'Staff'}`,
-                `🏢 <b>Unit:</b> ${tenantId.toUpperCase()}`,
                 ``,
                 `📌 <b>Jenis:</b> ${r.type}`,
                 `📅 <b>Waktu:</b> ${fmtDate(startDate)}${r.endDate && r.endDate !== r.startDate ? ` s/d ${fmtDate(endDate)}` : ''}`,

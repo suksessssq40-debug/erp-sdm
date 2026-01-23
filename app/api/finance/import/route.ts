@@ -119,8 +119,17 @@ export async function POST(request: Request) {
         const finalStatus = (sNorm.includes('unpaid') || sNorm.includes('belum') || sNorm.includes('pending')) ? 'UNPAID' : 'PAID';
 
         let finalDate = new Date();
-        if (dateCell instanceof Date) finalDate = dateCell;
-        else if (dateCell) { const p = new Date(dateCell.toString()); if(!isNaN(p.getTime())) finalDate = p; }
+        if (dateCell instanceof Date) {
+            finalDate = dateCell;
+        } else if (dateCell) { 
+            const p = new Date(dateCell.toString()); 
+            if(!isNaN(p.getTime())) finalDate = p; 
+        }
+        
+        // NORMALISASI JAM: Set ke 12:00 UTC untuk menghindari pergeseran tanggal
+        // saat dikonversi ke DB Date (yang memotong jam) atau saat diambil kembali.
+        finalDate.setUTCHours(12, 0, 0, 0);
+
         datesFound.push(finalDate);
 
         rowsToProcess.push({

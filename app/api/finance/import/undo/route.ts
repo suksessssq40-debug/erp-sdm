@@ -23,25 +23,33 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Batch tidak ditemukan atau sudah dihapus.' }, { status: 404 });
     }
 
-    // 2. Atomic Delete & Restore Balance
+    // 2. Optimized: Aggregate balance changes per account
+    const accountChanges: Record<string, number> = {};
+    
+    for (const trx of batchTransactions) {
+        if (trx.accountId && trx.amount) {
+            const change = trx.type === 'IN' ? -Number(trx.amount) : Number(trx.amount);
+            accountChanges[trx.accountId] = (accountChanges[trx.accountId] || 0) + change;
+        }
+    }
+
+    // 3. Execute Updates in Transaction
     await prisma.$transaction(async (tx) => {
-        for (const trx of batchTransactions) {
-            if (trx.accountId && trx.amount) {
-                // Balikkan saldo: Jika aslinya IN (tambah), maka sekarang kita kurangi (decrement)
-                // Jika aslinya OUT (kurang), maka sekarang kita tambah (increment)
-                const restoreChange = trx.type === 'IN' ? -Number(trx.amount) : Number(trx.amount);
-                
-                await (tx as any).financialAccount.update({
-                    where: { id: trx.accountId },
-                    data: { balance: { increment: restoreChange } }
-                });
-            }
-            
-            // Hapus transaksi
-            await (tx as any).transaction.delete({
-                where: { id: trx.id }
+        // A. Update Balances (Bulk logic via loop, but much fewer queries)
+        for (const [accId, change] of Object.entries(accountChanges)) {
+             await (tx as any).financialAccount.update({
+                where: { id: accId },
+                data: { balance: { increment: change } }
             });
         }
+
+        // B. Bulk Delete Transactions
+        await (tx as any).transaction.deleteMany({
+            where: {
+                tenantId,
+                id: { startsWith: `IMP_${batchId}` }
+            }
+        });
     });
 
     return NextResponse.json({ 
