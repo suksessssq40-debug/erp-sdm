@@ -1,11 +1,17 @@
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
-
+import { authorize } from '@/lib/auth'; // Import authorize
 import { prisma } from '@/lib/prisma';
+import { UserRole } from '@/types';
 
 export async function GET(request: Request) {
     try {
+        // 1. Security: Only authorized users can read logs
+        const user = await authorize([UserRole.OWNER, UserRole.MANAGER]); // Allow Manager too? Usually Owner.
+        const { tenantId } = user;
+
         const logs = await prisma.systemLog.findMany({
+            where: { tenantId }, // Filter by Tenant
             orderBy: { timestamp: 'desc' },
             take: 50
         });
@@ -31,13 +37,18 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    // 1. Authorize to get Tenant Context
+    const user = await authorize();
+    const { tenantId } = user;
+
     const log = await request.json();
     const client = await pool.connect();
     
     try {
+      // Update Query to include tenant_id
       await client.query(
-        `INSERT INTO system_logs (id, timestamp, actor_id, actor_name, actor_role, action_type, details, target_obj, metadata_json)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        `INSERT INTO system_logs (id, timestamp, actor_id, actor_name, actor_role, action_type, details, target_obj, metadata_json, tenant_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [
           log.id, 
           log.timestamp, 
@@ -47,7 +58,8 @@ export async function POST(request: Request) {
           log.actionType, 
           log.details, 
           log.target || null, 
-          log.metadata ? JSON.stringify(log.metadata) : null
+          log.metadata ? JSON.stringify(log.metadata) : null,
+          tenantId // Insert Tenant ID
         ]
       );
       

@@ -330,6 +330,7 @@ model SystemLog {
   details      String?
   targetObj    String? @map("target_obj")
   metadataJson String? @map("metadata_json")
+  tenantId     String? @default("sdm") @map("tenant_id")
 
   @@map("system_logs")
 }

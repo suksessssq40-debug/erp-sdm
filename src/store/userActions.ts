@@ -141,5 +141,25 @@ export const createUserActions = (
     }
   };
 
-  return { login, logout, addUser, updateUser, resetDevice };
+  const deleteUser = async (userId: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/users/${userId}`, {
+        method: 'DELETE',
+        headers: { ...authHeaders }
+      });
+      if (!res.ok) throw new Error('Failed to delete user');
+      
+      setState(prev => ({
+        ...prev,
+        users: prev.users.filter(u => u.id !== userId)
+      }));
+      
+      addLog(SystemActionType.USER_DELETE, `Deleted user ${userId}`, userId);
+    } catch (e) {
+      console.error(e);
+      throw e;
+    }
+  };
+
+  return { login, logout, addUser, updateUser, resetDevice, deleteUser };
 };
