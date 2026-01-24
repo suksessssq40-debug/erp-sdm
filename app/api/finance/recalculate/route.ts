@@ -14,42 +14,42 @@ export async function POST() {
     });
 
     // 2. Lakukan Rekalkulasi Per Akun (Auto-Healing)
-    // Jangan gunakan satu transaksi besar untuk semua akun agar tidak timeout
-    const results = [];
-    
-    for (const acc of accounts) {
-        try {
-            // Hitung saldo income & expense secara paralel
-            const [incomeAgg, expenseAgg] = await Promise.all([
-                prisma.transaction.aggregate({
-                    where: { tenantId, accountId: acc.id, type: 'IN' },
-                    _sum: { amount: true }
-                }),
-                prisma.transaction.aggregate({
-                    where: { tenantId, accountId: acc.id, type: 'OUT' },
-                    _sum: { amount: true }
-                })
-            ]);
+    await prisma.$transaction(async (tx) => {
+        for (const acc of accounts) {
+            // Hitung semua transaksi terkait akun ini (Semua Status - Operational Basis)
+            const sumRes = await tx.transaction.aggregate({
+                where: { 
+                    tenantId,
+                    accountId: acc.id
+                },
+                _sum: { amount: true }
+            });
 
-            const newBalance = Number(incomeAgg._sum.amount || 0) - Number(expenseAgg._sum.amount || 0);
+            // Pisahkan IN dan OUT untuk akurasi maksimal
+            const income = await tx.transaction.aggregate({
+                where: { tenantId, accountId: acc.id, type: 'IN' },
+                _sum: { amount: true }
+            });
+            const expense = await tx.transaction.aggregate({
+                where: { tenantId, accountId: acc.id, type: 'OUT' },
+                _sum: { amount: true }
+            });
 
-            // Update Saldo Akun
-            await prisma.financialAccount.update({
+            const newBalance = Number(income._sum.amount || 0) - Number(expense._sum.amount || 0);
+
+            // Update Saldo Akun dengan Angka Murni dari Jurnal
+            await (tx as any).financialAccount.update({
                 where: { id: acc.id },
                 data: { balance: newBalance }
             });
             
-            results.push({ account: acc.name, status: 'synced', balance: newBalance });
-        } catch (err: any) {
-            console.error(`Failed to sync account ${acc.name}:`, err);
-            results.push({ account: acc.name, status: 'failed', error: err.message });
+            console.log(`[RECALCULATE] Account ${acc.name} synced to: ${newBalance}`);
         }
-    }
+    });
 
     return NextResponse.json({ 
         success: true, 
-        message: 'Sinkronisasi saldo selesai.',
-        details: results
+        message: 'Auto-Healing Selesai: Semua saldo akun telah disinkronkan ulang dengan jurnal transaksi secara akurat.' 
     });
 
   } catch (error: any) {

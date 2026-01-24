@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import ExcelJS from 'exceljs';
 import { authorize } from '@/lib/auth';
+import { Prisma } from '@prisma/client';
 
 export async function POST(request: Request) {
   try {
@@ -119,17 +120,8 @@ export async function POST(request: Request) {
         const finalStatus = (sNorm.includes('unpaid') || sNorm.includes('belum') || sNorm.includes('pending')) ? 'UNPAID' : 'PAID';
 
         let finalDate = new Date();
-        if (dateCell instanceof Date) {
-            finalDate = dateCell;
-        } else if (dateCell) { 
-            const p = new Date(dateCell.toString()); 
-            if(!isNaN(p.getTime())) finalDate = p; 
-        }
-        
-        // NORMALISASI JAM: Set ke 12:00 UTC untuk menghindari pergeseran tanggal
-        // saat dikonversi ke DB Date (yang memotong jam) atau saat diambil kembali.
-        finalDate.setUTCHours(12, 0, 0, 0);
-
+        if (dateCell instanceof Date) finalDate = dateCell;
+        else if (dateCell) { const p = new Date(dateCell.toString()); if(!isNaN(p.getTime())) finalDate = p; }
         datesFound.push(finalDate);
 
         rowsToProcess.push({
@@ -170,38 +162,70 @@ export async function POST(request: Request) {
         validRowsToInsert.push(row);
     }
 
-    // 4. ATOMIC SAVE & BALANCE UPDATE
+    // 4. ATOMIC SAVE & BALANCE UPDATE (OPTIMIZED BATCH)
     let importedCount = 0;
     if (validRowsToInsert.length > 0) {
-        await prisma.$transaction(async (tx) => {
-            for (const row of validRowsToInsert) {
-                const uniqueId = `IMP_${batchId}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
-                
-                await (tx as any).transaction.create({
-                    data: {
-                        id: uniqueId,
-                        tenantId,
-                        date: row.date,
-                        amount: row.amount,
-                        type: row.type,
-                        description: row.desc,
-                        accountId: row.accountId,
-                        coaId: row.coaId,
-                        businessUnitId: row.businessUnitId,
-                        account: row.account,
-                        status: row.status,
-                        category: row.category,
-                        createdAt: new Date()
-                    }
-                });
+        // A. PREPARE DATA (Hitung di memori dulu, jangan bolak-balik DB)
+        const transactionsToCreate: Prisma.TransactionCreateManyInput[] = [];
+        const balanceUpdates = new Map<string, number>(); // accountId -> totalChange
 
-                const change = row.type === 'IN' ? row.amount : -row.amount;
-                await (tx as any).financialAccount.update({
-                    where: { id: row.accountId },
-                    data: { balance: { increment: change } }
+        for (const row of validRowsToInsert) {
+            // Generate ID di sini
+            const uniqueId = `IMP_${batchId}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+            
+            transactionsToCreate.push({
+                id: uniqueId,
+                tenantId: tenantId || 'sdm',
+                date: row.date,
+                amount: new Prisma.Decimal(row.amount),
+                type: row.type,
+                description: row.desc,
+                accountId: row.accountId,
+                coaId: row.coaId,
+                businessUnitId: row.businessUnitId,
+                account: row.account,
+                status: row.status,
+                category: row.category,
+                createdAt: new Date()
+            });
+
+            // Agregasi perubahan saldo per akun
+            const currentChange = balanceUpdates.get(row.accountId) || 0;
+            const change = row.type === 'IN' ? row.amount : -row.amount;
+            balanceUpdates.set(row.accountId, currentChange + change);
+        }
+
+        // B. EXECUTE DATABASE (Sekali jalan)
+        // Kita naikkan timeout sedikit ke 20s (20000ms) untuk jaga-jaga kalau data ribuan
+        await prisma.$transaction(async (tx) => {
+            // 1. Batch Insert Transaksi (1 Query untuk N data)
+            if (transactionsToCreate.length > 0) {
+                await tx.transaction.createMany({
+                    data: transactionsToCreate
                 });
-                importedCount++;
             }
+
+            // 2. Batch Update Saldo (1 Query per Akun yang terlibat)
+            // Misal import 100 transaksi tapi cuma pakai 2 akun Bank, maka cuma 2x update saldo.
+            const updates: [string, number][] = [];
+            balanceUpdates.forEach((val, key) => updates.push([key, val]));
+
+            for (const [accId, totalChange] of updates) {
+                // Fix Precision: Pastikan tidak ada koma floating point aneh (misal 0.00000001)
+                // Kita bulatkan ke 2 desimal (aman untuk mata uang umumnya)
+                const safeTotalChange = Math.round(totalChange * 100) / 100;
+
+                if (safeTotalChange !== 0) {
+                    await tx.financialAccount.update({
+                        where: { id: accId },
+                        data: { balance: { increment: safeTotalChange } }
+                    });
+                }
+            }
+            
+            importedCount = transactionsToCreate.length;
+        }, {
+            timeout: 20000 // 20 detik (Safe limit untuk import massal)
         });
     }
 

@@ -11,8 +11,14 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const user = await authorize([UserRole.OWNER, UserRole.SUPERADMIN, UserRole.MANAGER]);
+    // Allow all authenticated users to fetch basic tenant info (needed for App Shell / Attendance)
+    const user = await authorize(); 
     const tenantId = params.id;
+
+    // Security: Users can only fetch their own tenant (unless SuperAdmin)
+    if (user.role !== UserRole.SUPERADMIN && user.tenantId !== tenantId) {
+         return NextResponse.json({ error: 'Unauthorized access to this tenant' }, { status: 403 });
+    }
 
     const tenant = await prisma.tenant.findUnique({
       where: { id: tenantId },
@@ -24,6 +30,15 @@ export async function GET(
 
     if (!tenant) {
       return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
+    }
+
+    // Sanitize Sensitive Data for Non-Admins
+    if (user.role !== UserRole.OWNER && user.role !== UserRole.SUPERADMIN) {
+        if (tenant.settings) {
+            // Mask sensitive tokens
+            tenant.settings.telegramBotToken = null; 
+            tenant.settings.telegramOwnerChatId = null;
+        }
     }
 
     return NextResponse.json(tenant);
