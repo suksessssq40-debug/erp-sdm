@@ -21,7 +21,11 @@ import { BusinessUnitManager } from './finance/BusinessUnitManager';
 import { CreateCoaModal } from './finance/CreateCoaModal';
 import { ImportTransactionModal } from './finance/ImportTransactionModal';
 
+import { LoadingState } from './LoadingState';
+import { EmptyState } from './EmptyState';
+
 interface FinanceProps {
+  isLoading?: boolean; // New Prop
   transactions: Transaction[]; // Fallback
   financialAccounts: FinancialAccountDef[];
   categories: TransactionCategory[];
@@ -372,11 +376,15 @@ const FinanceModule: React.FC<FinanceProps> = ({
     }
   };
 
+  // --- RENDER ---
+  if (isLoading) {
+    return <LoadingState text="Menyiapkan data keuangan..." fullScreen={false} />;
+  }
+
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 pb-20">
-      
-      {/* --- HEADER & FILTERS --- */}
-      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 gap-6">
+    <div className="w-full h-full bg-slate-50 flex flex-col overflow-hidden">
+      {/* HEADER */}
+      <div className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 sticky top-0 z-20 shadow-sm">
          <div>
             <h2 className="text-2xl font-black text-slate-800 italic uppercase">Finance Dashboard</h2>
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">PERIODE: {getPeriodLabel()}</p>

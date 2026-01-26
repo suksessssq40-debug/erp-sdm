@@ -43,8 +43,11 @@ export const OwnerDashboard = () => {
     
     useEffect(() => {
         const fetchOpStats = async () => {
+             if (!authToken) return;
              try {
-                 const res = await fetch('/api/dashboard/stats');
+                 const res = await fetch('/api/dashboard/stats', {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                 });
                  if (res.ok) {
                      const data = await res.json();
                      setStats(prev => ({ ...prev, ...data }));
@@ -57,7 +60,7 @@ export const OwnerDashboard = () => {
         // Refresh every 30s
         const interval = setInterval(fetchOpStats, 30000);
         return () => clearInterval(interval);
-    }, []);
+    }, [authToken]);
 
     // --- 2. FINANCIAL REAL-TIME STATS ---
     const [finStats, setFinStats] = useState({ 

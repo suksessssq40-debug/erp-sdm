@@ -44,6 +44,15 @@ export async function POST(request: Request) {
     const { tenantId } = user;
     const pr = await request.json();
 
+    // Security: Verify target user belongs to this tenant
+    const targetUser = await prisma.user.findFirst({
+        where: { id: pr.userId, tenantId }
+    });
+
+    if (!targetUser) {
+        return NextResponse.json({ error: 'User not found in this tenant' }, { status: 404 });
+    }
+
     // Transaction: Create Payroll Record + Auto Journal
     await prisma.$transaction(async (tx) => {
         // 1. Create Pay Record

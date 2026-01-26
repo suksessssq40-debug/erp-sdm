@@ -2,11 +2,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Attendance, AppSettings, User, UserRole, Tenant, Shift } from '@/types';
 import { calculateDistance } from '../utils';
-import { Camera, MapPin, AlertCircle, CheckCircle2, History, Clock, LogOut, Loader2 } from 'lucide-react';
+import { Camera, MapPin, AlertCircle, CheckCircle2, History, Clock, LogOut, Loader2, CalendarX2 } from 'lucide-react';
 import { OFFICE_RADIUS_METERS } from '../constants';
 import { useToast } from './Toast';
+import { LoadingState } from './LoadingState';
+import { EmptyState } from './EmptyState';
 
 interface AttendanceProps {
+  isLoading?: boolean;
   currentUser: User;
   currentTenant: Tenant | null;
   shifts: Shift[];
@@ -46,7 +49,7 @@ const LATE_CHECK_IN_QUOTES = [
 ];
 
 const AttendanceModule: React.FC<AttendanceProps> = ({ 
-    currentUser, currentTenant, shifts, settings, attendanceLog, 
+    isLoading, currentUser, currentTenant, shifts, settings, attendanceLog, 
     onAddAttendance, onUpdateAttendance, onUpdateSettings, toast, uploadFile 
 }) => {
   const [stage, setStage] = useState<'IDLE' | 'CHECKING_LOCATION' | 'SELFIE' | 'LATE_REASON' | 'SUCCESS'>('IDLE');
@@ -205,7 +208,9 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
     }
 
     // 3. Late check (Strategy-based)
-    const now = new Date();
+    // CRITICAL FIX: Use Server Synced Time (currentDate) instead of Client System Time
+    // This ensures Frontend Late Detection matches Server Calculation
+    const now = new Date(Date.now() + serverOffset);
     const jakartaTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
     let isLateCheck = false;
     let limitTimeStr = '08:00';
@@ -374,6 +379,10 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
 
   const timeString = currentDate.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
   const dateString = currentDate.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  if (isLoading) {
+    return <LoadingState text="Menyiapkan sistem absensi..." />;
+  }
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -578,7 +587,14 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
             RIWAYAT HARI INI
           </h4>
           <div className="space-y-4">
-            {attendanceLog.filter(a => a.userId === currentUser.id && a.date === todayStr).reverse().map(a => (
+            {attendanceLog.filter(a => a.userId === currentUser.id && a.date === todayStr).length === 0 ? (
+               <EmptyState 
+                  icon={CalendarX2} 
+                  title="Belum Ada Riwayat" 
+                  description="Anda belum melakukan absensi masuk hari ini. Yuk check-in!" 
+               />
+            ) : (
+              attendanceLog.filter(a => a.userId === currentUser.id && a.date === todayStr).reverse().map(a => (
               <div key={a.id} className="p-5 bg-slate-50 rounded-2xl flex flex-col gap-3 group hover:bg-white hover:shadow-md transition border border-slate-100">
                 <div className="flex justify-between items-center">
                    <div className="flex items-center gap-2">
@@ -593,30 +609,19 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
-                    <div className="p-3 bg-white rounded-xl border border-slate-50">
-                        <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Masuk</p>
-                        <p className="text-sm font-black text-slate-800">{a.timeIn}</p>
+                    <div>
+                        <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mb-1">JAM MASUK</p>
+                        <p className="text-xl font-black text-slate-800 tracking-tight">{a.timeIn}</p>
                     </div>
-                    <div className="p-3 bg-white rounded-xl border border-slate-50">
-                        <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Pulang</p>
-                        <p className="text-sm font-black text-slate-800">{a.timeOut || '--:--'}</p>
-                    </div>
+                    {a.timeOut && (
+                        <div className="text-right">
+                            <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mb-1">JAM PULANG</p>
+                            <p className="text-xl font-black text-slate-800 tracking-tight">{a.timeOut}</p>
+                        </div>
+                    )}
                 </div>
-
-                {a.lateReason && (
-                    <div className="p-3 bg-rose-50 rounded-xl border border-rose-100">
-                         <p className="text-[9px] font-bold text-rose-400 uppercase mb-1">Alasan Terlambat:</p>
-                         <p className="text-[10px] text-rose-700 italic font-medium">{a.lateReason}</p>
-                    </div>
-                )}
               </div>
-            ))}
-            {attendanceLog.filter(a => a.userId === currentUser.id && a.date === todayStr).length === 0 && (
-                <div className="py-10 text-center space-y-3 opacity-40">
-                    <Clock size={32} className="mx-auto text-slate-300" />
-                    <p className="text-[10px] font-black uppercase tracking-widest">Belum ada aktivitas hari ini</p>
-                </div>
-            )}
+            )))}
           </div>
         </div>
 

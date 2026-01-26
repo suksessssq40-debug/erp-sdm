@@ -3,15 +3,21 @@ import React, { useEffect } from 'react';
 import FinanceModule from '@/components/Finance';
 import { useAppStore } from '@/context/StoreContext';
 import { useToast } from '@/components/Toast';
+import { LoadingState } from '@/components/LoadingState';
 
 export default function FinancePage() {
   const store = useAppStore();
   const toast = useToast();
 
+  const [isLoading, setIsLoading] = React.useState(true);
+
   useEffect(() => {
-    store.fetchTransactions();
+    store.fetchTransactions().finally(() => setIsLoading(false));
   }, []);
 
+  if (isLoading) {
+    return <LoadingState text="Menyiapkan data keuangan..." />;
+  }
   return (
     <FinanceModule 
       transactions={store.transactions} 

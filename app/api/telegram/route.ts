@@ -11,13 +11,15 @@ export async function POST(request: Request) {
 
     // 1. Get Token from Database (Securely for CURRENT Tenant)
     const user = await authorize();
-    const settingsRes = await pool.query('SELECT telegram_bot_token FROM settings WHERE tenant_id = $1', [user.tenantId]);
+    const settingsRes = await pool.query('SELECT telegram_bot_token, telegram_group_id, telegram_owner_chat_id FROM settings WHERE tenant_id = $1', [user.tenantId]);
     
     if (settingsRes.rows.length === 0) {
       console.warn(`Telegram token not configured for tenant: ${user.tenantId}`);
       return NextResponse.json({ error: 'Token not configured' }, { status: 404 });
     }
     const token = settingsRes.rows[0].telegram_bot_token;
+    const configuredGroupId = settingsRes.rows[0].telegram_group_id || '';
+    const configuredOwnerChatId = settingsRes.rows[0].telegram_owner_chat_id || '';
 
     if (!token) {
         return NextResponse.json({ error: 'Token empty' }, { status: 404 });
@@ -40,6 +42,16 @@ export async function POST(request: Request) {
     }
 
     console.log(`[API Transporter] Raw: ${actualChatId} Thread: ${messageThreadId}`);
+
+    // 2b. SECURITY HARDENING: Restrict destination to configured chat IDs for this tenant
+    const allowedChatIds = new Set([
+      String(configuredGroupId || '').trim(),
+      String(configuredOwnerChatId || '').trim()
+    ]);
+    const normalizedActual = String(actualChatId || '').trim();
+    if (!allowedChatIds.has(normalizedActual)) {
+      return NextResponse.json({ error: 'Destination not allowed for this unit' }, { status: 403 });
+    }
 
     // 3. Send Message (ATTEMPT 1: AS IS)
     let telegramUrl = `https://api.telegram.org/bot${token}/sendMessage`;

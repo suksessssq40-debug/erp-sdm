@@ -1,90 +1,90 @@
 
 import { NextResponse } from 'next/server';
-import pool from '@/lib/db';
+import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
+import { Prisma } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   try {
-    await authorize(['OWNER', 'FINANCE', 'MANAGER']);
+    const user = await authorize(['OWNER', 'FINANCE', 'MANAGER']);
+    const { tenantId } = user; // 🛡️ SECURITY: Dapatkan Tenant ID dari Token (Server-Side)
 
     const { searchParams } = new URL(request.url);
     const businessUnitId = searchParams.get('businessUnitId');
     const hasUnitFilter = businessUnitId && businessUnitId !== 'ALL';
 
-    const client = await pool.connect();
-    try {
-      // 1. Calculate Balance per Account
-      // Updated: Join with financial_accounts to use stable IDs but return Names for frontend compatibility
-      let balanceQuery = `
+    // 1. Calculate Balance per Account (Menggunakan Prisma Raw Query untuk Agregasi Kompleks)
+    // 🛡️ SECURITY: Filter tenant_id ditambahkan secara eksplisit
+    // Menggunakan Prisma.sql untuk mencegah SQL Injection pada parameter optional
+    const balanceRes = await prisma.$queryRaw<any[]>`
         SELECT 
            COALESCE(fa.name, t.account) as account_name,
            SUM(CASE WHEN t.type = 'IN' THEN t.amount ELSE -t.amount END) as balance
         FROM transactions t
         LEFT JOIN financial_accounts fa ON t.account_id = fa.id
-        WHERE 1=1
-      `;
-      const balanceParams: any[] = [];
-      
-      if (hasUnitFilter) {
-          balanceQuery += ` AND t.business_unit_id = $1`;
-          balanceParams.push(businessUnitId);
-      }
-      balanceQuery += ` GROUP BY COALESCE(fa.name, t.account)`;
+        WHERE t.tenant_id = ${tenantId}
+        ${hasUnitFilter ? Prisma.sql`AND t.business_unit_id = ${businessUnitId}` : Prisma.empty}
+        GROUP BY COALESCE(fa.name, t.account)
+    `;
 
-      const balanceRes = await client.query(balanceQuery, balanceParams);
+    // 2. Calculate This Month's P&L (Menggunakan Prisma Query Builder - Lebih Rapi)
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    
+    // Build Filter
+    const plWhere: Prisma.TransactionWhereInput = {
+        tenantId: tenantId, // 🛡️ SECURITY: Wajib filter tenant
+        date: {
+            gte: startOfMonth,
+            lte: endOfMonth
+        }
+    };
+    if (hasUnitFilter) plWhere.businessUnitId = businessUnitId;
 
-      // 2. Calculate This Month's P&L
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString();
-      
-      let plQuery = `
-        SELECT type, SUM(amount) as total
-        FROM transactions
-        WHERE date >= $1 AND date <= $2
-      `;
-      const plParams: any[] = [startOfMonth, endOfMonth];
+    // Aggregate Income & Expense
+    const [incomeAgg, expenseAgg] = await Promise.all([
+        prisma.transaction.aggregate({
+            where: { ...plWhere, type: 'IN' },
+            _sum: { amount: true }
+        }),
+        prisma.transaction.aggregate({
+            where: { ...plWhere, type: 'OUT' },
+            _sum: { amount: true }
+        })
+    ]);
 
-      if (hasUnitFilter) {
-          plQuery += ` AND business_unit_id = $3`;
-          plParams.push(businessUnitId);
-      }
-      plQuery += ` GROUP BY type`;
-      
-      const plRes = await client.query(plQuery, plParams);
+    const income = Number(incomeAgg._sum.amount || 0);
+    const expense = Number(expenseAgg._sum.amount || 0);
 
-      const income = Number(plRes.rows.find(r => r.type === 'IN')?.total || 0);
-      const expense = Number(plRes.rows.find(r => r.type === 'OUT')?.total || 0);
+    // Format Result
+    const accountBalances: Record<string, number> = {};
+    let totalAssets = 0;
 
-      const accountBalances: Record<string, number> = {};
-      let totalAssets = 0;
-
-      balanceRes.rows.forEach(r => {
-        const bal = Number(r.balance);
-        // Use the joined name or fallback to stored string
+    balanceRes.forEach((r: any) => {
+        // Prisma Raw returns BigInt/Decimal as object/string sometimes, ensure Number
+        const bal = Number(r.balance || 0);
         const accName = r.account_name; 
         if (accName) {
             accountBalances[accName] = bal;
             totalAssets += bal;
         }
-      });
+    });
 
-      return NextResponse.json({
+    return NextResponse.json({
         accountBalances,
         totalAssets,
         monthStats: {
-          income,
-          expense,
-          profit: income - expense
+            income,
+            expense,
+            profit: income - expense
         }
-      });
-    } finally {
-      client.release();
-    }
+    });
+
   } catch (error) {
-    console.error(error);
+    console.error("Finance Summary Error:", error);
     return NextResponse.json({ error: 'Failed to fetch summary' }, { status: 500 });
   }
 }

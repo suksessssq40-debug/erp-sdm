@@ -93,6 +93,16 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({ users, currentUser, 
           </div>
 
           <div className="space-y-4">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Deskripsi Proyek</label>
+            <textarea 
+              className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-2xl outline-none font-medium text-sm transition min-h-[100px]" 
+              value={formData.description} 
+              onChange={e => setFormData({...formData, description: e.target.value})} 
+              placeholder="Detail penjelasan proyek..."
+            />
+          </div>
+
+          <div className="space-y-4">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Assign Tim Inti (Project Card PICs)</label>
             <div className="relative">
               <button onClick={() => setShowProjPICSelector(!showProjPICSelector)} className="w-full p-4 bg-slate-50 rounded-2xl text-left flex items-center justify-between group hover:bg-slate-100 transition">

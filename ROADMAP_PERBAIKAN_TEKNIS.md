@@ -1,6 +1,6 @@
 # Roadmap Menuju Keunggulan Teknis ERP SDM
 
-Dokumen ini berisi analisis strategis dan rencana aksi teknis untuk mentransformasi sistem ERP Anda dari "Split-Brain Architecture" yang rapuh menjadi sistem Enterprise-Grade yang kokoh, mudah dikembangkan, dan siap untuk deployment jangka panjang (Vercel atau Hostinger VPS).
+Dokumen ini berisi analisis strategis dan rencana aksi teknis untuk mentransformasi sistem ERP Anda dari "Split-Brain Architecture" yang rapuh menjadi sistem Enterprise-Grade yang kokoh, mudah dikembangkan, dan siap untuk deployment jangka panjang (Vercel atau Hostinger VPS). Seluruh pengembangan wajib mengikuti [DEVELOPMENT_RULES.md](./DEVELOPMENT_RULES.md).
 
 ---
 

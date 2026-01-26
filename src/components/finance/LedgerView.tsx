@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
 import { Transaction, FinancialAccountDef, TransactionType } from '../../types';
 import { formatCurrency } from '../../utils';
-import { BookOpen, ChevronRight } from 'lucide-react';
+import { BookOpen, ChevronRight, Receipt } from 'lucide-react';
+import { EmptyState } from '../EmptyState';
 
 interface LedgerViewProps {
   transactions: Transaction[]; // Should be Chronological ASC
@@ -92,7 +93,17 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
                     </thead>
                     <tbody className="divide-y divide-slate-50">
                     {ledgerEntries.length === 0 && (
-                        <tr><td colSpan={6} className="text-center py-20 text-slate-400 text-xs font-black uppercase italic">Tidak ada mutasi pada periode ini</td></tr>
+                        <tr>
+                          <td colSpan={6} className="py-12">
+                            <div className="flex justify-center">
+                                <EmptyState 
+                                    icon={Receipt} 
+                                    title="Tidak Ada Mutasi" 
+                                    description="Belum ada transaksi tercatat pada akun ini untuk periode yang dipilih." 
+                                />
+                            </div>
+                          </td>
+                        </tr>
                     )}
                     {ledgerEntries.map((t) => (
                         <tr key={t.id} className="hover:bg-blue-50/50 transition duration-300">

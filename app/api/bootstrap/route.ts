@@ -30,34 +30,10 @@ export async function GET() {
         throw e;
     }
 
-    // 3. Fetch Attendance, Projects, Requests, Reports, Salary (Safe for migration)
-    let attendanceRecords: any[] = [];
-    let projectRecords: any[] = [];
-    let requestRecords: any[] = [];
-    let dailyReportRecords: any[] = [];
-    let salaryConfigs: any[] = [];
-    let payrollRecords: any[] = [];
-
-    try {
-        const [att, proj, req, rep, sConf, pRec] = await Promise.all([
-          prisma.attendance.findMany({ where: { tenantId } as any, orderBy: [{ date: 'desc' }, { timeIn: 'desc' }], take: 100 }),
-          prisma.project.findMany({ where: { tenantId } as any, orderBy: { createdAt: 'desc' }, take: 50 }),
-          prisma.leaveRequest.findMany({ where: { tenantId } as any, orderBy: { createdAt: 'desc' }, take: 50 }),
-          prisma.dailyReport.findMany({ where: { tenantId } as any, orderBy: { createdAt: 'desc' }, take: 50 }),
-          prisma.salaryConfig.findMany({ where: { user: { tenantId } } as any }),
-          prisma.payrollRecord.findMany({ where: { user: { tenantId } } as any, orderBy: { processedAt: 'desc' }, take: 50 })
-        ]);
-        attendanceRecords = att;
-        projectRecords = proj;
-        requestRecords = req;
-        dailyReportRecords = rep;
-        salaryConfigs = sConf;
-        payrollRecords = pRec;
-    } catch (err) {
-        console.error("Bootstrap query failure:", err);
-        throw err; // Don't fallback to global queries in multi-tenancy!
-    }
-
+    // 3. REMOVED HEAVY FETCHES (Lazy Load Implementation)
+    // We only return EMPTY arrays or minimal data required for "App Shell"
+    // The specific modules (Finance, Projects, etc.) will fetch their own data.
+    
     // Format Settings
     const settings = settingsData ? {
         officeLocation: { lat: Number(settingsData.officeLat), lng: Number(settingsData.officeLng) },
@@ -100,77 +76,13 @@ export async function GET() {
           description: a.description,
           isActive: a.isActive
         })),
-        attendance: attendanceRecords.map(a => ({
-            id: a.id,
-            userId: a.userId,
-            tenantId: (a as any).tenantId,
-            date: a.date,
-            timeIn: a.timeIn,
-            timeOut: a.timeOut || undefined,
-            isLate: !!a.isLate,
-            lateReason: a.lateReason || undefined,
-            selfieUrl: a.selfieUrl,
-            checkOutSelfieUrl: a.checkoutSelfieUrl || undefined,
-            location: { lat: Number(a.locationLat), lng: Number(a.locationLng) },
-            createdAt: a.createdAt ? a.createdAt.getTime() : undefined
-        })),
-        projects: projectRecords.map(p => ({
-            id: p.id,
-            title: p.title,
-            description: p.description || '',
-            collaborators: typeof p.collaboratorsJson === 'string' ? JSON.parse(p.collaboratorsJson) : [],
-            deadline: p.deadline ? p.deadline.toISOString().split('T')[0] : '',
-            status: p.status,
-            tasks: typeof p.tasksJson === 'string' ? JSON.parse(p.tasksJson) : [],
-            comments: typeof p.commentsJson === 'string' ? JSON.parse(p.commentsJson) : [],
-            isManagementOnly: !!p.isManagementOnly,
-            priority: p.priority,
-            createdBy: p.createdBy,
-            createdAt: p.createdAt ? Number(p.createdAt) : Date.now()
-        })),
-        requests: requestRecords.map(r => ({
-            id: r.id,
-            userId: r.userId,
-            type: r.type,
-            description: r.description,
-            startDate: r.startDate?.toISOString().split('T')[0],
-            endDate: r.endDate?.toISOString().split('T')[0],
-            status: r.status,
-            createdAt: Number(r.createdAt),
-            approverId: r.approverId,
-            approverName: r.approverName,
-            actionNote: r.actionNote,
-            actionAt: r.actionAt ? Number(r.actionAt) : undefined
-        })),
-        transactions: [],
-        dailyReports: dailyReportRecords.map(dr => ({
-            id: dr.id,
-            userId: dr.userId,
-            date: dr.date,
-            activities: typeof dr.activitiesJson === 'string' ? JSON.parse(dr.activitiesJson) : [],
-            createdAt: dr.createdAt ? dr.createdAt.getTime() : Date.now()
-        })),
-        salaryConfigs: salaryConfigs.map(c => ({
-          userId: c.userId,
-          basicSalary: Number(c.basicSalary),
-          allowance: Number(c.allowance),
-          mealAllowance: Number(c.mealAllowance),
-          lateDeduction: Number(c.lateDeduction)
-        })),
-        payrollRecords: payrollRecords.map(pr => ({
-          id: pr.id,
-          userId: pr.userId,
-          month: pr.month,
-          basicSalary: Number(pr.basicSalary),
-          allowance: Number(pr.allowance),
-          totalMealAllowance: Number(pr.totalMealAllowance),
-          bonus: Number(pr.bonus),
-          deductions: Number(pr.deductions),
-          netSalary: Number(pr.netSalary),
-          isSent: !!pr.isSent,
-          processedAt: pr.processedAt ? Number(pr.processedAt) : Date.now(),
-          metadata: typeof pr.metadataJson === 'string' ? JSON.parse(pr.metadataJson) : undefined
-        })),
+        attendance: [], // Lazy Loaded
+        projects: [],   // Lazy Loaded
+        requests: [],   // Lazy Loaded
+        transactions: [], // Lazy Loaded
+        dailyReports: [], // Lazy Loaded
+        salaryConfigs: [], // Fetched on demand in Payroll
+        payrollRecords: [], // Fetched on demand in Payroll
         logs: []
     };
 

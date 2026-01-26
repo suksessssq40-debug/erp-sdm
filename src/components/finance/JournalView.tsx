@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Transaction, TransactionType, BusinessUnit } from '../../types';
 import { formatCurrency } from '../../utils';
-import { Search, Landmark, Edit, Trash2, ImageIcon } from 'lucide-react';
+import { Search, Landmark, Edit, Trash2, ImageIcon, Receipt } from 'lucide-react';
+import { EmptyState } from '../EmptyState';
 
 interface JournalViewProps {
   transactions: Transaction[];
@@ -42,6 +43,14 @@ export const JournalView: React.FC<JournalViewProps> = ({
             </div>
         </div>
         </div>
+        
+        {filteredTransactions.length === 0 ? (
+          <EmptyState 
+            icon={Receipt}
+            title="Tidak Ada Transaksi"
+            description={searchTerm ? `Tidak ditemukan transaksi dengan kata kunci "${searchTerm}"` : "Belum ada data transaksi tercatat untuk periode ini."}
+          />
+        ) : (
         <div className="overflow-x-auto">
         <table className="w-full text-left">
             <thead>
@@ -137,6 +146,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
             </tbody>
         </table>
         </div>
+        )}
     </div>
     
     {/* Image Preview Overlay */}

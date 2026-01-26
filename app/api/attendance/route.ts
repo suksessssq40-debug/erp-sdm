@@ -59,6 +59,11 @@ export async function POST(request: Request) {
     const { tenantId } = payload;
     const a = await request.json();
 
+    // 🛡️ SECURITY: Sanity Check Input
+    if (!a.location || typeof a.location.lat !== 'number' || typeof a.location.lng !== 'number') {
+        return NextResponse.json({ error: 'Data lokasi tidak valid (Wajib GPS)' }, { status: 400 });
+    }
+
     const now = new Date();
     // Gunakan Intl.DateTimeFormat untuk mendapatkan waktu Jakarta yang akurat
     const jakartaFormatter = new Intl.DateTimeFormat('id-ID', {
