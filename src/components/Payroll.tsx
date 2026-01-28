@@ -19,7 +19,7 @@ interface PayrollProps {
   toast: ReturnType<typeof useToast>;
 }
 
-const PayrollModule: React.FC<PayrollProps> = ({ 
+const PayrollModule: React.FC<PayrollProps> = ({
   currentUser, users, salaryConfigs, attendance, settings, payrollRecords, onUpdateSalary, onAddPayroll, toast
 }) => {
   const [activeTab, setActiveTab] = useState<'MANAGEMENT' | 'HISTORY'>('MANAGEMENT');
@@ -94,7 +94,7 @@ const PayrollModule: React.FC<PayrollProps> = ({
         let logoX = (pageWidth / 2) - (logoW / 2);
         if (textAlgn === 'left') logoX = margin;
         if (textAlgn === 'right') logoX = pageWidth - margin - logoW;
-        try { doc.addImage(p.logoUrl, 'PNG', logoX, currentY, logoW, logoH); } catch(e){}
+        try { doc.addImage(p.logoUrl, 'PNG', logoX, currentY, logoW, logoH); } catch (e) { }
         currentY += logoH + 8;
       }
       doc.setFontSize(22);
@@ -109,7 +109,7 @@ const PayrollModule: React.FC<PayrollProps> = ({
       currentY += 10;
     } else if (logoPos === 'left') {
       const logoW = 30, logoH = 30;
-      if (p.logoUrl) try { doc.addImage(p.logoUrl, 'PNG', margin, currentY, logoW, logoH); } catch(e){}
+      if (p.logoUrl) try { doc.addImage(p.logoUrl, 'PNG', margin, currentY, logoW, logoH); } catch (e) { }
       const textX = margin + (p.logoUrl ? logoW + 10 : 0);
       doc.setFontSize(18); doc.setFont('helvetica', 'bold');
       doc.text(p.name.toUpperCase(), textX, currentY + 10);
@@ -119,7 +119,7 @@ const PayrollModule: React.FC<PayrollProps> = ({
       currentY += Math.max(logoH, 30) + 10;
     } else if (logoPos === 'right') {
       const logoW = 30, logoH = 30;
-      if (p.logoUrl) try { doc.addImage(p.logoUrl, 'PNG', pageWidth - margin - logoW, currentY, logoW, logoH); } catch(e){}
+      if (p.logoUrl) try { doc.addImage(p.logoUrl, 'PNG', pageWidth - margin - logoW, currentY, logoW, logoH); } catch (e) { }
       const textXEnd = pageWidth - margin - (p.logoUrl ? logoW + 10 : 0);
       doc.setFontSize(18); doc.setFont('helvetica', 'bold');
       doc.text(p.name.toUpperCase(), textXEnd, currentY + 10, { align: 'right' });
@@ -270,68 +270,68 @@ const PayrollModule: React.FC<PayrollProps> = ({
 
       {activeTab === 'MANAGEMENT' ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="bg-white rounded-[3.5rem] lg:col-span-2 shadow-xl border border-slate-100 overflow-hidden flex flex-col h-full">
-              <div className="p-10 border-b bg-slate-50/50 flex justify-between items-center">
-                <h4 className="font-black text-slate-800 text-lg uppercase tracking-tight italic">Employee Payroll Management</h4>
-              </div>
-              <div className="overflow-x-auto flex-1 custom-scrollbar">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-50 border-b border-slate-100">
-                    <tr>
-                      <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Karyawan</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Jabatan</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">THP Estimasi</th>
-                      <th className="px-8 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Aksi</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {users.filter(u => u.role !== UserRole.OWNER).map(user => {
-                      const record = calculateRecord(user, selectedMonth);
-                      return (
-                        <tr key={user.id} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="px-8 py-5">
-                            <div className="flex items-center gap-4">
-                              <div className="w-10 h-10 bg-slate-900 text-white rounded-xl flex items-center justify-center font-black text-sm shadow-sm">
-                                {user.name.charAt(0)}
-                              </div>
-                              <span className="font-bold text-slate-800 text-sm">{user.name}</span>
+          <div className="bg-white rounded-[3.5rem] lg:col-span-2 shadow-xl border border-slate-100 overflow-hidden flex flex-col h-full">
+            <div className="p-10 border-b bg-slate-50/50 flex justify-between items-center">
+              <h4 className="font-black text-slate-800 text-lg uppercase tracking-tight italic">Employee Payroll Management</h4>
+            </div>
+            <div className="overflow-x-auto flex-1 custom-scrollbar">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 border-b border-slate-100">
+                  <tr>
+                    <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Karyawan</th>
+                    <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Jabatan</th>
+                    <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">THP Estimasi</th>
+                    <th className="px-8 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {users.filter(u => u.role !== UserRole.OWNER).map(user => {
+                    const record = calculateRecord(user, selectedMonth);
+                    return (
+                      <tr key={user.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-8 py-5">
+                          <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 bg-slate-900 text-white rounded-xl flex items-center justify-center font-black text-sm shadow-sm">
+                              {user.name.charAt(0)}
                             </div>
-                          </td>
-                          <td className="px-8 py-5">
-                            <span className="px-3 py-1 bg-slate-100 text-slate-500 rounded-lg text-[10px] font-black uppercase tracking-widest">{user.role}</span>
-                          </td>
-                          <td className="px-8 py-5">
-                            <span className="font-black text-slate-800 text-sm">{record ? formatCurrency(record.netSalary) : 'N/A'}</span>
-                          </td>
-                          <td className="px-8 py-5 text-right flex justify-end gap-2">
-                            <button onClick={() => setEditingConfig(salaryConfigs.find(c => c.userId === user.id) || { userId: user.id, basicSalary: 0, allowance: 0, mealAllowance: 0, lateDeduction: 0 })} className="p-3 bg-slate-100 text-slate-400 rounded-xl hover:bg-blue-600 hover:text-white transition" title="Config Salary">
-                              <Settings size={16} />
-                            </button>
-                            <button onClick={() => record && setPreviewData({ user, record })} className="p-3 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-600 hover:text-white transition shadow-sm" title="Preview Slip">
-                              <Eye size={16} />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                            <span className="font-bold text-slate-800 text-sm">{user.name}</span>
+                          </div>
+                        </td>
+                        <td className="px-8 py-5">
+                          <span className="px-3 py-1 bg-slate-100 text-slate-500 rounded-lg text-[10px] font-black uppercase tracking-widest">{user.role}</span>
+                        </td>
+                        <td className="px-8 py-5">
+                          <span className="font-black text-slate-800 text-sm">{record ? formatCurrency(record.netSalary) : 'N/A'}</span>
+                        </td>
+                        <td className="px-8 py-5 text-right flex justify-end gap-2">
+                          <button onClick={() => setEditingConfig(salaryConfigs.find(c => c.userId === user.id) || { userId: user.id, basicSalary: 0, allowance: 0, mealAllowance: 0, lateDeduction: 0 })} className="p-3 bg-slate-100 text-slate-400 rounded-xl hover:bg-blue-600 hover:text-white transition" title="Config Salary">
+                            <Settings size={16} />
+                          </button>
+                          <button onClick={() => record && setPreviewData({ user, record })} className="p-3 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-600 hover:text-white transition shadow-sm" title="Preview Slip">
+                            <Eye size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="bg-slate-900 text-white p-10 rounded-[3.5rem] shadow-2xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/20 blur-3xl rounded-full -mr-16 -mt-16"></div>
+            <Landmark className="text-blue-400 mb-8" size={32} />
+            <h4 className="text-2xl font-black italic uppercase tracking-tight mb-8">Summary {selectedMonth}</h4>
+            <div className="space-y-4 pt-8 border-t border-white/5">
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] font-black text-slate-500 uppercase">TOTAL KARYAWAN</span>
+                <span className="text-lg font-black">{users.length - 1} Orang</span>
+              </div>
+              <div className="flex justify-between items-center bg-blue-600 p-6 rounded-[2rem] shadow-xl">
+                <span className="text-[10px] font-black text-white uppercase">TOTAL PAYOUT</span>
+                <span className="text-xl font-black text-white">{formatCurrency(users.filter(u => u.role !== UserRole.OWNER).reduce((acc, u) => acc + (calculateRecord(u, selectedMonth)?.netSalary || 0), 0))}</span>
               </div>
             </div>
-          <div className="bg-slate-900 text-white p-10 rounded-[3.5rem] shadow-2xl relative overflow-hidden">
-             <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/20 blur-3xl rounded-full -mr-16 -mt-16"></div>
-             <Landmark className="text-blue-400 mb-8" size={32} />
-             <h4 className="text-2xl font-black italic uppercase tracking-tight mb-8">Summary {selectedMonth}</h4>
-             <div className="space-y-4 pt-8 border-t border-white/5">
-                <div className="flex justify-between items-center">
-                   <span className="text-[10px] font-black text-slate-500 uppercase">TOTAL KARYAWAN</span>
-                   <span className="text-lg font-black">{users.length - 1} Orang</span>
-                </div>
-                <div className="flex justify-between items-center bg-blue-600 p-6 rounded-[2rem] shadow-xl">
-                   <span className="text-[10px] font-black text-white uppercase">TOTAL PAYOUT</span>
-                   <span className="text-xl font-black text-white">{formatCurrency(users.filter(u => u.role !== UserRole.OWNER).reduce((acc, u) => acc + (calculateRecord(u, selectedMonth)?.netSalary || 0), 0))}</span>
-                </div>
-             </div>
           </div>
         </div>
       ) : (
@@ -351,15 +351,15 @@ const PayrollModule: React.FC<PayrollProps> = ({
                 return (
                   <tr key={rec.id} className="hover:bg-blue-50/20 transition-colors">
                     <td className="px-10 py-6 flex items-center space-x-3">
-                       <div className="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center font-black text-[10px]">{user?.name.charAt(0)}</div>
-                       <span className="text-xs font-black text-slate-800">{user?.name}</span>
+                      <div className="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center font-black text-[10px]">{user?.name.charAt(0)}</div>
+                      <span className="text-xs font-black text-slate-800">{user?.name}</span>
                     </td>
                     <td className="px-10 py-6 text-[10px] font-black uppercase text-slate-400">{rec.month}</td>
                     <td className="px-10 py-6 text-sm font-black text-blue-600">{formatCurrency(rec.netSalary)}</td>
                     <td className="px-10 py-6 text-right">
-                       <button onClick={() => user && setPreviewData({ user, record: rec })} className="p-3 bg-slate-100 text-slate-400 rounded-xl hover:bg-blue-600 hover:text-white transition">
-                          <Eye size={16} />
-                       </button>
+                      <button onClick={() => user && setPreviewData({ user, record: rec })} className="p-3 bg-slate-100 text-slate-400 rounded-xl hover:bg-blue-600 hover:text-white transition">
+                        <Eye size={16} />
+                      </button>
                     </td>
                   </tr>
                 );
@@ -383,17 +383,15 @@ const PayrollModule: React.FC<PayrollProps> = ({
             <div className="p-10 space-y-8">
               <div className="bg-white border-2 border-slate-100 rounded-[2rem] p-8 shadow-inner relative overflow-hidden flex flex-col">
                 <div className="absolute top-0 left-0 right-0 h-1 bg-blue-600"></div>
-                <div className={`flex w-full items-center gap-4 mb-8 ${
-                  settings.companyProfile.logoPosition === 'top' ? 'flex-col' : 
-                  settings.companyProfile.logoPosition === 'right' ? 'flex-row-reverse' : 'flex-row'
-                }`}>
+                <div className={`flex w-full items-center gap-4 mb-8 ${settings.companyProfile.logoPosition === 'top' ? 'flex-col' :
+                    settings.companyProfile.logoPosition === 'right' ? 'flex-row-reverse' : 'flex-row'
+                  }`}>
                   {settings.companyProfile.logoUrl && (
                     <img src={settings.companyProfile.logoUrl} className="h-14 w-auto object-contain" alt="Logo" />
                   )}
-                  <div className={`flex-1 ${
-                    settings.companyProfile.textAlignment === 'left' ? 'text-left' :
-                    settings.companyProfile.textAlignment === 'right' ? 'text-right' : 'text-center'
-                  }`}>
+                  <div className={`flex-1 ${settings.companyProfile.textAlignment === 'left' ? 'text-left' :
+                      settings.companyProfile.textAlignment === 'right' ? 'text-right' : 'text-center'
+                    }`}>
                     <h4 className="text-base font-black text-slate-800 uppercase leading-none mb-1">{settings.companyProfile.name}</h4>
                     <p className="text-[8px] font-bold text-slate-400 leading-tight">{settings.companyProfile.address}</p>
                     <p className="text-[8px] font-black text-blue-600 mt-1">{settings.companyProfile.phone}</p>
@@ -405,43 +403,43 @@ const PayrollModule: React.FC<PayrollProps> = ({
                   <p className="text-[9px] font-bold text-slate-400">{previewData.record.month}</p>
                 </div>
                 <div className="grid grid-cols-2 gap-4 mb-6">
-                   <div className="p-4 bg-slate-50 rounded-xl">
-                      <p className="text-[8px] font-black text-slate-400 uppercase mb-1">KARYAWAN</p>
-                      <p className="text-[10px] font-black text-slate-800">{previewData.user.name}</p>
-                      <p className="text-[9px] font-bold text-slate-500">{previewData.user.role}</p>
-                   </div>
-                   <div className="p-4 bg-slate-50 rounded-xl">
-                      <p className="text-[8px] font-black text-slate-400 uppercase mb-1">TELEGRAM ID</p>
-                      <p className="text-[10px] font-black text-blue-600">{previewData.user.telegramUsername}</p>
-                   </div>
+                  <div className="p-4 bg-slate-50 rounded-xl">
+                    <p className="text-[8px] font-black text-slate-400 uppercase mb-1">KARYAWAN</p>
+                    <p className="text-[10px] font-black text-slate-800">{previewData.user.name}</p>
+                    <p className="text-[9px] font-bold text-slate-500">{previewData.user.role}</p>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-xl">
+                    <p className="text-[8px] font-black text-slate-400 uppercase mb-1">TELEGRAM ID</p>
+                    <p className="text-[10px] font-black text-blue-600">{previewData.user.telegramUsername}</p>
+                  </div>
                 </div>
                 <div className="space-y-2 mb-8">
-                   <div className="flex justify-between items-center text-[9px] font-black text-slate-400 border-b pb-1"><span>ITEM</span><span>NOMINAL</span></div>
-                   <div className="flex justify-between text-xs font-bold text-slate-600"><span>Gaji Pokok</span><span>{formatCurrency(previewData.record.basicSalary)}</span></div>
-                   <div className="flex justify-between text-xs font-bold text-slate-600"><span>Tunjangan</span><span>{formatCurrency(previewData.record.allowance)}</span></div>
-                   <div className="flex justify-between text-xs font-bold text-slate-600"><span>Uang Makan</span><span>{formatCurrency(previewData.record.totalMealAllowance)}</span></div>
-                   <div className="flex justify-between text-xs font-bold text-rose-500"><span>Potongan Telat</span><span>-{formatCurrency(previewData.record.deductions)}</span></div>
+                  <div className="flex justify-between items-center text-[9px] font-black text-slate-400 border-b pb-1"><span>ITEM</span><span>NOMINAL</span></div>
+                  <div className="flex justify-between text-xs font-bold text-slate-600"><span>Gaji Pokok</span><span>{formatCurrency(previewData.record.basicSalary)}</span></div>
+                  <div className="flex justify-between text-xs font-bold text-slate-600"><span>Tunjangan</span><span>{formatCurrency(previewData.record.allowance)}</span></div>
+                  <div className="flex justify-between text-xs font-bold text-slate-600"><span>Uang Makan</span><span>{formatCurrency(previewData.record.totalMealAllowance)}</span></div>
+                  <div className="flex justify-between text-xs font-bold text-rose-500"><span>Potongan Telat</span><span>-{formatCurrency(previewData.record.deductions)}</span></div>
                 </div>
                 <div className="flex justify-between items-center p-4 bg-slate-900 text-white rounded-xl">
                   <span className="text-[10px] font-black uppercase">TOTAL TAKE HOME PAY</span>
                   <span className="text-base font-black">{formatCurrency(previewData.record.netSalary)}</span>
                 </div>
               </div>
-              <button 
-                  onClick={() => handleSendSingle(previewData.user, previewData.record)} 
-                  disabled={isProcessing} 
-                  className={`w-full py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-2xl transition flex items-center justify-center gap-3 ${isProcessing ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-slate-900 text-white hover:bg-blue-600'}`}
+              <button
+                onClick={() => handleSendSingle(previewData.user, previewData.record)}
+                disabled={isProcessing}
+                className={`w-full py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-2xl transition flex items-center justify-center gap-3 ${isProcessing ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-slate-900 text-white hover:bg-blue-600'}`}
               >
-                  {isProcessing ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full animate-spin"></div>
-                      SEDANG MENGIRIM...
-                    </>
-                  ) : (
-                    <>
-                      <Send size={18} /> {previewData.record.isSent ? "KIRIM ULANG SLIP" : "KIRIM SLIP VIA TELEGRAM"}
-                    </>
-                  )}
+                {isProcessing ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full animate-spin"></div>
+                    SEDANG MENGIRIM...
+                  </>
+                ) : (
+                  <>
+                    <Send size={18} /> {previewData.record.isSent ? "KIRIM ULANG SLIP" : "KIRIM SLIP VIA TELEGRAM"}
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -457,21 +455,21 @@ const PayrollModule: React.FC<PayrollProps> = ({
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">GAJI POKOK (IDR)</label>
-                  <input type="number" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl outline-none font-black text-sm" value={editingConfig.basicSalary} onChange={e => setEditingConfig({...editingConfig, basicSalary: Number(e.target.value)})} />
+                  <input type="number" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl outline-none font-black text-sm" value={editingConfig.basicSalary} onChange={e => setEditingConfig({ ...editingConfig, basicSalary: Number(e.target.value) })} />
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">TUNJANGAN JABATAN</label>
-                  <input type="number" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl outline-none font-black text-sm" value={editingConfig.allowance} onChange={e => setEditingConfig({...editingConfig, allowance: Number(e.target.value)})} />
+                  <input type="number" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl outline-none font-black text-sm" value={editingConfig.allowance} onChange={e => setEditingConfig({ ...editingConfig, allowance: Number(e.target.value) })} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">MAKAN (PER HARI)</label>
-                  <input type="number" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl outline-none font-black text-sm" value={editingConfig.mealAllowance} onChange={e => setEditingConfig({...editingConfig, mealAllowance: Number(e.target.value)})} />
+                  <input type="number" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl outline-none font-black text-sm" value={editingConfig.mealAllowance} onChange={e => setEditingConfig({ ...editingConfig, mealAllowance: Number(e.target.value) })} />
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">POTONGAN TELAT</label>
-                  <input type="number" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl outline-none font-black text-sm" value={editingConfig.lateDeduction} onChange={e => setEditingConfig({...editingConfig, lateDeduction: Number(e.target.value)})} />
+                  <input type="number" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl outline-none font-black text-sm" value={editingConfig.lateDeduction} onChange={e => setEditingConfig({ ...editingConfig, lateDeduction: Number(e.target.value) })} />
                 </div>
               </div>
             </div>

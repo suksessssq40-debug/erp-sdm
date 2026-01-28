@@ -11,11 +11,11 @@ export async function GET(request: NextRequest) {
     // 1. SECURITY: Pastikan hanya Owner/Manager/Finance yang bisa akses
     // authorize() otomatis ambil headers, cukup pass allowed roles
     const user = await authorize(['OWNER', 'MANAGER', 'FINANCE']);
-    
+
     // authorize() throw error jika gagal, jadi code di bawah aman
-    if (user.role === 'STAFF') { 
-       // Double check (walaupun sudah difilter di atas, guard extra ok)
-       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (user.role === 'STAFF') {
+      // Double check (walaupun sudah difilter di atas, guard extra ok)
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const tenantId = user.tenantId;
@@ -26,11 +26,11 @@ export async function GET(request: NextRequest) {
     // 2. TIME SYNC: Gunakan Waktu Jakarta (Sama seperti Logic Absensi Baru)
     const now = new Date();
     const jakartaFormatter = new Intl.DateTimeFormat('id-ID', {
-        timeZone: 'Asia/Jakarta',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour12: false
+      timeZone: 'Asia/Jakarta',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour12: false
     });
     const parts = jakartaFormatter.formatToParts(now);
     const getPart = (type: string) => parts.find(p => p.type === type)?.value || '';
@@ -61,12 +61,12 @@ export async function GET(request: NextRequest) {
       prisma.attendance.count({ where: { tenantId, date: { startsWith: todayISO }, isLate: 1 } }),
 
       // F. Overdue Projects
-      prisma.project.count({ 
-        where: { 
-            tenantId, 
-            status: { not: 'DONE' },
-            deadline: { lt: now } // Simple date comparison
-        } 
+      prisma.project.count({
+        where: {
+          tenantId,
+          status: { not: 'DONE' },
+          deadline: { lt: now } // Simple date comparison
+        }
       })
     ]);
 

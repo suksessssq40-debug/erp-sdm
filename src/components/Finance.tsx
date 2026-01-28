@@ -88,7 +88,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
     return new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0]; // End of Month
   });
   
-  const [filterAccount, setFilterAccount] = useState<string>('ALL'); // For "MUTASI" Tab
+  const [filterAccount, setFilterAccount] = useState<string>('ALL'); // 'ALL' | 'GENERAL_JOURNAL' | Account Name
   const [filterBusinessUnit, setFilterBusinessUnit] = useState<string>('ALL');
   
   // Data State
@@ -225,10 +225,18 @@ const FinanceModule: React.FC<FinanceProps> = ({
   // --- DERIVED DATA ---
   const filteredMutasi = useMemo(() => {
     return localTransactions
-      .filter(t => filterAccount === 'ALL' || t.account === filterAccount)
+      .filter(t => {
+          if (filterAccount === 'ALL') return true;
+          if (filterAccount === 'GENERAL_JOURNAL') {
+              // Non-cash transactions are those where the 'account' doesn't match any bank name
+              // OR specifically those created in 'isGeneralMode' where accountId is usually null (verified in DB query)
+              return !financialAccounts.some(acc => acc.name === t.account);
+          }
+          return t.account === filterAccount;
+      })
       .filter(t => filterBusinessUnit === 'ALL' || t.businessUnitId === filterBusinessUnit) 
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [localTransactions, filterAccount, filterBusinessUnit]);
+  }, [localTransactions, filterAccount, filterBusinessUnit, financialAccounts]);
 
   // Helper for Month Name Display (if needed in titles)
   const getPeriodLabel = () => {
@@ -470,7 +478,6 @@ const FinanceModule: React.FC<FinanceProps> = ({
               key={acc.id} 
               onClick={() => {
                 setFilterAccount(isSelected ? 'ALL' : acc.name);
-                // Also set Ledger Account for convenience if user switches tab
                 if(activeTab !== 'BUKU_BESAR') setLedgerAccount(acc.name);
               }}
               className={`relative flex-shrink-0 w-64 snap-start p-6 rounded-[2.5rem] border-2 cursor-pointer transition-all duration-300 group ${isSelected ? 'bg-slate-900 border-slate-900 text-white shadow-2xl shadow-slate-200' : 'bg-white border-slate-100 hover:border-blue-200 hover:shadow-lg shadow-sm text-slate-800'}`}
@@ -495,6 +502,23 @@ const FinanceModule: React.FC<FinanceProps> = ({
             </div>
           );
         })}
+
+        {/* --- GENERAL JOURNAL CARD (For Non-Cash Mutations) --- */}
+        <div 
+            onClick={() => setFilterAccount(filterAccount === 'GENERAL_JOURNAL' ? 'ALL' : 'GENERAL_JOURNAL')}
+            className={`relative flex-shrink-0 w-64 snap-start p-6 rounded-[2.5rem] border-2 cursor-pointer transition-all duration-300 group ${filterAccount === 'GENERAL_JOURNAL' ? 'bg-blue-900 border-blue-900 text-white shadow-2xl shadow-blue-200' : 'bg-white border-slate-100 hover:border-blue-200 hover:shadow-lg shadow-sm text-slate-800'}`}
+        >
+            <div className="flex justify-between items-start mb-4">
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${filterAccount === 'GENERAL_JOURNAL' ? 'bg-white/10' : 'bg-slate-100 text-slate-500'}`}>
+                    <RefreshCw size={20} />
+                </div>
+                {filterAccount === 'GENERAL_JOURNAL' && <div className="text-[9px] font-black uppercase tracking-widest bg-emerald-500 px-2 py-1 rounded-lg text-white">FILTER ACTIVE</div>}
+            </div>
+            <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${filterAccount === 'GENERAL_JOURNAL' ? 'text-blue-300' : 'text-slate-400'}`}>PENYESUAIAN</p>
+            <h4 className="text-xl font-black tracking-tight leading-none">JURNAL UMUM</h4>
+            <p className="mt-2 text-[9px] font-medium opacity-60">Transaksi tanpa Rekening Kas/Bank</p>
+        </div>
+
         {onAddAccount && (
             <button onClick={() => handleOpenAccount(false)} className="flex-shrink-0 w-24 snap-start p-6 rounded-[2.5rem] border-2 border-dashed border-slate-200 flex flex-col items-center justify-center gap-2 hover:bg-slate-50 hover:border-blue-300 transition text-slate-300 hover:text-blue-500">
                 <Plus size={24} /><span className="text-[9px] font-black uppercase text-center">Add Akun</span>
@@ -543,6 +567,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
              transactions={ledgerData.transactions}
              openingBalance={ledgerData.openingBalance}
              financialAccounts={financialAccounts}
+             coaList={coaList} // Pass all COAs to Ledger
              selectedAccount={ledgerAccount}
              onAccountChange={setLedgerAccount}
              startDate={filterStartDate}

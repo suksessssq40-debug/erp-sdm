@@ -4,8 +4,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useAppStore } from '@/context/StoreContext';
 import { UserRole, Attendance, Shift, Tenant } from '@/types';
 import { useRouter } from 'next/navigation';
-import { 
-    Calendar, Download, Search, MapPin, Clock, ArrowRightSquare, 
+import {
+    Calendar, Download, Search, MapPin, Clock, ArrowRightSquare,
     ChevronLeft, User, AlertTriangle, Layers
 } from 'lucide-react';
 
@@ -40,18 +40,18 @@ export default function AttendanceReportPage() {
 
         // 0. Role Based Filtering (For Staff)
         if (isStaff) {
-             data = data.filter(d => d.userId === store.currentUser?.id);
+            data = data.filter(d => d.userId === store.currentUser?.id);
         }
 
         // 1. Date Range
         if (startDate) {
             const start = new Date(startDate);
-            start.setHours(0,0,0,0);
+            start.setHours(0, 0, 0, 0);
             data = data.filter(d => new Date(d.date).getTime() >= start.getTime());
         }
         if (endDate) {
             const end = new Date(endDate);
-            end.setHours(23,59,59,999);
+            end.setHours(23, 59, 59, 999);
             data = data.filter(d => new Date(d.date).getTime() <= end.getTime());
         }
 
@@ -108,9 +108,9 @@ export default function AttendanceReportPage() {
         <div className="min-h-screen bg-slate-50 p-6 md:p-10 space-y-8 pb-20">
             {/* Header */}
             <div className="flex flex-col gap-4">
-                <button 
-                  onClick={() => router.back()} 
-                  className="self-start flex items-center gap-2 text-slate-400 hover:text-slate-600 transition text-[10px] font-black uppercase tracking-widest"
+                <button
+                    onClick={() => router.back()}
+                    className="self-start flex items-center gap-2 text-slate-400 hover:text-slate-600 transition text-[10px] font-black uppercase tracking-widest"
                 >
                     <ChevronLeft size={16} /> Kembali
                 </button>
@@ -120,10 +120,10 @@ export default function AttendanceReportPage() {
                             {isStaff ? 'Riwayat Absensi Saya' : 'Laporan Detail Absensi'}
                         </h1>
                         <p className="text-slate-500 font-bold text-xs uppercase tracking-widest mt-2">
-                           {isStaff ? 'Pantau catatan kehadiran pribadi anda' : 'Pantau kehadiran seluruh tim secara lengkap'}
+                            {isStaff ? 'Pantau catatan kehadiran pribadi anda' : 'Pantau kehadiran seluruh tim secara lengkap'}
                         </p>
                     </div>
-                    <button 
+                    <button
                         onClick={handleExport}
                         className="bg-emerald-600 text-white px-6 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-700 shadow-xl shadow-emerald-200 transition flex items-center gap-3 w-full md:w-auto justify-center"
                     >
@@ -134,35 +134,35 @@ export default function AttendanceReportPage() {
 
             {/* Filters */}
             <div className={`bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 grid grid-cols-1 ${!isStaff ? 'md:grid-cols-4' : 'md:grid-cols-2'} gap-4`}>
-                 {!isStaff && (
-                     <div className="relative md:col-span-2">
+                {!isStaff && (
+                    <div className="relative md:col-span-2">
                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                        <input 
+                        <input
                             className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 rounded-2xl py-3 pl-12 pr-4 text-xs font-bold outline-none transition"
                             placeholder="Cari nama karyawan..."
                             value={searchUser}
                             onChange={e => setSearchUser(e.target.value)}
                         />
-                     </div>
-                 )}
-                 <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-2xl border border-slate-100">
-                     <span className="text-[10px] font-black text-slate-400 shrink-0">DARI</span>
-                     <input 
-                        type="date" 
+                    </div>
+                )}
+                <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-2xl border border-slate-100">
+                    <span className="text-[10px] font-black text-slate-400 shrink-0">DARI</span>
+                    <input
+                        type="date"
                         className="bg-transparent text-xs font-bold outline-none text-slate-600 w-full"
                         value={startDate}
                         onChange={e => setStartDate(e.target.value)}
-                     />
-                 </div>
-                 <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-2xl border border-slate-100">
-                     <span className="text-[10px] font-black text-slate-400 shrink-0">SAMPAI</span>
-                     <input 
-                        type="date" 
+                    />
+                </div>
+                <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-2xl border border-slate-100">
+                    <span className="text-[10px] font-black text-slate-400 shrink-0">SAMPAI</span>
+                    <input
+                        type="date"
                         className="bg-transparent text-xs font-bold outline-none text-slate-600 w-full"
                         value={endDate}
                         onChange={e => setEndDate(e.target.value)}
-                     />
-                 </div>
+                    />
+                </div>
             </div>
 
             {/* Table Area */}
@@ -184,7 +184,7 @@ export default function AttendanceReportPage() {
                             {filteredData.length > 0 ? (
                                 filteredData.map(record => {
                                     const user = store.users.find(u => u.id === record.userId);
-                                    
+
                                     // Safe date parsing to prevent crash
                                     let dateDisplay = 'Unknown';
                                     try {
@@ -194,11 +194,11 @@ export default function AttendanceReportPage() {
                                         } else {
                                             dateDisplay = String(record.date).split(',')[0]; // Simple fallback
                                         }
-                                    } catch(e) {}
+                                    } catch (e) { }
 
                                     return (
-                                        <tr 
-                                            key={record.id} 
+                                        <tr
+                                            key={record.id}
                                             onClick={() => setSelectedRecord(record)}
                                             className="hover:bg-blue-50/50 cursor-pointer transition-colors group"
                                         >
@@ -258,8 +258,8 @@ export default function AttendanceReportPage() {
             {/* RESPONSIVE DETAIL MODAL */}
             {selectedRecord && (
                 <div onClick={() => setSelectedRecord(null)} className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
-                    <div 
-                        onClick={e => e.stopPropagation()} 
+                    <div
+                        onClick={e => e.stopPropagation()}
                         className="bg-white/90 backdrop-blur-xl w-full max-w-5xl rounded-[2.5rem] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300 flex flex-col md:flex-row max-h-[90vh] border border-white/20"
                     >
                         {/* LEFT: VISUAL EVIDENCE (Scrollable if needed on mobile) */}
@@ -346,43 +346,43 @@ export default function AttendanceReportPage() {
                             )}
                         </div>
 
-                         {/* RIGHT: DATA CONTEXT */}
-                         <div className="md:w-7/12 p-6 md:p-10 flex flex-col h-full bg-white/50 backdrop-blur-sm relative">
-                             {/* Desktop Close Button */}
-                             <button 
+                        {/* RIGHT: DATA CONTEXT */}
+                        <div className="md:w-7/12 p-6 md:p-10 flex flex-col h-full bg-white/50 backdrop-blur-sm relative">
+                            {/* Desktop Close Button */}
+                            <button
                                 onClick={() => setSelectedRecord(null)}
                                 className="hidden md:flex absolute top-6 right-6 w-10 h-10 bg-slate-100 hover:bg-rose-100 hover:text-rose-600 rounded-full items-center justify-center transition"
-                             >
-                                 <ChevronLeft className="rotate-180" size={20} />
-                             </button>
+                            >
+                                <ChevronLeft className="rotate-180" size={20} />
+                            </button>
 
-                             <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-8">
-                                 {/* User Header */}
-                                 <div className="border-b border-slate-100 pb-6">
-                                     <div className="flex items-center gap-4 mb-2">
-                                         <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-black text-lg shadow-lg shadow-blue-200">
-                                             {store.users.find(u => u.id === selectedRecord.userId)?.name?.charAt(0) || '?'}
-                                         </div>
-                                         <div>
+                            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-8">
+                                {/* User Header */}
+                                <div className="border-b border-slate-100 pb-6">
+                                    <div className="flex items-center gap-4 mb-2">
+                                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-black text-lg shadow-lg shadow-blue-200">
+                                            {store.users.find(u => u.id === selectedRecord.userId)?.name?.charAt(0) || '?'}
+                                        </div>
+                                        <div>
                                             <h3 className="text-2xl font-black text-slate-800 tracking-tight leading-none">
                                                 {store.users.find(u => u.id === selectedRecord.userId)?.name || 'Unknown User'}
                                             </h3>
                                             <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px] mt-1">
                                                 Staff ID: {selectedRecord.userId}
                                             </p>
-                                         </div>
-                                     </div>
-                                     <div className="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 rounded-lg text-slate-500 font-bold text-xs mt-2">
-                                         <Calendar size={14} />
-                                         {new Date(selectedRecord.date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                                     </div>
-                                 </div>
+                                        </div>
+                                    </div>
+                                    <div className="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 rounded-lg text-slate-500 font-bold text-xs mt-2">
+                                        <Calendar size={14} />
+                                        {new Date(selectedRecord.date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                                    </div>
+                                </div>
 
-                                 {/* Shift Context Card */}
-                                 {selectedRecord.shiftId && (
-                                     <div className="p-5 rounded-[2rem] bg-purple-50 border border-purple-100">
-                                         <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-purple-400">DETAIL SHIFT</p>
-                                         <div className="flex items-center justify-between">
+                                {/* Shift Context Card */}
+                                {selectedRecord.shiftId && (
+                                    <div className="p-5 rounded-[2rem] bg-purple-50 border border-purple-100">
+                                        <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-purple-400">DETAIL SHIFT</p>
+                                        <div className="flex items-center justify-between">
                                             <p className="text-lg font-black text-purple-600">
                                                 {store.shifts.find(s => s.id === selectedRecord.shiftId)?.name}
                                             </p>
@@ -392,60 +392,60 @@ export default function AttendanceReportPage() {
                                                     {store.shifts.find(s => s.id === selectedRecord.shiftId)?.startTime} - {store.shifts.find(s => s.id === selectedRecord.shiftId)?.endTime}
                                                 </p>
                                             </div>
-                                         </div>
-                                     </div>
-                                 )}
+                                        </div>
+                                    </div>
+                                )}
 
-                                 <div className="grid grid-cols-2 gap-4">
-                                     <div className={`p-5 rounded-[2rem] border ${selectedRecord.isLate ? 'bg-rose-50 border-rose-100' : 'bg-emerald-50 border-emerald-100'}`}>
-                                         <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${selectedRecord.isLate ? 'text-rose-400' : 'text-emerald-400'}`}>STATUS KEHADIRAN</p>
-                                         <p className={`text-lg font-black ${selectedRecord.isLate ? 'text-rose-600' : 'text-emerald-600'}`}>
-                                             {selectedRecord.isLate ? 'TERLAMBAT' : 'TEPAT WAKTU'}
-                                         </p>
-                                     </div>
-                                     <div className="p-5 rounded-[2rem] bg-indigo-50 border border-indigo-100">
-                                         <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-indigo-400">TOTAL DURASI</p>
-                                         <p className="text-lg font-black text-indigo-600">
-                                             {(() => {
-                                                 const tIn = selectedRecord.timeIn;
-                                                 const tOut = selectedRecord.timeOut;
-                                                 
-                                                 if (!tIn || !tOut || tOut === '-') return '-';
-                                                 
-                                                 const parseMinutes = (timeStr: string) => {
-                                                     if (!timeStr) return null;
-                                                     const normalized = timeStr.toString().replace(/\./g, ':');
-                                                     const clean = normalized.replace(/[^\d:]/g, '');
-                                                     const parts = clean.split(':');
-                                                     if (parts.length < 2) return null;
-                                                     const h = parseInt(parts[0], 10);
-                                                     const m = parseInt(parts[1], 10);
-                                                     if (isNaN(h) || isNaN(m)) return null;
-                                                     return h * 60 + m;
-                                                 };
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className={`p-5 rounded-[2rem] border ${selectedRecord.isLate ? 'bg-rose-50 border-rose-100' : 'bg-emerald-50 border-emerald-100'}`}>
+                                        <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${selectedRecord.isLate ? 'text-rose-400' : 'text-emerald-400'}`}>STATUS KEHADIRAN</p>
+                                        <p className={`text-lg font-black ${selectedRecord.isLate ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                            {selectedRecord.isLate ? 'TERLAMBAT' : 'TEPAT WAKTU'}
+                                        </p>
+                                    </div>
+                                    <div className="p-5 rounded-[2rem] bg-indigo-50 border border-indigo-100">
+                                        <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-indigo-400">TOTAL DURASI</p>
+                                        <p className="text-lg font-black text-indigo-600">
+                                            {(() => {
+                                                const tIn = selectedRecord.timeIn;
+                                                const tOut = selectedRecord.timeOut;
 
-                                                 const startTotal = parseMinutes(tIn);
-                                                 const endTotal = parseMinutes(tOut);
+                                                if (!tIn || !tOut || tOut === '-') return '-';
 
-                                                 if (startTotal === null || endTotal === null) return '-';
+                                                const parseMinutes = (timeStr: string) => {
+                                                    if (!timeStr) return null;
+                                                    const normalized = timeStr.toString().replace(/\./g, ':');
+                                                    const clean = normalized.replace(/[^\d:]/g, '');
+                                                    const parts = clean.split(':');
+                                                    if (parts.length < 2) return null;
+                                                    const h = parseInt(parts[0], 10);
+                                                    const m = parseInt(parts[1], 10);
+                                                    if (isNaN(h) || isNaN(m)) return null;
+                                                    return h * 60 + m;
+                                                };
 
-                                                 let diff = endTotal - startTotal;
-                                                 if (diff < 0) diff += 24 * 60; 
+                                                const startTotal = parseMinutes(tIn);
+                                                const endTotal = parseMinutes(tOut);
 
-                                                 const hours = Math.floor(diff / 60);
-                                                 const mins = diff % 60;
-                                                 return `${hours}j ${mins}m`;
-                                             })()}
-                                         </p>
-                                     </div>
-                                 </div>
+                                                if (startTotal === null || endTotal === null) return '-';
 
-                                 {/* Location Intel */}
-                                 <div className="space-y-3">
-                                     <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                                         <MapPin size={12} /> TITIK LOKASI
-                                     </h5>
-                                     <div className="p-1 rounded-[2rem] border border-slate-200 bg-slate-50">
+                                                let diff = endTotal - startTotal;
+                                                if (diff < 0) diff += 24 * 60;
+
+                                                const hours = Math.floor(diff / 60);
+                                                const mins = diff % 60;
+                                                return `${hours}j ${mins}m`;
+                                            })()}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Location Intel */}
+                                <div className="space-y-3">
+                                    <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                        <MapPin size={12} /> TITIK LOKASI
+                                    </h5>
+                                    <div className="p-1 rounded-[2rem] border border-slate-200 bg-slate-50">
                                         <div className="bg-white rounded-[1.7rem] p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
                                             <div className="flex items-center gap-3 text-slate-600">
                                                 <div className="p-2 bg-slate-100 rounded-full">
@@ -456,38 +456,38 @@ export default function AttendanceReportPage() {
                                                     <p className="text-xs font-bold font-mono">{selectedRecord.location.lat.toFixed(6)}, {selectedRecord.location.lng.toFixed(6)}</p>
                                                 </div>
                                             </div>
-                                            <a 
-                                                href={`https://www.google.com/maps/search/?api=1&query=${selectedRecord.location.lat},${selectedRecord.location.lng}`} 
+                                            <a
+                                                href={`https://www.google.com/maps/search/?api=1&query=${selectedRecord.location.lat},${selectedRecord.location.lng}`}
                                                 target="_blank"
                                                 className="w-full sm:w-auto px-6 py-3 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition shadow-lg text-center"
                                             >
                                                 Buka Peta
                                             </a>
                                         </div>
-                                     </div>
-                                 </div>
+                                    </div>
+                                </div>
 
-                                 {/* Late Reason */}
-                                 {selectedRecord.isLate && (
-                                     <div className="p-5 bg-rose-50 rounded-[2rem] border border-rose-100">
-                                         <div className="flex items-center gap-2 text-rose-600 mb-2">
-                                             <AlertTriangle size={16} />
-                                             <span className="text-[10px] font-black uppercase tracking-widest">ALASAN KETERLAMBATAN</span>
-                                         </div>
-                                         <p className="text-sm font-medium text-rose-800 italic leading-relaxed">
-                                             "{selectedRecord.lateReason}"
-                                         </p>
-                                     </div>
-                                 )}
-                             </div>
-                             
-                             {/* Footer Context */}
-                             <div className="pt-6 border-t border-slate-100 mt-auto">
+                                {/* Late Reason */}
+                                {selectedRecord.isLate && (
+                                    <div className="p-5 bg-rose-50 rounded-[2rem] border border-rose-100">
+                                        <div className="flex items-center gap-2 text-rose-600 mb-2">
+                                            <AlertTriangle size={16} />
+                                            <span className="text-[10px] font-black uppercase tracking-widest">ALASAN KETERLAMBATAN</span>
+                                        </div>
+                                        <p className="text-sm font-medium text-rose-800 italic leading-relaxed">
+                                            "{selectedRecord.lateReason}"
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Footer Context */}
+                            <div className="pt-6 border-t border-slate-100 mt-auto">
                                 <p className="text-[10px] text-center text-slate-400">
                                     Data ini diverifikasi oleh sistem pada {new Date(selectedRecord.date).toLocaleDateString()}
                                 </p>
-                             </div>
-                         </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}
