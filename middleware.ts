@@ -4,19 +4,20 @@ import { jwtVerify } from 'jose';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
-    throw new Error('JWT_SECRET is not defined');
+  throw new Error('JWT_SECRET is not defined');
 }
 
 export async function middleware(request: NextRequest) {
   // 1. Skip checks for login, public assets, and Next.js internals
   if (
     request.nextUrl.pathname.startsWith('/api/login') ||
-    request.nextUrl.pathname.startsWith('/_next') || 
+    request.nextUrl.pathname.startsWith('/_next') ||
     request.nextUrl.pathname.startsWith('/favicon.ico') ||
     request.nextUrl.pathname.startsWith('/api/cron') ||
     request.nextUrl.pathname.startsWith('/api/check-db') ||
     request.nextUrl.pathname.startsWith('/api/migrate') ||
-    request.nextUrl.pathname.startsWith('/api/finance/import/template')
+    request.nextUrl.pathname.startsWith('/api/finance/import/template') ||
+    request.nextUrl.pathname.startsWith('/api/finance/coa/template')
   ) {
     return NextResponse.next();
   }
@@ -24,7 +25,7 @@ export async function middleware(request: NextRequest) {
   // 2. Only protect /api routes
   if (request.nextUrl.pathname.startsWith('/api')) {
     const authHeader = request.headers.get('Authorization');
-    
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json(
         { error: 'Authentication required' },

@@ -164,7 +164,7 @@ export async function POST(request: Request) {
         } as any
       });
 
-      // B. Update Financial Account Balance
+      // B. Update Financial Account Balance (ALWAYS for all statuses including UNPAID/DP)
       if (accountId) {
         const amount = Number(t.amount);
         const change = t.type === 'IN' ? amount : -amount;

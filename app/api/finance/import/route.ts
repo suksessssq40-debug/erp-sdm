@@ -149,7 +149,8 @@ export async function POST(request: Request) {
                             tenantId,
                             code: (600000 + Math.floor(Math.random() * 10000)).toString(),
                             name: creditCell.toString(),
-                            type: 'EXPENSE'
+                            type: 'INCOME', // Standard for Bank to COA (IN)
+                            normalPos: 'CREDIT'
                         }
                     });
                     coaMap.set(normalize(newCoa.name), newCoa);
@@ -189,7 +190,8 @@ export async function POST(request: Request) {
                             tenantId,
                             code: (500000 + Math.floor(Math.random() * 10000)).toString(),
                             name: debitCell.toString(),
-                            type: 'INCOME'
+                            type: 'EXPENSE', // Standard for COA to Bank (OUT)
+                            normalPos: 'DEBIT'
                         }
                     });
                     coaMap.set(normalize(newCoa.name), newCoa);
@@ -247,8 +249,16 @@ export async function POST(request: Request) {
                 continue;
             }
 
-            const sNorm = normalize(statusCell as string);
-            const finalStatus = (sNorm.includes('unpaid') || sNorm.includes('belum') || sNorm.includes('pending')) ? 'UNPAID' : 'PAID';
+            const sNorm = normalize(descCell as string);
+            // Unified Status mapping based on Description
+            let finalStatus = 'PAID';
+            if (sNorm.includes('dp')) {
+                finalStatus = 'UNPAID';
+            } else if (sNorm.includes('pelunasan')) {
+                finalStatus = 'PAID';
+            }
+            // If explicit status column says otherwise, maybe respect it? 
+            // The user said "kalo dp masuknya unpaid", so desc has priority.
 
             let finalDate = new Date();
             if (dateCell instanceof Date) finalDate = dateCell;
@@ -318,6 +328,7 @@ export async function POST(request: Request) {
                         }
                     });
 
+                    // ALWAYS UPDATE BANK/CASH BALANCE (Even for UNPAID/DP)
                     if (row.accountId) {
                         const change = row.type === 'IN' ? row.amount : -row.amount;
                         await (tx as any).financialAccount.update({

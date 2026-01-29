@@ -20,6 +20,7 @@ import { CategoryManager } from './finance/CategoryManager';
 import { BusinessUnitManager } from './finance/BusinessUnitManager';
 import { CreateCoaModal } from './finance/CreateCoaModal';
 import { ImportTransactionModal } from './finance/ImportTransactionModal';
+import { ImportCoaModal } from './finance/ImportCoaModal';
 
 import { LoadingState } from './LoadingState';
 import { EmptyState } from './EmptyState';
@@ -120,7 +121,10 @@ const FinanceModule: React.FC<FinanceProps> = ({
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch('/api/finance/coa', { headers });
+      let url = '/api/finance/coa';
+      if (filterBusinessUnit && filterBusinessUnit !== 'ALL') url += `?businessUnitId=${filterBusinessUnit}`;
+
+      const res = await fetch(url, { headers });
       if (res.ok) {
         setCoaList(await res.json());
       }
@@ -150,6 +154,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
   // NEW: Manual COA Creation
   const [createCoaModal, setCreateCoaModal] = useState(false);
   const [importModal, setImportModal] = useState(false); // Import Modal State
+  const [importCoaModal, setImportCoaModal] = useState(false); // COA Import Modal State
 
   // --- DATA FETCHING (MAIN) ---
   const fetchData = async () => {
@@ -594,6 +599,12 @@ const FinanceModule: React.FC<FinanceProps> = ({
               >
                 + TAMBAH AKUN MANUAL
               </button>
+              <button
+                onClick={() => setImportCoaModal(true)}
+                className="bg-emerald-600 text-white px-5 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-emerald-700 transition flex items-center gap-2"
+              >
+                <FileSpreadsheet size={14} /> IMPORT EXCEL (COA)
+              </button>
               {/* Refresh Button */}
               <button
                 onClick={refreshCoa}
@@ -774,6 +785,13 @@ const FinanceModule: React.FC<FinanceProps> = ({
         isOpen={importModal}
         onClose={() => setImportModal(false)}
         onSuccess={() => { fetchData(); setImportModal(false); }}
+        toast={toast}
+      />
+
+      <ImportCoaModal
+        isOpen={importCoaModal}
+        onClose={() => setImportCoaModal(false)}
+        onSuccess={() => { refreshCoa(); setImportCoaModal(false); }}
         toast={toast}
       />
 
