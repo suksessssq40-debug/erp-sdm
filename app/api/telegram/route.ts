@@ -39,9 +39,10 @@ export async function POST(request: Request) {
       }
     }
 
-    // Helper to compare IDs regardless of -100 prefix
-    const normalizeId = (id: string) => {
-      let clean = id.trim();
+    // Advanced Normalization: Remove all prefixes (-100, -) for comparison
+    const normalizeId = (id: string | null | undefined) => {
+      if (!id) return '';
+      let clean = String(id).trim();
       if (clean.startsWith('-100')) return clean.substring(4);
       if (clean.startsWith('-')) return clean.substring(1);
       return clean;
@@ -50,20 +51,24 @@ export async function POST(request: Request) {
     const normalizedTarget = normalizeId(actualChatId);
 
     // 2b. SECURITY HARDENING: Restrict destination to configured chat IDs for this tenant
-    const allowedIds = [
-      String(configuredGroupId || '').trim(),
-      String(configuredOwnerChatId || '').trim()
-    ].map(normalizeId);
+    const rawAllowed = [configuredGroupId, configuredOwnerChatId];
+    const allowedIdsNormalized = rawAllowed
+      .filter(id => !!id)
+      .map(id => normalizeId(id));
 
-    if (!allowedIds.includes(normalizedTarget) && normalizedTarget !== '') {
-      console.error(`[Security] Blocked unauthorized Telegram destination: ${actualChatId} (Normalized: ${normalizedTarget})`);
+    if (!allowedIdsNormalized.includes(normalizedTarget) && normalizedTarget !== '') {
+      console.error(`[Security Access Denied]`);
+      console.error(`- Target: ${actualChatId} (Normalized: ${normalizedTarget})`);
+      console.error(`- Allowed (from DB):`, rawAllowed);
+      console.error(`- Allowed (Normalized):`, allowedIdsNormalized);
+
       return NextResponse.json({
         error: 'Destination not allowed for this unit',
-        details: 'The Chat ID provided does not match your unit configuration.'
+        details: 'Unauthorized destination. Please check your Telegram Group/Owner settings.'
       }, { status: 403 });
     }
 
-    console.log(`[API Transporter] Sending to: ${actualChatId} | Thread: ${messageThreadId ?? 'Main'}`);
+    console.log(`[API Transporter] Authorized. Sending to: ${actualChatId} | Thread: ${messageThreadId ?? 'Main'}`);
 
     // 3. Send Message (ATTEMPT 1: AS IS)
     let telegramUrl = `https://api.telegram.org/bot${token}/sendMessage`;
