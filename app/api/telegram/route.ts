@@ -39,10 +39,16 @@ export async function POST(request: Request) {
       }
     }
 
-    // Advanced Normalization: Remove all prefixes (-100, -) for comparison
+    // Advanced Normalization: Remove all prefixes (-100, -) AND Topic/Thread suffixes for comparison
     const normalizeId = (id: string | null | undefined) => {
       if (!id) return '';
       let clean = String(id).trim();
+
+      // Step 1: Strip Topic/Thread suffix if any (_ or /)
+      const sep = clean.includes('_') ? '_' : (clean.includes('/') ? '/' : null);
+      if (sep) clean = clean.split(sep)[0].trim();
+
+      // Step 2: Strip Telegram Prefixes
       if (clean.startsWith('-100')) return clean.substring(4);
       if (clean.startsWith('-')) return clean.substring(1);
       return clean;
@@ -58,17 +64,17 @@ export async function POST(request: Request) {
 
     if (!allowedIdsNormalized.includes(normalizedTarget) && normalizedTarget !== '') {
       console.error(`[Security Access Denied]`);
-      console.error(`- Target: ${actualChatId} (Normalized: ${normalizedTarget})`);
+      console.error(`- Target Base: ${actualChatId} (Normalized: ${normalizedTarget})`);
       console.error(`- Allowed (from DB):`, rawAllowed);
-      console.error(`- Allowed (Normalized):`, allowedIdsNormalized);
+      console.error(`- Allowed (Normalized Bases):`, allowedIdsNormalized);
 
       return NextResponse.json({
         error: 'Destination not allowed for this unit',
-        details: 'Unauthorized destination. Please check your Telegram Group/Owner settings.'
+        details: 'Unauthorized destination. The base Chat ID does not match your unit configuration.'
       }, { status: 403 });
     }
 
-    console.log(`[API Transporter] Authorized. Sending to: ${actualChatId} | Thread: ${messageThreadId ?? 'Main'}`);
+    console.log(`[API Transporter] Authorized Base: ${normalizedTarget}. Sending to: ${actualChatId} | Thread: ${messageThreadId ?? 'Main'}`);
 
     // 3. Send Message (ATTEMPT 1: AS IS)
     let telegramUrl = `https://api.telegram.org/bot${token}/sendMessage`;
