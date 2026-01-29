@@ -8,48 +8,48 @@ export async function GET(request: Request) {
   try {
     const user = await authorize();
     const { tenantId } = user;
-    
+
     // Admin sees all in tenant, Staff sees own in tenant
     const isAdmin = ['OWNER', 'MANAGER', 'FINANCE', 'SUPERADMIN'].includes(user.role);
-    
+
     let records: any[] = [];
     try {
-        const where: any = { tenantId };
-        if (!isAdmin) where.userId = user.id;
+      const where: any = { tenantId };
+      if (!isAdmin) where.userId = user.id;
 
-        records = await prisma.attendance.findMany({
-            where,
-            orderBy: [
-                { createdAt: 'desc' }, // Primary sort by timestamp
-                { date: 'desc' },      // Fallback
-                { timeIn: 'desc' }
-            ],
-            take: 200 // Increased limit to ensure we catch recent items
-        });
+      records = await prisma.attendance.findMany({
+        where,
+        orderBy: [
+          { createdAt: 'desc' }, // Primary sort by timestamp
+          { date: 'desc' },      // Fallback
+          { timeIn: 'desc' }
+        ],
+        take: 200 // Increased limit to ensure we catch recent items
+      });
     } catch (e) {
-        console.error("Attendance Fetch Error:", e);
-        return NextResponse.json({ error: 'Failed to fetch attendance' }, { status: 500 });
+      console.error("Attendance Fetch Error:", e);
+      return NextResponse.json({ error: 'Failed to fetch attendance' }, { status: 500 });
     }
 
     const formatted = records.map(a => ({
-        id: a.id,
-        userId: a.userId,
-        tenantId: (a as any).tenantId,
-        date: a.date,
-        timeIn: a.timeIn,
-        timeOut: a.timeOut || undefined,
-        isLate: !!a.isLate,
-        lateReason: a.lateReason || undefined,
-        selfieUrl: a.selfieUrl,
-        checkOutSelfieUrl: a.checkoutSelfieUrl || undefined,
-        location: { lat: Number(a.locationLat), lng: Number(a.locationLng) },
-        createdAt: a.createdAt ? new Date(a.createdAt).getTime() : undefined
+      id: a.id,
+      userId: a.userId,
+      tenantId: (a as any).tenantId,
+      date: a.date,
+      timeIn: a.timeIn,
+      timeOut: a.timeOut || undefined,
+      isLate: !!a.isLate,
+      lateReason: a.lateReason || undefined,
+      selfieUrl: a.selfieUrl,
+      checkOutSelfieUrl: a.checkoutSelfieUrl || undefined,
+      location: { lat: Number(a.locationLat), lng: Number(a.locationLng) },
+      createdAt: a.createdAt ? new Date(a.createdAt).getTime() : undefined
     }));
 
     return NextResponse.json(formatted);
-  } catch(e) {
-      console.error(e);
-      return NextResponse.json({ error: 'Failed to fetch attendance' }, { status: 500 });
+  } catch (e) {
+    console.error(e);
+    return NextResponse.json({ error: 'Failed to fetch attendance' }, { status: 500 });
   }
 }
 
@@ -61,26 +61,26 @@ export async function POST(request: Request) {
 
     // 🛡️ SECURITY: Sanity Check Input
     if (!a.location || typeof a.location.lat !== 'number' || typeof a.location.lng !== 'number') {
-        return NextResponse.json({ error: 'Data lokasi tidak valid (Wajib GPS)' }, { status: 400 });
+      return NextResponse.json({ error: 'Data lokasi tidak valid (Wajib GPS)' }, { status: 400 });
     }
 
     const now = new Date();
     // Gunakan Intl.DateTimeFormat untuk mendapatkan waktu Jakarta yang akurat
     const jakartaFormatter = new Intl.DateTimeFormat('id-ID', {
-        timeZone: 'Asia/Jakarta',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
+      timeZone: 'Asia/Jakarta',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
     });
-    
+
     // Parse parts manually to avoid locale format issues (DD/MM/YYYY vs MM/DD/YYYY)
     const parts = jakartaFormatter.formatToParts(now);
     const getPart = (type: string) => parts.find(p => p.type === type)?.value || '';
-    
+
     const yyyy = getPart('year');
     const mm = getPart('month');
     const dd = getPart('day');
@@ -96,15 +96,15 @@ export async function POST(request: Request) {
     // Contoh: Masuk jam 01:00 pagi tanggal 22, dihitung shift tanggal 21.
     const currentHourNum = parseInt(hh);
     if (currentHourNum < 6) {
-        // Rollback 1 hari
-        const yesterday = new Date(now);
-        yesterday.setHours(now.getHours() - 24); // Mundur 24 jam aman
-        
-        // Re-format yesterday
-        const yParts = jakartaFormatter.formatToParts(yesterday);
-        const yGet = (type: string) => yParts.find(p => p.type === type)?.value || '';
-        finalDateStr = `${yGet('year')}-${yGet('month')}-${yGet('day')}`;
-        console.log(`[SHIFT DETECTED] Rolling back date to ${finalDateStr} (Action at ${serverTimeStr})`);
+      // Rollback 1 hari
+      const yesterday = new Date(now);
+      yesterday.setHours(now.getHours() - 24); // Mundur 24 jam aman
+
+      // Re-format yesterday
+      const yParts = jakartaFormatter.formatToParts(yesterday);
+      const yGet = (type: string) => yParts.find(p => p.type === type)?.value || '';
+      finalDateStr = `${yGet('year')}-${yGet('month')}-${yGet('day')}`;
+      console.log(`[SHIFT DETECTED] Rolling back date to ${finalDateStr} (Action at ${serverTimeStr})`);
     }
 
     // 1. Fetch Tenant Configuration
@@ -123,18 +123,18 @@ export async function POST(request: Request) {
     // 2. Location Validation (Only for STAFF and non-Flexible if needed, but let's apply to non-Freelance)
     const user = await prisma.user.findUnique({ where: { id: payload.id } });
     if (user && !user.isFreelance && settings?.officeLat && settings?.officeLng) {
-       const dist = calculateDistance(
-          Number(a.location.lat), 
-          Number(a.location.lng),
-          Number(settings.officeLat), 
-          Number(settings.officeLng)
-       );
-       
-       if (dist > radiusLimit) {
-          return NextResponse.json({ 
-             error: `GAGAL: Lokasi Anda terdeteksi ${Math.round(dist)}m dari kantor. Batas radius adalah ${radiusLimit}m.` 
-          }, { status: 400 });
-       }
+      const dist = calculateDistance(
+        Number(a.location.lat),
+        Number(a.location.lng),
+        Number(settings.officeLat),
+        Number(settings.officeLng)
+      );
+
+      if (dist > radiusLimit) {
+        return NextResponse.json({
+          error: `GAGAL: Lokasi Anda terdeteksi ${Math.round(dist)}m dari kantor. Batas radius adalah ${radiusLimit}m.`
+        }, { status: 400 });
+      }
     }
 
     // 3. Late Calculation based on Strategy
@@ -156,39 +156,37 @@ export async function POST(request: Request) {
     if (strategy !== 'FLEXIBLE') {
       const [currH, currM] = serverTimeStr.split(':').map(Number);
       const [limitH, limitM] = effectiveStartTime.split(':').map(Number);
-      
-      const currTotal = currH * 60 + currM;
+
+      let currTotal = currH * 60 + currM;
       const limitTotal = limitH * 60 + limitM;
-      
+
       // LOGIC FIX: Handle Overnight Late Calculation
-      // If shift starts at 22:00 and user comes at 23:00 -> Late.
-      // If shift starts at 22:00 and user comes at 01:00 (next day) -> Late.
-      // Logic above works if we normalize "day".
-      // But simple minute comparison works for same-day shifts. 
-      // For overnight, it's complex. Let's keep specific simple logic for now or rely on simplified minute total.
-      // Assuming non-overnight late logic for standard shifts first.
-      
+      // If shift starts in the evening (e.g. 22:00) and user comes after midnight (e.g. 01:00)
+      if (limitTotal > 1080 && currTotal < 360) {
+        currTotal += 1440; // Add 24 hours to normalize comparison
+      }
+
       isLateCalculated = currTotal > (limitTotal + graceMinutes);
     }
 
     const attendanceData: any = {
-        id: a.id,
-        userId: payload.id,
-        tenantId,
-        date: finalDateStr, // NOW USING ISO YYYY-MM-DD
-        timeIn: serverTimeStr,
-        timeOut: null,
-        isLate: isLateCalculated ? 1 : 0,
-        lateReason: isLateCalculated ? (a.lateReason || 'Terlambat') : null,
-        selfieUrl: a.selfieUrl,
-        locationLat: a.location.lat,
-        locationLng: a.location.lng,
-        shiftId: shiftId,
-        createdAt: new Date()
+      id: a.id,
+      userId: payload.id,
+      tenantId,
+      date: finalDateStr, // NOW USING ISO YYYY-MM-DD
+      timeIn: serverTimeStr,
+      timeOut: null,
+      isLate: isLateCalculated ? 1 : 0,
+      lateReason: isLateCalculated ? (a.lateReason || 'Terlambat') : null,
+      selfieUrl: a.selfieUrl,
+      locationLat: a.location.lat,
+      locationLng: a.location.lng,
+      shiftId: shiftId,
+      createdAt: new Date()
     };
 
     const created = await prisma.attendance.create({
-        data: attendanceData
+      data: attendanceData
     });
 
     return NextResponse.json(created, { status: 201 });

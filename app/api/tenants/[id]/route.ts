@@ -11,7 +11,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const user = await authorize([UserRole.OWNER, UserRole.SUPERADMIN, UserRole.MANAGER]);
+    const user = await authorize([UserRole.OWNER, UserRole.SUPERADMIN, UserRole.MANAGER, UserRole.STAFF, UserRole.FINANCE]);
     const tenantId = params.id;
 
     const tenant = await prisma.tenant.findUnique({
