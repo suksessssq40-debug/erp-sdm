@@ -643,9 +643,9 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
           </div>
         </div>
 
-        {currentUser.role === UserRole.OWNER && (
+        {(currentUser.role === UserRole.OWNER || currentUser.role === UserRole.MANAGER || currentUser.role === UserRole.FINANCE) && (
           <div className="bg-slate-900 text-white p-8 rounded-[3rem] shadow-2xl space-y-6 animate-in slide-in-from-right duration-700">
-            <h4 className="font-black text-xs uppercase tracking-[0.2em] text-blue-400 border-b border-white/10 pb-4">Owner Configurations</h4>
+            <h4 className="font-black text-xs uppercase tracking-[0.2em] text-blue-400 border-b border-white/10 pb-4">Administrator Configurations</h4>
             <div className="space-y-6">
               {strategy === 'FIXED' ? (
                 <>

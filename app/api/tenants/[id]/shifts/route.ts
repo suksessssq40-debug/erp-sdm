@@ -47,3 +47,26 @@ export async function POST(
     return NextResponse.json({ error: 'Failed' }, { status: 500 });
   }
 }
+export async function DELETE(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    await authorize([UserRole.OWNER, UserRole.MANAGER]);
+    const { searchParams } = new URL(request.url);
+    const shiftId = searchParams.get('shiftId');
+
+    if (!shiftId) {
+      return NextResponse.json({ error: 'Shift ID is required' }, { status: 400 });
+    }
+
+    await prisma.shift.delete({
+      where: { id: shiftId }
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Delete Shift Error:", error);
+    return NextResponse.json({ error: 'Failed to delete shift' }, { status: 500 });
+  }
+}

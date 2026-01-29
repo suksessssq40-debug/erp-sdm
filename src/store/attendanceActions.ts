@@ -77,11 +77,21 @@ export const createAttendanceActions = (
     return await res.json();
   };
 
+  const deleteShift = async (tenantId: string, shiftId: string) => {
+    const res = await fetch(`${API_BASE}/api/tenants/${tenantId}/shifts?shiftId=${shiftId}`, {
+      method: 'DELETE',
+      headers: { ...authHeaders }
+    });
+    if (!res.ok) throw new Error('Failed to delete shift');
+    return await res.json();
+  };
+
   return {
     fetchAttendance,
     addAttendance,
     updateAttendance,
     fetchShifts,
-    createShift
+    createShift,
+    deleteShift
   };
 };
