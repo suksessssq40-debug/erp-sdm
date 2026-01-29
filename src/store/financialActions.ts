@@ -12,8 +12,10 @@ export const createFinancialActions = (
     try {
       const res = await fetch(`${API_BASE}/api/transactions`, { headers: authHeaders });
       if (res.ok) {
-        const data = await res.json();
-        setState(prev => ({ ...prev, transactions: data }));
+        const result = await res.json();
+        // The API returns { data: [...], pagination: {...} }
+        const transactionsArray = Array.isArray(result.data) ? result.data : (Array.isArray(result) ? result : []);
+        setState(prev => ({ ...prev, transactions: transactionsArray }));
       }
     } catch (e) {
       console.error("Fetch Transactions Failed", e);
@@ -29,7 +31,10 @@ export const createFinancialActions = (
       });
       if (!res.ok) throw new Error('Failed to create transaction');
       const created: Transaction = await res.json();
-      setState(prev => ({ ...prev, transactions: [...prev.transactions, created] }));
+      setState(prev => {
+        const currentTransactions = Array.isArray(prev.transactions) ? prev.transactions : [];
+        return { ...prev, transactions: [...currentTransactions, created] };
+      });
       addLog(SystemActionType.FINANCE_CREATE, `Created transaction: ${created.amount} (${created.type})`, created.id);
     } catch (e) {
       console.error(e);
@@ -38,10 +43,13 @@ export const createFinancialActions = (
   };
 
   const updateTransaction = async (t: Transaction) => {
-    setState(prev => ({
-      ...prev,
-      transactions: prev.transactions.map(tr => tr.id === t.id ? t : tr)
-    }));
+    setState(prev => {
+      const currentTransactions = Array.isArray(prev.transactions) ? prev.transactions : [];
+      return {
+        ...prev,
+        transactions: currentTransactions.map(tr => tr.id === t.id ? t : tr)
+      };
+    });
     try {
       const res = await fetch(`${API_BASE}/api/transactions/${t.id}`, {
         method: 'PUT',
@@ -57,10 +65,13 @@ export const createFinancialActions = (
   };
 
   const deleteTransaction = async (id: string, detailAmount: string) => {
-    setState(prev => ({
-      ...prev,
-      transactions: prev.transactions.filter(t => t.id !== id)
-    }));
+    setState(prev => {
+      const currentTransactions = Array.isArray(prev.transactions) ? prev.transactions : [];
+      return {
+        ...prev,
+        transactions: currentTransactions.filter(t => t.id !== id)
+      };
+    });
     try {
       const res = await fetch(`${API_BASE}/api/transactions/${id}`, {
         method: 'DELETE',
