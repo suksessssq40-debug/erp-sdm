@@ -11,6 +11,9 @@ export async function GET(request: Request) {
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
     const status = searchParams.get('status');
+    const search = searchParams.get('search');
+    const accountName = searchParams.get('accountName');
+    const businessUnitId = searchParams.get('businessUnitId');
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '50');
     const skip = (page - 1) * limit;
@@ -25,6 +28,20 @@ export async function GET(request: Request) {
     }
     if (status && status !== 'ALL') {
       whereClause.status = status;
+    }
+    if (businessUnitId && businessUnitId !== 'ALL') {
+      whereClause.businessUnitId = businessUnitId;
+    }
+    if (accountName && accountName !== 'ALL') {
+      whereClause.account = accountName;
+    }
+    if (search) {
+      whereClause.OR = [
+        { description: { contains: search, mode: 'insensitive' } },
+        { category: { contains: search, mode: 'insensitive' } },
+        { contactName: { contains: search, mode: 'insensitive' } },
+        { account: { contains: search, mode: 'insensitive' } }
+      ];
     }
 
     // Fetch transactions with pagination

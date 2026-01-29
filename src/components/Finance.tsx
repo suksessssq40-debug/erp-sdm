@@ -105,6 +105,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
 
   // --- PAGINATION & STATUS FILTER ---
   const [journalStatus, setJournalStatus] = useState<string>('ALL');
+  const [journalSearch, setJournalSearch] = useState('');
   const [journalPage, setJournalPage] = useState(1);
   const [journalPagination, setJournalPagination] = useState({ total: 0, totalPages: 1 });
 
@@ -176,8 +177,12 @@ const FinanceModule: React.FC<FinanceProps> = ({
       const resSum = await fetch(sumUrl, { headers });
       if (resSum.ok) setSummary(await resSum.json());
 
-      // 2. Fetch Transactions (With Status Filter & Pagination)
+      // 2. Fetch Transactions (With Status Filter, Global Search, and Account Filter)
       let transUrl = `/api/transactions?startDate=${filterStartDate}&endDate=${filterEndDate}&status=${journalStatus}&page=${journalPage}&limit=50`;
+
+      if (journalSearch) transUrl += `&search=${encodeURIComponent(journalSearch)}`;
+      if (filterAccount && filterAccount !== 'ALL') transUrl += `&accountName=${encodeURIComponent(filterAccount)}`;
+      if (filterBusinessUnit && filterBusinessUnit !== 'ALL') transUrl += `&businessUnitId=${filterBusinessUnit}`;
 
       const resTrans = await fetch(transUrl, { headers });
       if (resTrans.ok) {
@@ -228,7 +233,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
   // 1. Main Data (Mutasi & Summary) triggers on Filter Change
   useEffect(() => {
     fetchData();
-  }, [filterStartDate, filterEndDate, filterBusinessUnit, journalStatus, journalPage]);
+  }, [filterStartDate, filterEndDate, filterBusinessUnit, filterAccount, journalStatus, journalPage, journalSearch]);
 
   // 2. Ledger Data triggers when Tab is Ledger OR Ledger Account/Filters change
   useEffect(() => {
@@ -571,12 +576,14 @@ const FinanceModule: React.FC<FinanceProps> = ({
       {/* --- CONTENT --- */}
       {activeTab === 'MUTASI' && (
         <JournalView
-          transactions={filteredMutasi}
+          transactions={localTransactions}
           businessUnits={businessUnits}
           onEdit={(t) => handleOpenTransaction(true, t)}
           onDelete={handleDeleteTransaction}
           statusFilter={journalStatus}
           onStatusChange={(s) => { setJournalStatus(s); setJournalPage(1); }}
+          searchTerm={journalSearch}
+          onSearchChange={(val) => { setJournalSearch(val); setJournalPage(1); }}
           currentPage={journalPage}
           totalPages={journalPagination.totalPages}
           onPageChange={setJournalPage}

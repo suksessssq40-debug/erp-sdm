@@ -14,6 +14,8 @@ interface JournalViewProps {
     // Pagination & Status Filter
     statusFilter: string;
     onStatusChange: (s: string) => void;
+    searchTerm: string;
+    onSearchChange: (s: string) => void;
     currentPage: number;
     totalPages: number;
     onPageChange: (p: number) => void;
@@ -21,9 +23,8 @@ interface JournalViewProps {
 
 export const JournalView: React.FC<JournalViewProps> = ({
     transactions, businessUnits, onEdit, onDelete,
-    statusFilter, onStatusChange, currentPage, totalPages, onPageChange
+    statusFilter, onStatusChange, searchTerm, onSearchChange, currentPage, totalPages, onPageChange
 }) => {
-    const [searchTerm, setSearchTerm] = useState('');
     const [previewImage, setPreviewImage] = useState<string | null>(null);
 
     const filteredTransactions = transactions.filter(t =>
@@ -60,19 +61,26 @@ export const JournalView: React.FC<JournalViewProps> = ({
                             <Search size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" />
                             <input
                                 className="w-full pl-12 pr-6 py-4 bg-white border-2 border-slate-50 rounded-[1.5rem] text-xs font-bold focus:border-blue-600 outline-none transition shadow-sm"
-                                placeholder="Cari keterangan..."
+                                placeholder="Cari keterangan / kategori / mitra..."
                                 value={searchTerm}
-                                onChange={e => setSearchTerm(e.target.value)}
+                                onChange={e => onSearchChange(e.target.value)}
                             />
                         </div>
                     </div>
                 </div>
 
-                {filteredTransactions.length === 0 ? (
+                {transactions.length === 0 && (
                     <EmptyState
                         icon={Receipt}
                         title="Tidak Ada Transaksi"
                         description={searchTerm ? `Tidak ditemukan transaksi dengan kata kunci "${searchTerm}"` : "Belum ada data transaksi tercatat untuk periode ini."}
+                    />
+                )}
+                {transactions.length > 0 && filteredTransactions.length === 0 ? (
+                    <EmptyState
+                        icon={Receipt}
+                        title="Tidak Ada Transaksi Ditemukan"
+                        description={`Tidak ditemukan transaksi dengan kata kunci "${searchTerm}"`}
                     />
                 ) : (
                     <div className="overflow-x-auto">
@@ -89,7 +97,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
-                                {filteredTransactions.map(t => (
+                                {transactions.map(t => (
                                     <tr key={t.id} className="hover:bg-blue-50/30 transition-colors group">
                                         <td className="px-10 py-7 text-[10px] font-black text-slate-400 uppercase tracking-widest">{new Date(t.date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })}</td>
                                         <td className="px-10 py-7">
@@ -103,19 +111,12 @@ export const JournalView: React.FC<JournalViewProps> = ({
                                         <td className="px-10 py-7 text-xs font-bold text-slate-600 italic">
                                             "{t.description}"
                                             {t.contactName && <div className="text-[9px] text-slate-400 not-italic mt-1">Ref: {t.contactName}</div>}
-                                            {t.businessUnitId && (
-                                                <div className="mt-1">
-                                                    <span className="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded text-[7px] font-black uppercase tracking-wider">
-                                                        {businessUnits.find(u => u.id === t.businessUnitId)?.name || 'UNKNOWN'}
-                                                    </span>
-                                                </div>
-                                            )}
                                         </td>
                                         <td className="px-10 py-7">
                                             <span className="bg-white border border-slate-100 text-slate-500 px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-[0.15em]">{t.category || 'GENERAL'}</span>
                                         </td>
                                         <td className="px-10 py-7 text-center">
-                                            {t.status === 'UNPAID' || t.status === 'PENDING' ? (
+                                            {t.status === 'UNPAID' || t.status === 'PENDING' || t.description?.toLowerCase().includes('dp') && !t.description?.toLowerCase().includes('pelunasan') ? (
                                                 <span className="bg-rose-100 text-rose-600 px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border border-rose-200">
                                                     BELUM LUNAS
                                                 </span>
