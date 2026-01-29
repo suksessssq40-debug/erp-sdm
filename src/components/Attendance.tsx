@@ -152,6 +152,37 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
     return undefined;
   }, [attendanceLog, currentUser.id, todayISO]);
 
+  // CAMERA INITIALIZATION LOGIC
+  useEffect(() => {
+    if (stage === 'SELFIE') {
+      const startCamera = async () => {
+        try {
+          // Small delay to ensure videoRef is rendered
+          await new Promise(resolve => setTimeout(resolve, 100));
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+            audio: false
+          });
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+          }
+        } catch (err) {
+          console.error("Camera access error:", err);
+          toast.error("Gagal mengakses kamera. Mohon izinkan akses kamera di browser Anda.");
+          setStage('IDLE');
+        }
+      };
+      startCamera();
+    } else {
+      // Cleanup: Stop camera tracks when leaving SELFIE stage
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+        videoRef.current.srcObject = null;
+      }
+    }
+  }, [stage]);
+
   // GPS WATCHER
   const [gpsLoading, setGpsLoading] = useState(true);
   const [currentDistance, setCurrentDistance] = useState<number | null>(null);
