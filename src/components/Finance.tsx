@@ -103,6 +103,11 @@ const FinanceModule: React.FC<FinanceProps> = ({
     monthStats: { income: number; expense: number };
   } | null>(null);
 
+  // --- PAGINATION & STATUS FILTER ---
+  const [journalStatus, setJournalStatus] = useState<string>('ALL');
+  const [journalPage, setJournalPage] = useState(1);
+  const [journalPagination, setJournalPagination] = useState({ total: 0, totalPages: 1 });
+
   // --- LEDGER SPECIFIC STATE ---
   const [ledgerAccount, setLedgerAccount] = useState<string>('');
   const [ledgerData, setLedgerData] = useState<{ transactions: Transaction[], openingBalance: number }>({ transactions: [], openingBalance: 0 });
@@ -171,11 +176,17 @@ const FinanceModule: React.FC<FinanceProps> = ({
       const resSum = await fetch(sumUrl, { headers });
       if (resSum.ok) setSummary(await resSum.json());
 
-      // 2. Fetch Transactions (By Date Range)
-      let transUrl = `/api/transactions?startDate=${filterStartDate}&endDate=${filterEndDate}&limit=2000`;
+      // 2. Fetch Transactions (With Status Filter & Pagination)
+      let transUrl = `/api/transactions?startDate=${filterStartDate}&endDate=${filterEndDate}&status=${journalStatus}&page=${journalPage}&limit=50`;
+
       const resTrans = await fetch(transUrl, { headers });
       if (resTrans.ok) {
-        setLocalTransactions(await resTrans.json());
+        const json = await resTrans.json();
+        setLocalTransactions(json.data);
+        setJournalPagination({
+          total: json.pagination.total,
+          totalPages: json.pagination.totalPages
+        });
       }
 
       // 3. Refresh COA Balances (Fix for "Saldo COA Tetap")
@@ -217,7 +228,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
   // 1. Main Data (Mutasi & Summary) triggers on Filter Change
   useEffect(() => {
     fetchData();
-  }, [filterStartDate, filterEndDate, filterBusinessUnit]);
+  }, [filterStartDate, filterEndDate, filterBusinessUnit, journalStatus, journalPage]);
 
   // 2. Ledger Data triggers when Tab is Ledger OR Ledger Account/Filters change
   useEffect(() => {
@@ -564,6 +575,11 @@ const FinanceModule: React.FC<FinanceProps> = ({
           businessUnits={businessUnits}
           onEdit={(t) => handleOpenTransaction(true, t)}
           onDelete={handleDeleteTransaction}
+          statusFilter={journalStatus}
+          onStatusChange={(s) => { setJournalStatus(s); setJournalPage(1); }}
+          currentPage={journalPage}
+          totalPages={journalPagination.totalPages}
+          onPageChange={setJournalPage}
         />
       )}
 

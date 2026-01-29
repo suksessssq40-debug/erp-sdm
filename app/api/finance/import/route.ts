@@ -252,10 +252,11 @@ export async function POST(request: Request) {
             const sNorm = normalize(descCell as string);
             // Unified Status mapping based on Description
             let finalStatus = 'PAID';
-            if (sNorm.includes('dp')) {
-                finalStatus = 'UNPAID';
-            } else if (sNorm.includes('pelunasan')) {
+            // "Pelunasan" always trumps "DP"
+            if (sNorm.includes('pelunasan')) {
                 finalStatus = 'PAID';
+            } else if (sNorm.includes('dp')) {
+                finalStatus = 'UNPAID';
             }
             // If explicit status column says otherwise, maybe respect it? 
             // The user said "kalo dp masuknya unpaid", so desc has priority.

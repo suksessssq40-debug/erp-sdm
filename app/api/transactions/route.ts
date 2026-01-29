@@ -10,7 +10,10 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
-    const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 1000;
+    const status = searchParams.get('status');
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '50');
+    const skip = (page - 1) * limit;
 
     const whereClause: any = { tenantId };
     if (startDate) whereClause.date = { gte: new Date(startDate) };
@@ -20,14 +23,21 @@ export async function GET(request: Request) {
         lte: new Date(endDate)
       };
     }
+    if (status && status !== 'ALL') {
+      whereClause.status = status;
+    }
 
-    // Update GET Query
-    const transactions = await prisma.transaction.findMany({
-      where: whereClause,
-      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
-      take: limit,
-      include: { coa: true } as any
-    });
+    // Fetch transactions with pagination
+    const [transactions, totalCount] = await Promise.all([
+      prisma.transaction.findMany({
+        where: whereClause,
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        skip,
+        take: limit,
+        include: { coa: true } as any
+      }),
+      prisma.transaction.count({ where: whereClause })
+    ]);
 
     // Map to safe format (Date to String)
     const safeTransactions = transactions.map((t: any) => ({
@@ -51,7 +61,15 @@ export async function GET(request: Request) {
       dueDate: t.dueDate ? t.dueDate.toISOString().split('T')[0] : null
     }));
 
-    return NextResponse.json(safeTransactions);
+    return NextResponse.json({
+      data: safeTransactions,
+      pagination: {
+        page,
+        limit,
+        total: totalCount,
+        totalPages: Math.ceil(totalCount / limit)
+      }
+    });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: 'Failed to fetch transactions' }, { status: 500 });
