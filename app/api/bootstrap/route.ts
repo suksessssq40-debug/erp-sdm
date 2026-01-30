@@ -14,76 +14,83 @@ export async function GET() {
     let financialAccounts: any[] = [];
     let tenantFeatures: string | null = null;
 
+    // 2. Fetch Users who have access to this tenant (via TenantAccess table)
     try {
-        users = await prisma.user.findMany({
-            where: { tenantId } as any,
-            select: { id: true, name: true, username: true, role: true, avatarUrl: true, jobTitle: true, isFreelance: true, tenantId: true, telegramId: true, telegramUsername: true, deviceIds: true, bio: true }
-        });
-        settingsData = await prisma.settings.findFirst({ where: { tenantId } as any });
-        financialAccounts = await prisma.financialAccount.findMany({ 
-            where: { tenantId, isActive: true } as any
-        });
-        const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { featuresJson: true } });
-        tenantFeatures = tenant?.featuresJson || '[]';
+      const tenantAccessList = await prisma.tenantAccess.findMany({
+        where: { tenantId, isActive: true },
+        include: { user: true }
+      });
+
+      // Flatten and transform to match previous structure
+      users = tenantAccessList.map(ta => ({
+        ...ta.user,
+        role: ta.role, // Use the role defined for THIS tenant
+        tenantId: ta.tenantId
+      }));
+
+      settingsData = await prisma.settings.findFirst({ where: { tenantId } as any });
+      financialAccounts = await prisma.financialAccount.findMany({
+        where: { tenantId, isActive: true } as any
+      });
+      const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { featuresJson: true } });
+      tenantFeatures = tenant?.featuresJson || '[]';
     } catch (e) {
-        console.error("Critical Bootstrap Err (Users/Settings):", e);
-        throw e;
+      console.error("Critical Bootstrap Err (Users/Settings):", e);
+      throw e;
     }
 
     // 3. REMOVED HEAVY FETCHES (Lazy Load Implementation)
     // We only return EMPTY arrays or minimal data required for "App Shell"
     // The specific modules (Finance, Projects, etc.) will fetch their own data.
-    
+
     // Format Settings
     const settings = settingsData ? {
-        officeLocation: { lat: Number(settingsData.officeLat), lng: Number(settingsData.officeLng) },
-        officeHours: { start: settingsData.officeStartTime, end: settingsData.officeEndTime },
-        hasOvernightShift: !!settingsData.hasOvernightShift,
-        telegramBotToken: settingsData.telegramBotToken || '',
-        telegramGroupId: settingsData.telegramGroupId || '',
-        telegramOwnerChatId: settingsData.telegramOwnerChatId || '',
-        dailyRecapTime: settingsData.dailyRecapTime || '18:00',
-        dailyRecapModules: typeof settingsData.dailyRecapContent === 'string' 
-            ? JSON.parse(settingsData.dailyRecapContent) 
-            : (settingsData.dailyRecapContent || []),
-        companyProfile: typeof settingsData.companyProfileJson === 'string'
-            ? JSON.parse(settingsData.companyProfileJson)
-            : (settingsData.companyProfileJson || {})
+      officeLocation: { lat: Number(settingsData.officeLat), lng: Number(settingsData.officeLng) },
+      officeHours: { start: settingsData.officeStartTime, end: settingsData.officeEndTime },
+      hasOvernightShift: !!settingsData.hasOvernightShift,
+      telegramBotToken: settingsData.telegramBotToken || '',
+      telegramGroupId: settingsData.telegramGroupId || '',
+      telegramOwnerChatId: settingsData.telegramOwnerChatId || '',
+      dailyRecapTime: settingsData.dailyRecapTime || '18:00',
+      dailyRecapModules: typeof settingsData.dailyRecapContent === 'string'
+        ? JSON.parse(settingsData.dailyRecapContent)
+        : (settingsData.dailyRecapContent || []),
+      companyProfile: typeof settingsData.companyProfileJson === 'string'
+        ? JSON.parse(settingsData.companyProfileJson)
+        : (settingsData.companyProfileJson || {})
     } : {};
 
     const data = {
-        users: users.map(u => ({
-          id: u.id,
-          name: u.name,
-          username: u.username,
-          tenantId: (u as any).tenantId,
-          telegramId: u.telegramId || '',
-          telegramUsername: u.telegramUsername || '',
-          role: u.role,
-          deviceIds: u.deviceIds || [],
-          avatarUrl: u.avatarUrl || undefined,
-          jobTitle: u.jobTitle || undefined,
-          bio: u.bio || undefined,
-          isFreelance: !!u.isFreelance,
-          features: u.id === user.id ? (tenantFeatures || '[]') : undefined
-        })),
-        settings,
-        financialAccounts: financialAccounts.map(a => ({
-          id: a.id,
-          name: a.name,
-          bankName: a.bankName,
-          accountNumber: a.accountNumber,
-          description: a.description,
-          isActive: a.isActive
-        })),
-        attendance: [], // Lazy Loaded
-        projects: [],   // Lazy Loaded
-        requests: [],   // Lazy Loaded
-        transactions: [], // Lazy Loaded
-        dailyReports: [], // Lazy Loaded
-        salaryConfigs: [], // Fetched on demand in Payroll
-        payrollRecords: [], // Fetched on demand in Payroll
-        logs: []
+      users: users.map(u => ({
+        id: u.id,
+        name: u.name,
+        username: u.username,
+        tenantId: (u as any).tenantId,
+        telegramId: u.telegramId || '',
+        telegramUsername: u.telegramUsername || '',
+        role: u.role,
+        deviceIds: u.deviceIds || [],
+        avatarUrl: u.avatarUrl || undefined,
+        isFreelance: !!u.isFreelance,
+        features: u.id === user.id ? (tenantFeatures || '[]') : undefined
+      })),
+      settings,
+      financialAccounts: financialAccounts.map(a => ({
+        id: a.id,
+        name: a.name,
+        bankName: a.bankName,
+        accountNumber: a.accountNumber,
+        description: a.description,
+        isActive: a.isActive
+      })),
+      attendance: [], // Lazy Loaded
+      projects: [],   // Lazy Loaded
+      requests: [],   // Lazy Loaded
+      transactions: [], // Lazy Loaded
+      dailyReports: [], // Lazy Loaded
+      salaryConfigs: [], // Fetched on demand in Payroll
+      payrollRecords: [], // Fetched on demand in Payroll
+      logs: []
     };
 
     return NextResponse.json(data);

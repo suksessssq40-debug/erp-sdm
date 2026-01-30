@@ -15,34 +15,45 @@ export async function POST(request: Request) {
     const { targetTenantId } = body;
 
     if (!targetTenantId) {
-        return NextResponse.json({ error: 'Target Tenant ID is required' }, { status: 400 });
+      return NextResponse.json({ error: 'Target Tenant ID is required' }, { status: 400 });
     }
 
     // 1. Verify Access via TenantAccess Table
     // We look for a record linking currentUser.id -> targetTenantId
     const access = await prisma.tenantAccess.findFirst({
-        where: {
-            userId: currentUser.id,
-            tenantId: targetTenantId,
-            isActive: true
-        },
-        include: { tenant: true }
+      where: {
+        userId: currentUser.id,
+        tenantId: targetTenantId,
+        isActive: true
+      },
+      include: { tenant: true }
     });
 
     if (!access) {
-        return NextResponse.json({ error: 'Access Denied: You do not have permission to access this unit.' }, { status: 403 });
+      return NextResponse.json({ error: 'Access Denied: You do not have permission to access this unit.' }, { status: 403 });
     }
 
-    // 2. Generate NEW JWT with switched context
+    // 2. Fetch Fresh User Details to ensure profile (avatar, etc.) is carried over
+    const userDetail = await prisma.user.findUnique({
+      where: { id: currentUser.id }
+    });
+
+    if (!userDetail) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    // 3. Generate NEW JWT with switched context
     // We keep the SAME User ID, but change the Tenant ID and Role in the token payload
     const userPayload = {
-      id: currentUser.id,      // Keep original User ID (Unified Identity)
-      name: currentUser.name,
-      username: currentUser.username,
+      id: userDetail.id,      // Keep original User ID (Unified Identity)
+      name: userDetail.name,
+      username: userDetail.username,
       tenantId: access.tenantId, // NEW Context
       role: access.role,         // Role for this specific tenant
-      telegramId: currentUser.telegramId || '',
-      telegramUsername: currentUser.telegramUsername || '',
+      telegramId: userDetail.telegramId || '',
+      telegramUsername: userDetail.telegramUsername || '',
+      avatarUrl: userDetail.avatarUrl || undefined,
+      isFreelance: !!userDetail.isFreelance,
       features: access.tenant.featuresJson // Pass features to frontend!
     };
 
@@ -50,9 +61,9 @@ export async function POST(request: Request) {
 
     console.log(`User ${currentUser.username} switched to tenant ${access.tenant.name} (${access.tenantId}) as ${access.role}`);
 
-    return NextResponse.json({ 
-        user: { ...userPayload, roleSlug: access.role.toLowerCase() }, 
-        token 
+    return NextResponse.json({
+      user: { ...userPayload, roleSlug: access.role.toLowerCase() },
+      token
     });
 
   } catch (error) {

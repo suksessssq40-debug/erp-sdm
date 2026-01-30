@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     // 1. Find User (Case Insensitive)
     console.log(`[LOGIN] Attempt: ${username}`);
     const u = await prisma.user.findFirst({
-      where: { 
+      where: {
         username: {
           equals: username,
           mode: 'insensitive' // Critical for user ease of use
@@ -50,7 +50,7 @@ export async function POST(request: Request) {
     // 3. Device Lock Logic
     // Only applies to STAFF or if explicitly enforced
     const currentDeviceIds: string[] = Array.isArray(u.deviceIds) ? (u.deviceIds as string[]) : [];
-    
+
     // Auto-migrate single device_id to list if not present
     // Note: 'device_id' is not in our Prisma schema? Let's check.
     // Introspection result DID NOT show 'device_id', only 'device_ids'. 
@@ -71,43 +71,43 @@ export async function POST(request: Request) {
     // I will add `deviceId` to schema via a raw check or just stick to `deviceIds` (plural) which is the new standard.
     // BUT, the `server/index.cjs` logic uses `device_id`.
     // I should perform a "migration" here: If `deviceId` payload is sent, ensuring it's in `deviceIds`.
-    
+
     // For Safety, I will assume the Prisma Schema needs to map `device_id` if we want to read it.
     // But since I can't easily change schema on fly without re-generating client (which I did manually),
     // I will rely on `device_ids` (plural) which IS in my schema.
-    
+
     if (u.role === 'STAFF') {
-        if (deviceId) {
-           // Check if device is allowed
-           const isKnown = currentDeviceIds.includes(deviceId);
-           
-           if (isKnown) {
-             // OK
-           } else if (currentDeviceIds.length < 2) {
-             // Register new device
-             const newDeviceIds = [...currentDeviceIds, deviceId];
-             await prisma.user.update({
-               where: { id: u.id },
-               data: { deviceIds: newDeviceIds }
-             });
-           } else {
-             // Blocked
-             return NextResponse.json({ 
-               error: 'DEVICE_LOCKED_MISMATCH', 
-               message: 'Maksimal 2 perangkat terdaftar tercapai. Hubungi admin.' 
-             }, { status: 403 });
-           }
+      if (deviceId) {
+        // Check if device is allowed
+        const isKnown = currentDeviceIds.includes(deviceId);
+
+        if (isKnown) {
+          // OK
+        } else if (currentDeviceIds.length < 2) {
+          // Register new device
+          const newDeviceIds = [...currentDeviceIds, deviceId];
+          await prisma.user.update({
+            where: { id: u.id },
+            data: { deviceIds: newDeviceIds }
+          });
+        } else {
+          // Blocked
+          return NextResponse.json({
+            error: 'DEVICE_LOCKED_MISMATCH',
+            message: 'Maksimal 2 perangkat terdaftar tercapai. Hubungi admin.'
+          }, { status: 403 });
         }
+      }
     }
 
     // 4. Update Token
     const tenantId = (u as any).tenantId || 'sdm';
     const tenant = await prisma.tenant.findUnique({
-        where: { id: tenantId },
-        select: { featuresJson: true }
+      where: { id: tenantId },
+      select: { featuresJson: true }
     });
     const features = tenant?.featuresJson || '[]';
-    
+
     const userPayload = {
       id: u.id,
       name: u.name,
@@ -116,10 +116,8 @@ export async function POST(request: Request) {
       telegramId: u.telegramId || '',
       telegramUsername: u.telegramUsername || '',
       role: u.role,
-      deviceId: deviceId, 
+      deviceId: deviceId,
       avatarUrl: u.avatarUrl || undefined,
-      jobTitle: u.jobTitle || undefined,
-      bio: u.bio || undefined,
       isFreelance: !!u.isFreelance,
       features: features // CRITICAL: Include features here to fix stale menu
     };
