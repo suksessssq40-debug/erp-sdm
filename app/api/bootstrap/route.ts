@@ -13,13 +13,26 @@ export async function GET() {
     let settingsData: any = null;
     let financialAccounts: any[] = [];
     let tenantFeatures: string | null = null;
+    let logs: any[] = [];
 
     // 2. Fetch Users who have access to this tenant (via TenantAccess table)
     try {
-      const tenantAccessList = await prisma.tenantAccess.findMany({
-        where: { tenantId, isActive: true },
-        include: { user: true }
-      });
+      const [tenantAccessList, settingsRes, accountsRes, tenantRes, logsRes] = await Promise.all([
+        prisma.tenantAccess.findMany({
+          where: { tenantId, isActive: true },
+          include: { user: true }
+        }),
+        prisma.settings.findFirst({ where: { tenantId } as any }),
+        prisma.financialAccount.findMany({
+          where: { tenantId, isActive: true } as any
+        }),
+        prisma.tenant.findUnique({ where: { id: tenantId }, select: { featuresJson: true } }),
+        prisma.systemLog.findMany({
+          where: { tenantId },
+          orderBy: { timestamp: 'desc' },
+          take: 50
+        })
+      ]);
 
       // Flatten and transform to match previous structure
       users = tenantAccessList.map(ta => ({
@@ -28,12 +41,21 @@ export async function GET() {
         tenantId: ta.tenantId
       }));
 
-      settingsData = await prisma.settings.findFirst({ where: { tenantId } as any });
-      financialAccounts = await prisma.financialAccount.findMany({
-        where: { tenantId, isActive: true } as any
-      });
-      const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { featuresJson: true } });
-      tenantFeatures = tenant?.featuresJson || '[]';
+      settingsData = settingsRes;
+      financialAccounts = accountsRes;
+      tenantFeatures = tenantRes?.featuresJson || '[]';
+
+      logs = logsRes.map(l => ({
+        id: l.id,
+        timestamp: Number(l.timestamp),
+        actorId: l.actorId,
+        actorName: l.actorName,
+        actorRole: l.actorRole,
+        actionType: l.actionType,
+        details: l.details,
+        target: l.targetObj || undefined,
+        metadata: l.metadataJson ? JSON.parse(l.metadataJson) : undefined
+      }));
     } catch (e) {
       console.error("Critical Bootstrap Err (Users/Settings):", e);
       throw e;
@@ -90,7 +112,7 @@ export async function GET() {
       dailyReports: [], // Lazy Loaded
       salaryConfigs: [], // Fetched on demand in Payroll
       payrollRecords: [], // Fetched on demand in Payroll
-      logs: []
+      logs: logs
     };
 
     return NextResponse.json(data);

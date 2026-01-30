@@ -17,20 +17,26 @@ interface KanbanProps {
   users: User[];
   currentUser: User;
   settings: AppSettings;
+  logs: SystemLog[];
   onAddProject: (p: Project) => void;
   onUpdateProject: (p: Project) => void;
+  fetchLogs?: (target?: string) => Promise<void>;
   toast: ReturnType<typeof useToast>;
   onCelebrate?: (message: string) => void;
 }
 
-const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings, onAddProject, onUpdateProject, toast, onCelebrate }) => {
+const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings, logs: propsLogs, onAddProject, onUpdateProject, fetchLogs: propsFetchLogs, toast, onCelebrate }) => {
   const router = useRouter();
 
   // Defensive Guard
   if (!currentUser || !settings || !projects || !users) {
     return <div className="p-8 text-center text-slate-400">Loading Kanban Data...</div>;
   }
-  const { logs, patchProject, deleteProject } = useAppStore(); // Access logs, patchProject, and deleteProject from store
+  const { logs: storeLogs, patchProject, deleteProject, fetchLogs: storeFetchLogs } = useAppStore(); // Access logs, patchProject, and deleteProject from store
+
+  // Prefer props if provided, fallback to store
+  const logs = propsLogs || storeLogs || [];
+  const fetchLogs = propsFetchLogs || storeFetchLogs;
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
@@ -395,6 +401,7 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
         <ProjectLogModal
           project={historyProject}
           logs={logs}
+          fetchLogs={fetchLogs}
           onClose={() => setHistoryProject(null)}
         />
       )}
@@ -407,10 +414,20 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
 interface ProjectLogModalProps {
   project: Project;
   logs: SystemLog[];
+  fetchLogs?: (target?: string) => Promise<void>;
   onClose: () => void;
 }
 
-const ProjectLogModal: React.FC<ProjectLogModalProps> = ({ project, logs, onClose }) => {
+const ProjectLogModal: React.FC<ProjectLogModalProps> = ({ project, logs, fetchLogs, onClose }) => {
+  const [loading, setLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    if (fetchLogs) {
+      setLoading(true);
+      fetchLogs(project.id).finally(() => setLoading(false));
+    }
+  }, [project.id]);
+
   // Filter logs only for this project
   const projectLogs = useMemo(() => {
     return logs.filter(log => log.target === project.id).sort((a, b) => b.timestamp - a.timestamp);
@@ -441,7 +458,12 @@ const ProjectLogModal: React.FC<ProjectLogModalProps> = ({ project, logs, onClos
           <button onClick={onClose} className="p-2 bg-white rounded-xl hover:bg-rose-50 text-slate-400 hover:text-rose-500 transition shadow-sm"><X size={18} /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-0 custom-scrollbar max-h-[60vh]">
-          {projectLogs.length > 0 ? (
+          {loading ? (
+            <div className="p-10 text-center space-y-3">
+              <div className="w-8 h-8 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Menarik Data Riwayat...</p>
+            </div>
+          ) : projectLogs.length > 0 ? (
             <div className="divide-y divide-slate-50">
               {projectLogs.map(log => (
                 <div key={log.id} className="p-5 hover:bg-slate-50 transition-colors flex gap-4">

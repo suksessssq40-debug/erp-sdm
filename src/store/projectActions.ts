@@ -82,18 +82,33 @@ export const createProjectActions = (
       if (!res.ok) throw new Error('Failed to patch project');
       const raw: any = await res.json();
       const updated: Project = {
-          ...raw,
-          tasks: typeof raw.tasksJson === 'string' ? JSON.parse(raw.tasksJson) : (raw.tasks || []),
-          comments: typeof raw.commentsJson === 'string' ? JSON.parse(raw.commentsJson) : (raw.comments || []),
-          collaborators: typeof raw.collaboratorsJson === 'string' ? JSON.parse(raw.collaboratorsJson) : (raw.collaborators || []),
-          deadline: raw.deadline ? new Date(raw.deadline).toISOString() : raw.deadline,
-          createdAt: raw.createdAt ? new Date(raw.createdAt).getTime() : Date.now()
+        ...raw,
+        tasks: typeof raw.tasksJson === 'string' ? JSON.parse(raw.tasksJson) : (raw.tasks || []),
+        comments: typeof raw.commentsJson === 'string' ? JSON.parse(raw.commentsJson) : (raw.comments || []),
+        collaborators: typeof raw.collaboratorsJson === 'string' ? JSON.parse(raw.collaboratorsJson) : (raw.collaborators || []),
+        deadline: raw.deadline ? new Date(raw.deadline).toISOString() : raw.deadline,
+        createdAt: raw.createdAt ? new Date(raw.createdAt).getTime() : Date.now()
       };
       setState(prev => ({
         ...prev,
         projects: prev.projects.map(p => p.id === updated.id ? updated : p)
       }));
-      addLog(SystemActionType.PROJECT_UPDATE, `Atomic Update: ${action}`, updated.id);
+
+      let logType = SystemActionType.PROJECT_UPDATE;
+      let logDetails = `Project updated: ${action}`;
+
+      if (action === 'MOVE_STATUS') {
+        logType = SystemActionType.PROJECT_MOVE_STATUS;
+        logDetails = `Project status moved to: ${data.status}`;
+      } else if (action === 'UPDATE_TASK') {
+        logType = SystemActionType.PROJECT_TASK_COMPLETE;
+        logDetails = `Task updated/completed: ${data.task?.title || 'Unknown Task'}`;
+      } else if (action === 'ADD_COMMENT') {
+        logType = SystemActionType.PROJECT_COMMENT;
+        logDetails = `New project comment added`;
+      }
+
+      addLog(logType, logDetails, updated.id);
       return updated;
     } catch (e) {
       console.error(e);

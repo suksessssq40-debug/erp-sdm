@@ -11,20 +11,23 @@ export default function KanbanPage() {
 
   useEffect(() => {
     store.fetchProjects();
+    if (store.fetchLogs) store.fetchLogs();
   }, []);
 
   if (!store.currentUser) return null;
 
   return (
-    <Kanban 
-      projects={store.projects} 
-      users={store.users} 
-      currentUser={store.currentUser} 
-      settings={store.settings} 
-      onAddProject={store.addProject} 
-      onUpdateProject={store.updateProject} 
-      toast={toast} 
-      onCelebrate={() => {}} 
+    <Kanban
+      projects={store.projects}
+      users={store.users}
+      currentUser={store.currentUser}
+      settings={store.settings}
+      logs={store.logs}
+      onAddProject={store.addProject}
+      onUpdateProject={store.updateProject}
+      fetchLogs={store.fetchLogs}
+      toast={toast}
+      onCelebrate={() => { }}
     />
   );
 }

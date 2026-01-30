@@ -27,47 +27,30 @@ const PayrollModule: React.FC<PayrollProps> = ({
   const [editingConfig, setEditingConfig] = useState<UserSalaryConfig | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [previewData, setPreviewData] = useState<{ user: User, record: PayrollRecord } | null>(null);
+  const [calculatedList, setCalculatedList] = useState<Record<string, PayrollRecord>>({});
 
-  const getAttendanceStats = (userId: string, month: string) => {
-    const filtered = attendance.filter(a => {
-      const d = new Date(a.date);
-      const mStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      return a.userId === userId && mStr === month;
+  // 1. Baru: Mengambil hasil perhitungan dari Server (Menggantikan hitungan lokal)
+  const fetchCalculatedPayroll = async (userId: string) => {
+    try {
+      const res = await fetch('/api/payroll-records/calculate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, month: selectedMonth })
+      });
+      if (!res.ok) throw new Error('Gagal hitung gaji');
+      const data = await res.json();
+      setCalculatedList(prev => ({ ...prev, [userId]: data }));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Trigger perhitungan saat bulan berubah
+  React.useEffect(() => {
+    users.filter(u => u.role !== UserRole.OWNER).forEach(u => {
+      fetchCalculatedPayroll(u.id);
     });
-
-    return {
-      totalHadir: filtered.length,
-      totalTelat: filtered.filter(a => a.isLate).length
-    };
-  };
-
-  const calculateRecord = (user: User, month: string): PayrollRecord | null => {
-    const config = salaryConfigs.find(c => c.userId === user.id);
-    if (!config) return null;
-
-    const stats = getAttendanceStats(user.id, month);
-    const totalMeal = stats.totalHadir * config.mealAllowance;
-    const lateDeduction = stats.totalTelat * config.lateDeduction;
-    const net = config.basicSalary + config.allowance + totalMeal - lateDeduction;
-
-    return {
-      id: Math.random().toString(36).substr(2, 9),
-      userId: user.id,
-      month: month,
-      basicSalary: config.basicSalary,
-      allowance: config.allowance,
-      totalMealAllowance: totalMeal,
-      bonus: 0,
-      deductions: lateDeduction,
-      netSalary: net,
-      isSent: false,
-      processedAt: Date.now(),
-      metadata: {
-        totalHadir: stats.totalHadir,
-        totalTelat: stats.totalTelat
-      }
-    };
-  };
+  }, [selectedMonth, users]);
 
   const generatePDF = async (user: User, record: PayrollRecord) => {
     if (!(window as any).jspdf) {

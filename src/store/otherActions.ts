@@ -14,7 +14,7 @@ export const createOtherActions = (
       const params = new URLSearchParams();
       if (startDate) params.append('start', startDate);
       if (endDate) params.append('end', endDate);
-      
+
       const queryString = params.toString();
       if (queryString) url += `?${queryString}`;
 
@@ -58,8 +58,8 @@ export const createOtherActions = (
         body: JSON.stringify(req)
       });
       if (!res.ok) {
-          const errData = await res.json();
-          throw new Error(errData.error || 'Failed to update request');
+        const errData = await res.json();
+        throw new Error(errData.error || 'Failed to update request');
       }
       const updated: LeaveRequest = await res.json();
       setState(prev => ({
@@ -230,19 +230,27 @@ export const createOtherActions = (
     }
   };
 
-  const fetchLogs = async () => {
+  const fetchLogs = async (target?: string) => {
     try {
-      const res = await fetch(`${API_BASE}/api/system-logs`, { headers: authHeaders });
+      let url = `${API_BASE}/api/system-logs`;
+      if (target) url += `?target=${encodeURIComponent(target)}`;
+
+      const res = await fetch(url, { headers: authHeaders });
       if (res.ok) {
         const data = await res.json();
-        setState(prev => ({ ...prev, logs: data }));
+        setState(prev => {
+          // Merge and avoid duplicates based on ID
+          const existingIds = new Set(prev.logs.map(l => l.id));
+          const newUnique = data.filter((l: any) => !existingIds.has(l.id));
+          return { ...prev, logs: [...newUnique, ...prev.logs] };
+        });
       }
     } catch (e) {
       console.error("Fetch Logs Failed", e);
     }
   };
 
-  return { 
+  return {
     fetchRequests, addRequest, updateRequest, deleteRequest,
     addFinancialAccount, updateFinancialAccount, deleteFinancialAccount,
     addCategory, updateCategory, deleteCategory,
