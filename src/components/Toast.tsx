@@ -1,9 +1,10 @@
+
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { CheckCircle2, AlertCircle, XCircle, Info, X } from 'lucide-react';
+import { CheckCircle2, AlertCircle, XCircle, Info, X, Loader2 } from 'lucide-react';
 
-export type ToastType = 'success' | 'error' | 'warning' | 'info';
+export type ToastType = 'success' | 'error' | 'warning' | 'info' | 'loading';
 
 export interface Toast {
   id: string;
@@ -19,18 +20,22 @@ interface ToastProps {
 
 const ToastItem: React.FC<ToastProps> = ({ toast, onRemove }) => {
   useEffect(() => {
+    // Loading toasts usually don't expire automatically unless specified
+    if (toast.type === 'loading' && !toast.duration) return;
+
     const timer = setTimeout(() => {
       onRemove(toast.id);
     }, toast.duration || 5000);
 
     return () => clearTimeout(timer);
-  }, [toast.id, toast.duration, onRemove]);
+  }, [toast.id, toast.duration, toast.type, onRemove]);
 
   const icons = {
     success: <CheckCircle2 size={20} className="text-emerald-500" />,
     error: <XCircle size={20} className="text-rose-500" />,
     warning: <AlertCircle size={20} className="text-amber-500" />,
     info: <Info size={20} className="text-blue-500" />,
+    loading: <Loader2 size={20} className="text-slate-500 animate-spin" />,
   };
 
   const bgColors = {
@@ -38,6 +43,7 @@ const ToastItem: React.FC<ToastProps> = ({ toast, onRemove }) => {
     error: 'bg-rose-50 border-rose-200',
     warning: 'bg-amber-50 border-amber-200',
     info: 'bg-blue-50 border-blue-200',
+    loading: 'bg-slate-50 border-slate-200',
   };
 
   const textColors = {
@@ -45,6 +51,7 @@ const ToastItem: React.FC<ToastProps> = ({ toast, onRemove }) => {
     error: 'text-rose-800',
     warning: 'text-amber-800',
     info: 'text-blue-800',
+    loading: 'text-slate-800',
   };
 
   return (
@@ -84,11 +91,13 @@ export const ToastContainer: React.FC<ToastContainerProps> = ({ toasts, onRemove
 
 // Context Definition
 interface ToastContextType {
-  success: (message: string, duration?: number) => void;
-  error: (message: string, duration?: number) => void;
-  warning: (message: string, duration?: number) => void;
-  info: (message: string, duration?: number) => void;
-  removeToast: (id: string) => void;
+  success: (message: string, duration?: number) => string;
+  error: (message: string, duration?: number) => string;
+  warning: (message: string, duration?: number) => string;
+  info: (message: string, duration?: number) => string;
+  loading: (message: string, duration?: number) => string;
+  dismiss: (id: string) => void;
+  removeToast: (id: string) => void; // Alias for dismiss
 }
 
 const ToastContext = createContext<ToastContextType | null>(null);
@@ -99,6 +108,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const showToast = useCallback((type: ToastType, message: string, duration?: number) => {
     const id = Math.random().toString(36).substr(2, 9);
     setToasts(prev => [...prev, { id, type, message, duration }]);
+    return id;
   }, []);
 
   const removeToast = useCallback((id: string) => {
@@ -109,9 +119,12 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const error = (msg: string, dur?: number) => showToast('error', msg, dur);
   const warning = (msg: string, dur?: number) => showToast('warning', msg, dur);
   const info = (msg: string, dur?: number) => showToast('info', msg, dur);
+  const loading = (msg: string, dur?: number) => showToast('loading', msg, dur);
+
+  const dismiss = removeToast;
 
   return (
-    <ToastContext.Provider value={{ success, error, warning, info, removeToast }}>
+    <ToastContext.Provider value={{ success, error, warning, info, loading, dismiss, removeToast }}>
       <ToastContainer toasts={toasts} onRemove={removeToast} />
       {children}
     </ToastContext.Provider>
@@ -126,4 +139,3 @@ export const useToast = () => {
   }
   return context;
 };
-

@@ -1,8 +1,22 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { User, UserRole, UserSalaryConfig, PayrollRecord, Attendance, AppSettings } from '../types';
 import { formatCurrency, sendTelegramDocument } from '../utils';
-import { CreditCard, Users, Settings, Send, FileText, CheckCircle2, AlertCircle, Download, Landmark, History as HistoryIcon, Eye, Zap, Trash2 } from 'lucide-react';
+import {
+  CreditCard,
+  Users,
+  Send,
+  Eye,
+  History as HistoryIcon,
+  User as UserIcon,
+  Calculator,
+  X,
+  Printer,
+  FileCheck,
+  Building,
+  CheckCircle2,
+  Zap
+} from 'lucide-react';
 import { useToast } from './Toast';
 
 declare var jspdf: any;
@@ -20,37 +34,63 @@ interface PayrollProps {
 }
 
 const PayrollModule: React.FC<PayrollProps> = ({
-  currentUser, users, salaryConfigs, attendance, settings, payrollRecords, onUpdateSalary, onAddPayroll, toast
+  currentUser, users, salaryConfigs, settings, payrollRecords, onAddPayroll, toast
 }) => {
   const [activeTab, setActiveTab] = useState<'MANAGEMENT' | 'HISTORY'>('MANAGEMENT');
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
-  const [editingConfig, setEditingConfig] = useState<UserSalaryConfig | null>(null);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [previewData, setPreviewData] = useState<{ user: User, record: PayrollRecord } | null>(null);
-  const [calculatedList, setCalculatedList] = useState<Record<string, PayrollRecord>>({});
+  const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
 
-  // 1. Baru: Mengambil hasil perhitungan dari Server (Menggantikan hitungan lokal)
-  const fetchCalculatedPayroll = async (userId: string) => {
-    try {
-      const res = await fetch('/api/payroll-records/calculate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, month: selectedMonth })
+  // Manual Input State
+  const [form, setForm] = useState({
+    basicSalary: 0,
+    allowance: 0, // Insentif Kehadiran
+    bonus: 0,
+    totalHadir: 0,
+    totalIzin: 0,
+    dailyRate: 0,
+    deductions: 0,
+    notes: ''
+  });
+
+  // Calculate THP
+  const netSalary = (form.basicSalary + form.allowance + form.bonus) - form.deductions;
+
+  // Filter out owners and sort users
+  const filteredUsers = useMemo(() => {
+    return users.filter(u => u.role !== UserRole.OWNER).sort((a, b) => a.name.localeCompare(b.name));
+  }, [users]);
+
+  // Handle User Selection
+  const handleSelectUser = (user: User) => {
+    setSelectedUser(user);
+    const config = salaryConfigs.find(c => c.userId === user.id);
+    if (config) {
+      setForm({
+        ...form,
+        basicSalary: config.basicSalary || 0,
+        allowance: config.allowance || 0,
+        dailyRate: 0,
+        totalHadir: 0,
+        totalIzin: 0,
+        bonus: 0,
+        deductions: 0,
+        notes: ''
       });
-      if (!res.ok) throw new Error('Gagal hitung gaji');
-      const data = await res.json();
-      setCalculatedList(prev => ({ ...prev, [userId]: data }));
-    } catch (e) {
-      console.error(e);
+    } else {
+      setForm({
+        basicSalary: 0,
+        allowance: 0,
+        bonus: 0,
+        totalHadir: 0,
+        totalIzin: 0,
+        dailyRate: 0,
+        deductions: 0,
+        notes: ''
+      });
     }
   };
-
-  // Trigger perhitungan saat bulan berubah
-  React.useEffect(() => {
-    users.filter(u => u.role !== UserRole.OWNER).forEach(u => {
-      fetchCalculatedPayroll(u.id);
-    });
-  }, [selectedMonth, users]);
 
   const generatePDF = async (user: User, record: PayrollRecord) => {
     if (!(window as any).jspdf) {
@@ -62,236 +102,453 @@ const PayrollModule: React.FC<PayrollProps> = ({
 
     const { jsPDF } = (window as any).jspdf;
     const doc = new jsPDF();
-    const p = settings.companyProfile;
-    const logoPos = p.logoPosition || 'top';
-    const textAlgn = p.textAlignment || 'center';
+    const p = settings.companyProfile || { name: 'COMPANY NAME', address: 'ADDRESS', phone: '000' };
 
-    let currentY = 20;
     const pageWidth = 210;
-    const margin = 20;
+    const margin = 15;
+    let currentY = 15;
 
-    // Header Logic
-    if (logoPos === 'top') {
-      if (p.logoUrl) {
-        const logoW = 25, logoH = 25;
-        let logoX = (pageWidth / 2) - (logoW / 2);
-        if (textAlgn === 'left') logoX = margin;
-        if (textAlgn === 'right') logoX = pageWidth - margin - logoW;
-        try { doc.addImage(p.logoUrl, 'PNG', logoX, currentY, logoW, logoH); } catch (e) { }
-        currentY += logoH + 8;
-      }
-      doc.setFontSize(22);
-      doc.setFont('helvetica', 'bold');
-      doc.text(p.name.toUpperCase(), textAlgn === 'center' ? 105 : (textAlgn === 'left' ? margin : pageWidth - margin), currentY, { align: textAlgn });
-      currentY += 8;
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'normal');
-      doc.text(p.address, textAlgn === 'center' ? 105 : (textAlgn === 'left' ? margin : pageWidth - margin), currentY, { align: textAlgn });
-      currentY += 5;
-      doc.text(`Telp: ${p.phone}`, textAlgn === 'center' ? 105 : (textAlgn === 'left' ? margin : pageWidth - margin), currentY, { align: textAlgn });
-      currentY += 10;
-    } else if (logoPos === 'left') {
-      const logoW = 30, logoH = 30;
-      if (p.logoUrl) try { doc.addImage(p.logoUrl, 'PNG', margin, currentY, logoW, logoH); } catch (e) { }
-      const textX = margin + (p.logoUrl ? logoW + 10 : 0);
-      doc.setFontSize(18); doc.setFont('helvetica', 'bold');
-      doc.text(p.name.toUpperCase(), textX, currentY + 10);
-      doc.setFontSize(9); doc.setFont('helvetica', 'normal');
-      doc.text(p.address, textX, currentY + 16, { maxWidth: pageWidth - textX - margin });
-      doc.text(`Telp: ${p.phone}`, textX, currentY + 24);
-      currentY += Math.max(logoH, 30) + 10;
-    } else if (logoPos === 'right') {
-      const logoW = 30, logoH = 30;
-      if (p.logoUrl) try { doc.addImage(p.logoUrl, 'PNG', pageWidth - margin - logoW, currentY, logoW, logoH); } catch (e) { }
-      const textXEnd = pageWidth - margin - (p.logoUrl ? logoW + 10 : 0);
-      doc.setFontSize(18); doc.setFont('helvetica', 'bold');
-      doc.text(p.name.toUpperCase(), textXEnd, currentY + 10, { align: 'right' });
-      doc.setFontSize(9); doc.setFont('helvetica', 'normal');
-      doc.text(p.address, textXEnd, currentY + 16, { align: 'right', maxWidth: textXEnd - margin });
-      doc.text(`Telp: ${p.phone}`, textXEnd, currentY + 24, { align: 'right' });
-      currentY += Math.max(logoH, 30) + 10;
+    // --- HEADER ---
+    if (p.logoUrl) {
+      try { doc.addImage(p.logoUrl, 'PNG', margin, currentY, 25, 20); } catch (e) { }
     }
 
-    doc.setDrawColor(30, 41, 59); doc.setLineWidth(0.8);
-    doc.line(margin, currentY, pageWidth - margin, currentY);
-    currentY += 15;
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text(p.name.toUpperCase(), margin + 30, currentY + 5);
 
-    // Slip Content
-    doc.setFontSize(16); doc.setFont('helvetica', 'bold');
-    doc.text('SLIP GAJI KARYAWAN', 105, currentY, { align: 'center' });
-    currentY += 8;
-    doc.setFontSize(10); doc.setFont('helvetica', 'normal');
-    doc.text(`Periode: ${record.month}`, 105, currentY, { align: 'center' });
-    currentY += 20;
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    const addressLines = doc.splitTextToSize(p.address, 100);
+    doc.text(addressLines, margin + 30, currentY + 10);
 
-    doc.text(`Nama: ${user.name}`, margin, currentY);
-    doc.text(`Jabatan: ${user.role}`, margin, currentY + 7);
+    // Month Badge
+    doc.setFillColor(186, 212, 245);
+    doc.rect(150, currentY, 45, 8, 'F');
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    const monthName = new Date(record.month + '-01').toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    doc.text(monthName, 172.5, currentY + 5.5, { align: 'center' });
+
     currentY += 25;
-
-    doc.setFillColor(248, 250, 252);
-    doc.rect(margin, currentY, 170, 10, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.text('KOMPONEN PENERIMAAN', margin + 5, currentY + 7);
-    doc.text('NOMINAL', 150, currentY + 7);
-    currentY += 15;
-
-    const row = (l: string, v: number) => {
-      doc.setFont('helvetica', 'normal');
-      doc.text(l, margin + 5, currentY);
-      doc.text(formatCurrency(v), 150, currentY);
-      currentY += 8;
-    };
-
-    row('Gaji Pokok', record.basicSalary);
-    row('Tunjangan Jabatan', record.allowance);
-    row(`Uang Makan (${record.metadata?.totalHadir || 0} hari)`, record.totalMealAllowance);
-    row('Bonus', record.bonus);
-
-    currentY += 5;
-    doc.setFillColor(248, 250, 252);
-    doc.rect(margin, currentY, 170, 10, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.text('POTONGAN', margin + 5, currentY + 7);
-    currentY += 15;
-    row(`Potongan Telat (${record.metadata?.totalTelat || 0} event)`, record.deductions);
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.8);
+    doc.line(margin, currentY, pageWidth - margin, currentY);
 
     currentY += 10;
-    doc.setLineWidth(0.5); doc.line(margin, currentY, pageWidth - margin, currentY);
-    currentY += 12;
-    doc.setFontSize(12); doc.text('TOTAL DITERIMA (THP)', margin + 5, currentY);
-    doc.text(formatCurrency(record.netSalary), 150, currentY);
 
-    currentY += 40;
-    doc.setFontSize(10); doc.text('Penerima,', 40, currentY, { align: 'center' });
-    doc.text('Admin SDM,', 160, currentY, { align: 'center' });
+    // --- USER INFO ---
+    doc.setFontSize(9);
+    doc.setTextColor(0, 0, 0);
+    doc.setFont('helvetica', 'bold');
+    doc.text('NAMA KARYAWAN', margin, currentY);
+    doc.text('JABATAN', margin, currentY + 7);
+
+    doc.setFont('helvetica', 'bold');
+    doc.text(`:  ${user.name.toUpperCase()}`, margin + 45, currentY);
+    doc.text(`:  ${user.role.toUpperCase()}`, margin + 45, currentY + 7);
+
+    currentY += 12;
+
+    // --- TABLE HEADERS ---
+    doc.setFillColor(186, 212, 245);
+    doc.rect(margin, currentY, 90, 8, 'F');
+    doc.rect(margin + 90, currentY, 90, 8, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('PENDAPATAN', margin + 2, currentY + 5.5);
+    doc.text(':', margin + 45, currentY + 5.5);
+    doc.text('POTONGAN', margin + 92, currentY + 5.5);
+    doc.text(':', margin + 135, currentY + 5.5);
+
+    currentY += 8;
+
+    const startTableY = currentY;
+    const row = (label: string, value: string | number, y: number, isLeft: boolean) => {
+      doc.setFont('helvetica', 'normal');
+      doc.text(label, isLeft ? margin + 2 : margin + 92, y);
+      doc.text(':', isLeft ? margin + 45 : margin + 135, y);
+      const valStr = typeof value === 'number' ? `Rp  ${value.toLocaleString('id-ID')}` : value.toString();
+      doc.text(valStr, isLeft ? margin + 70 : margin + 160, y);
+    };
+
+    let ly = startTableY + 8;
+    row('GAJI POKOK', record.basicSalary, ly, true);
+    ly += 7;
+    row('INSENTIF KEHADIRAN', record.allowance, ly, true);
+    ly += 7;
+    if (record.bonus > 0) {
+      row('BONUS', record.bonus, ly, true);
+      ly += 7;
+    }
+
+    let ry = startTableY + 8;
+    row('KEHADIRAN', `${record.metadata?.totalHadir || 0} Hari`, ry, false);
+    ry += 7;
+    row('JUMLAH IZIN', `${record.metadata?.totalIzin || 0} Hari`, ry, false);
+    ry += 7;
+    row('GAJI/HARI', record.metadata?.dailyRate || 0, ry, false);
+    ry += 7;
+    row('POTONGAN*', record.deductions, ry, false);
+    ry += 7;
+
+    currentY = Math.max(ly, ry) + 5;
+
+    // --- TOTAL BOXES ---
+    doc.setFillColor(186, 212, 245);
+    doc.rect(margin, currentY, 90, 8, 'F');
+    doc.rect(margin + 90, currentY, 90, 8, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('JML PENDAPATAN', margin + 2, currentY + 5.5);
+    doc.text(':', margin + 45, currentY + 5.5);
+    doc.text(`Rp  ${(record.basicSalary + record.allowance + record.bonus).toLocaleString('id-ID')}`, margin + 70, currentY + 5.5);
+
+    doc.text('JML POTONGAN', margin + 92, currentY + 5.5);
+    doc.text(':', margin + 135, currentY + 5.5);
+    doc.text(`Rp  ${record.deductions.toLocaleString('id-ID')}`, margin + 160, currentY + 5.5);
+
+    currentY += 15;
+
+    // --- FOOTER & BANK INFO ---
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.text('NB: -', margin, currentY);
+    if (record.metadata?.notes) {
+      doc.text(record.metadata.notes, margin + 8, currentY);
+    }
+
+    doc.text('Gaji dibayarkan ke rekening yang didaftarkan ke bagian keuangan', margin + 90, currentY);
+    doc.text('yaitu:', margin + 90, currentY + 4);
+
+    doc.text('Nomor Rekening', margin + 90, currentY + 10);
+    doc.text(':', margin + 120, currentY + 10);
+    doc.text(user.deviceIds?.[0] || '1710018428774 (Bank Mandiri)', margin + 125, currentY + 10);
+
+    doc.text('Nama Rekening', margin + 90, currentY + 15);
+    doc.text(':', margin + 120, currentY + 15);
+    doc.text(user.name.toUpperCase(), margin + 125, currentY + 15);
+
     currentY += 25;
-    doc.text(`( ${user.name} )`, 40, currentY, { align: 'center' });
-    doc.text(`( Finance Team )`, 160, currentY, { align: 'center' });
+
+    // --- FINAL TOTAL BAR ---
+    doc.setFillColor(30, 58, 138);
+    doc.rect(margin, currentY, 90, 10, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text('GAJI BERSIH', margin + 2, currentY + 6.5);
+    doc.text(':', margin + 45, currentY + 6.5);
+    doc.text(`Rp  ${record.netSalary.toLocaleString('id-ID')}`, margin + 55, currentY + 6.5);
+
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(9);
+    const dateFooter = `Kediri, ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+    doc.text(dateFooter, 150, currentY + 6.5);
+
+    currentY += 18;
+    doc.setFont('helvetica', 'bold');
+    doc.text('Tim Keuangan', 160, currentY, { align: 'center' });
+
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(1);
+    doc.line(margin, 280, pageWidth - margin, 280);
 
     return doc.output('blob');
   };
 
-  const handleSendSingle = async (user: User, record: PayrollRecord) => {
-    setIsProcessing(true);
-    try {
-      if (user.telegramId && settings.telegramBotToken) {
-        const pdfBlob = await generatePDF(user, record);
-        await sendTelegramDocument(settings.telegramBotToken, user.telegramId, pdfBlob, `Slip_${user.username}_${record.month}.pdf`, `Slip Gaji ${record.month} telah dikirim.`);
-        onAddPayroll({ ...record, isSent: true });
-        toast.success(`Slip gaji ${record.month} untuk ${user.name} berhasil dikirim via Telegram!`);
-      } else {
-        toast.warning("ID Telegram karyawan atau Token Bot belum diset. Pastikan:\n- Tab Settings sudah diisi BOT API TOKEN\n- User memiliki Telegram ID numerik.");
+  const handlePreview = async () => {
+    if (!selectedUser) return;
+    const record: PayrollRecord = {
+      id: 'preview',
+      userId: selectedUser.id,
+      month: selectedMonth,
+      basicSalary: form.basicSalary,
+      allowance: form.allowance,
+      totalMealAllowance: 0,
+      bonus: form.bonus,
+      deductions: form.deductions,
+      netSalary,
+      isSent: false,
+      processedAt: Date.now(),
+      metadata: {
+        totalHadir: form.totalHadir,
+        totalTelat: 0,
+        totalIzin: form.totalIzin,
+        dailyRate: form.dailyRate,
+        notes: form.notes
       }
-    } catch (e: any) {
-      console.error('Gagal kirim slip via Telegram:', e);
-      const errorMsg = e?.message || 'Terjadi kesalahan saat mengirim slip via Telegram.';
-      if (errorMsg.includes('chat not found')) {
-        toast.error('Chat tidak ditemukan. Pastikan Telegram ID benar dan user sudah memulai chat dengan bot.');
-      } else if (errorMsg.includes('Unauthorized')) {
-        toast.error('Token bot tidak valid. Periksa BOT API TOKEN di Settings.');
-      } else {
-        toast.error(errorMsg + ' Periksa kembali token bot, Telegram ID, dan koneksi internet Anda.');
-      }
-    } finally {
-      setIsProcessing(false);
-      setPreviewData(null);
-    }
+    };
+    const blob = await generatePDF(selectedUser, record);
+    setPreviewBlob(blob);
   };
 
-  const handleBulkSend = async () => {
-    const confirming = window.confirm(`Kirim slip gaji masal ke semua karyawan periode ${selectedMonth}?`);
-    if (!confirming) return;
-    setIsProcessing(true);
-    let sentCount = 0;
-    let failedCount = 0;
-    for (const user of users.filter(u => u.role !== UserRole.OWNER)) {
-      const record = calculateRecord(user, selectedMonth);
-      if (!record) continue;
-
-      if (!user.telegramId || !settings.telegramBotToken) {
-        console.warn(`Lewati ${user.username}: Telegram ID atau BOT TOKEN belum di-set.`);
-        failedCount++;
-        continue;
-      }
-
-      try {
-        const pdfBlob = await generatePDF(user, record);
-        await sendTelegramDocument(settings.telegramBotToken, user.telegramId, pdfBlob, `Slip_${user.username}_${selectedMonth}.pdf`, `Slip Gaji Masal ${selectedMonth}.`);
-        onAddPayroll({ ...record, isSent: true });
-        sentCount++;
-      } catch (e) {
-        console.error(`Gagal kirim slip untuk ${user.username}:`, e);
-        failedCount++;
-      }
+  const handleSend = async () => {
+    if (!selectedUser || !settings.telegramBotToken) {
+      toast.error("Pilih karyawan dan pastikan bot token terisi.");
+      return;
     }
-    setIsProcessing(false);
-    if (sentCount > 0) {
-      toast.success(`${sentCount} slip berhasil dikirim.${failedCount > 0 ? ` ${failedCount} gagal (periksa Telegram ID dan token bot).` : ''}`);
-    } else {
-      toast.error(`Tidak ada slip yang berhasil dikirim. Periksa konfigurasi Telegram di Settings.`);
+
+    if (!selectedUser.telegramId) {
+      toast.error(`${selectedUser.name} tidak memiliki ID Telegram.`);
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const record: PayrollRecord = {
+        id: Math.random().toString(36).substr(2, 9),
+        userId: selectedUser.id,
+        month: selectedMonth,
+        basicSalary: form.basicSalary,
+        allowance: form.allowance,
+        totalMealAllowance: 0,
+        bonus: form.bonus,
+        deductions: form.deductions,
+        netSalary,
+        isSent: true,
+        processedAt: Date.now(),
+        metadata: {
+          totalHadir: form.totalHadir,
+          totalTelat: 0,
+          totalIzin: form.totalIzin,
+          dailyRate: form.dailyRate,
+          notes: form.notes
+        }
+      };
+
+      const pdfBlob = await generatePDF(selectedUser, record);
+      const periodLabel = new Date(selectedMonth + '-01').toLocaleString('id-ID', { month: 'long', year: 'numeric' });
+      await sendTelegramDocument(
+        settings.telegramBotToken,
+        selectedUser.telegramId,
+        pdfBlob,
+        `Slip_${selectedUser.username}_${selectedMonth}.pdf`,
+        `Selamat malam saudara ${selectedUser.name.toUpperCase()}\n\nTerima kasih atas dedikasi dan kinerja Anda di Sukses Digital Media.\nBerikut ini slip gaji bulan ${periodLabel} beserta bukti transfer ke rekening Anda. Silakan dicek dan jika ada pertanyaan hubungi bagian Keuangan.\n\nTerima Kasih.\n\nTertanda\nKeuangan Sukses Digital Media`
+      );
+
+      onAddPayroll(record);
+      toast.success(`Slip gaji berhasil dikirim ke ${selectedUser.name}`);
+      setPreviewBlob(null);
+      setSelectedUser(null);
+    } catch (e: any) {
+      console.error(e);
+      toast.error("Gagal mengirim slip: " + e.message);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 pb-20">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <h3 className="text-4xl font-black text-slate-800 tracking-tighter italic leading-none">Payroll Center</h3>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mt-3">Sukses Digital Media Slip Engine</p>
+    <div className="space-y-8 animate-in fade-in duration-500 pb-20 max-w-7xl mx-auto">
+      {/* Premium Header */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 bg-slate-900 p-12 rounded-[4rem] shadow-2xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/20 blur-[100px] rounded-full -mr-32 -mt-32 animate-pulse"></div>
+        <div className="relative z-10">
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500/10 text-blue-400 rounded-full text-[10px] font-black uppercase tracking-widest mb-6 border border-blue-500/20">
+            <Building size={12} /> Financial Administration
+          </div>
+          <h3 className="text-6xl font-black text-white tracking-tighter leading-none italic">Payroll <span className="text-blue-500">Center</span></h3>
+          <p className="text-slate-400 font-bold mt-4 text-sm max-w-md">Input data payroll individu dan kirimkan slip gaji profesional melalui Telegram.</p>
         </div>
-        <div className="flex items-center space-x-3">
-          <input type="month" className="p-4 bg-white border-2 border-slate-100 rounded-[1.5rem] font-black text-xs outline-none focus:border-blue-600 shadow-sm" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} />
-          <button onClick={handleBulkSend} disabled={isProcessing} className="bg-emerald-600 text-white px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center shadow-xl hover:bg-emerald-700 transition disabled:opacity-50">
-            <Zap size={16} className="mr-2" /> KIRIM MASAL
-          </button>
-          <button onClick={() => setActiveTab(activeTab === 'MANAGEMENT' ? 'HISTORY' : 'MANAGEMENT')} className="bg-slate-900 text-white px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center shadow-xl hover:bg-blue-600 transition">
+        <div className="flex items-center gap-4 relative z-10">
+          <input
+            type="month"
+            className="p-5 bg-white/5 border-2 border-white/10 rounded-3xl font-black text-xs text-white outline-none focus:border-blue-500 focus:bg-white/10 transition-all shadow-xl"
+            value={selectedMonth}
+            onChange={e => setSelectedMonth(e.target.value)}
+          />
+          <button
+            onClick={() => setActiveTab(activeTab === 'MANAGEMENT' ? 'HISTORY' : 'MANAGEMENT')}
+            className={`px-10 py-5 rounded-3xl text-[10px] font-black uppercase tracking-widest flex items-center transition-all shadow-2xl ${activeTab === 'MANAGEMENT' ? 'bg-blue-600 text-white hover:bg-white hover:text-blue-600' : 'bg-white text-slate-900'}`}
+          >
             {activeTab === 'MANAGEMENT' ? <HistoryIcon className="mr-2" size={16} /> : <Users className="mr-2" size={16} />}
-            {activeTab === 'MANAGEMENT' ? 'RIWAYAT' : 'KELOLA'}
+            {activeTab === 'MANAGEMENT' ? 'Lihat Riwayat' : 'Buat Slip Baru'}
           </button>
         </div>
       </div>
 
       {activeTab === 'MANAGEMENT' ? (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="bg-white rounded-[3.5rem] lg:col-span-2 shadow-xl border border-slate-100 overflow-hidden flex flex-col h-full">
-            <div className="p-10 border-b bg-slate-50/50 flex justify-between items-center">
-              <h4 className="font-black text-slate-800 text-lg uppercase tracking-tight italic">Employee Payroll Management</h4>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
+          <div className="lg:col-span-4 space-y-6">
+            <div className="bg-white rounded-[3.5rem] shadow-xl border border-slate-100 overflow-hidden flex flex-col h-full">
+              <div className="p-8 border-b bg-slate-50/30 flex items-center justify-between">
+                <h4 className="font-black text-slate-800 text-xs uppercase tracking-widest italic flex items-center gap-2">
+                  <Users size={14} className="text-blue-600" /> Pilih Karyawan
+                </h4>
+                <span className="bg-slate-100 text-slate-500 px-3 py-1 rounded-full text-[10px] font-black uppercase">{filteredUsers.length} TOTAL</span>
+              </div>
+              <div className="max-h-[600px] overflow-y-auto custom-scrollbar">
+                {filteredUsers.map(user => (
+                  <button
+                    key={user.id}
+                    onClick={() => handleSelectUser(user)}
+                    className={`w-full text-left p-8 transition-all border-b border-slate-50 flex items-center gap-5 group ${selectedUser?.id === user.id ? 'bg-blue-600 text-white shadow-inner' : 'hover:bg-slate-50 text-slate-600'}`}
+                  >
+                    <div className={`w-14 h-14 rounded-3xl flex items-center justify-center font-black text-sm shadow-xl transition-transform group-hover:scale-110 ${selectedUser?.id === user.id ? 'bg-white/20' : 'bg-slate-900 text-white'}`}>
+                      {user.avatarUrl ? (
+                        <img src={user.avatarUrl} className="w-full h-full object-cover rounded-3xl" alt="" />
+                      ) : (
+                        user.name.charAt(0).toUpperCase()
+                      )}
+                    </div>
+                    <div>
+                      <div className="font-black text-base">{user.name}</div>
+                      <div className={`text-[11px] font-bold uppercase tracking-widest mt-1 opacity-70`}>
+                        {user.role}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="overflow-x-auto flex-1 custom-scrollbar">
+          </div>
+
+          <div className="lg:col-span-8">
+            {selectedUser ? (
+              <div className="bg-white rounded-[4rem] shadow-2xl border border-slate-100 p-16 space-y-12 animate-in zoom-in duration-500">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-6">
+                    <div className="p-5 bg-blue-600 text-white rounded-[2rem] shadow-xl shadow-blue-500/30">
+                      <Calculator size={32} />
+                    </div>
+                    <div>
+                      <h4 className="text-3xl font-black text-slate-800 italic uppercase tracking-tighter">Detail Gaji Karyawan</h4>
+                      <p className="text-sm font-bold text-slate-400 mt-1">Mengolah slip untuk <span className="text-slate-800">{selectedUser.name}</span></p>
+                    </div>
+                  </div>
+                  <button onClick={() => setSelectedUser(null)} className="p-4 bg-slate-100 text-slate-400 rounded-2xl hover:bg-rose-500 hover:text-white transition shadow-sm">
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+                  <div className="space-y-8">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                      <h5 className="text-xs font-black text-slate-800 uppercase tracking-[0.2em] italic">I. Rincian Pendapatan</h5>
+                      <CreditCard size={18} className="text-emerald-500" />
+                    </div>
+                    <div className="space-y-6">
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-black text-slate-400 ml-2 tracking-widest uppercase">GAJI POKOK (Rp)</label>
+                        <input type="number" className="w-full p-6 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[2rem] outline-none font-black text-xl text-slate-800 transition-all shadow-inner" value={form.basicSalary} onChange={e => setForm({ ...form, basicSalary: Number(e.target.value) })} />
+                      </div>
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-black text-slate-400 ml-2 tracking-widest uppercase">INSENTIF KEHADIRAN (Rp)</label>
+                        <input type="number" className="w-full p-6 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[2rem] outline-none font-black text-xl text-slate-800 transition-all shadow-inner" value={form.allowance} onChange={e => setForm({ ...form, allowance: Number(e.target.value) })} />
+                      </div>
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-black text-slate-400 ml-2 tracking-widest uppercase">BONUS / THR (Rp)</label>
+                        <input type="number" className="w-full p-6 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[2rem] outline-none font-black text-xl text-slate-800 transition-all shadow-inner" value={form.bonus} onChange={e => setForm({ ...form, bonus: Number(e.target.value) })} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-8">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                      <h5 className="text-xs font-black text-slate-800 uppercase tracking-[0.2em] italic">II. Absensi & Potongan</h5>
+                      <Zap size={18} className="text-rose-500" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-6">
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-black text-slate-400 ml-2 tracking-widest uppercase">HARI HADIR</label>
+                        <input type="number" className="w-full p-6 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[2rem] outline-none font-black text-xl text-slate-800 transition-all shadow-inner" value={form.totalHadir} onChange={e => setForm({ ...form, totalHadir: Number(e.target.value) })} />
+                      </div>
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-black text-slate-400 ml-2 tracking-widest uppercase">JML IZIN</label>
+                        <input type="number" className="w-full p-6 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[2rem] outline-none font-black text-xl text-slate-800 transition-all shadow-inner" value={form.totalIzin} onChange={e => setForm({ ...form, totalIzin: Number(e.target.value) })} />
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      <label className="text-[10px] font-black text-slate-400 ml-2 tracking-widest uppercase">GAJI PER HARI (Rp)</label>
+                      <input type="number" className="w-full p-6 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[2rem] outline-none font-black text-xl text-slate-800 transition-all shadow-inner" value={form.dailyRate} onChange={e => setForm({ ...form, dailyRate: Number(e.target.value) })} />
+                    </div>
+                    <div className="space-y-3">
+                      <label className="text-[10px] font-black text-rose-500 ml-2 tracking-widest uppercase italic border-b border-rose-100 pb-1">Total Potongan (Rp) *</label>
+                      <input type="number" className="w-full p-6 bg-rose-50 border-2 border-transparent focus:border-rose-500 focus:bg-white rounded-[2rem] outline-none font-black text-xl text-rose-600 transition-all shadow-inner" value={form.deductions} onChange={e => setForm({ ...form, deductions: Number(e.target.value) })} />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-slate-500 ml-2 tracking-widest uppercase">Catatan Slip (Optional)</label>
+                  <textarea rows={2} className="w-full p-8 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[2.5rem] outline-none font-bold text-sm transition-all shadow-inner" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Ketik catatan tambahan yang akan muncul di slip..." />
+                </div>
+
+                <div className="pt-12 border-t flex flex-col xl:flex-row gap-8 items-center justify-between">
+                  <div className="p-10 bg-slate-950 text-white rounded-[3rem] flex items-center gap-10 shadow-2xl relative overflow-hidden group">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-blue-600"></div>
+                    <div>
+                      <p className="text-[11px] font-black text-blue-400 uppercase tracking-[0.3em] leading-none">Net Payback</p>
+                      <p className="text-5xl font-black italic tracking-tighter mt-2">{formatCurrency(netSalary)}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-4 w-full xl:w-auto">
+                    <button onClick={handlePreview} className="flex-1 xl:flex-none px-10 py-6 bg-white border-2 border-slate-100 text-slate-800 rounded-3xl text-[11px] font-black uppercase tracking-widest hover:border-slate-900 transition-all flex items-center justify-center gap-3">
+                      <Eye size={20} /> Preview
+                    </button>
+                    <button
+                      onClick={handleSend}
+                      disabled={isProcessing}
+                      className="flex-1 xl:flex-none px-12 py-6 bg-blue-600 text-white rounded-3xl text-[11px] font-black uppercase tracking-widest hover:bg-slate-900 hover:scale-105 transition-all shadow-2xl shadow-blue-500/30 flex items-center justify-center gap-4 disabled:opacity-50"
+                    >
+                      {isProcessing ? <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div> : <Send size={20} />}
+                      Kirim Slip Gaji
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white rounded-[4rem] shadow-xl border border-slate-100 p-24 text-center space-y-8">
+                <div className="w-40 h-40 bg-slate-50 rounded-full flex items-center justify-center mx-auto text-slate-200">
+                  <UserIcon size={80} />
+                </div>
+                <h4 className="text-2xl font-black text-slate-800 uppercase italic tracking-tighter">Siap Menghasilkan Slip Gaji</h4>
+                <p className="text-base font-bold text-slate-400 mt-4 max-w-sm mx-auto">Pilih karyawan di sebelah kiri untuk mengisi nominal gaji.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white rounded-[4rem] shadow-2xl border border-slate-100 overflow-hidden">
+          <div className="p-10 border-b bg-slate-50/50 flex items-center justify-between">
+            <h4 className="font-black text-slate-800 text-sm uppercase tracking-widest italic flex items-center gap-3">
+              <HistoryIcon className="text-blue-600" /> Arsip Pengiriman Slip
+            </h4>
+          </div>
+          {payrollRecords.length > 0 ? (
+            <div className="overflow-x-auto">
               <table className="w-full text-left">
-                <thead className="bg-slate-50 border-b border-slate-100">
+                <thead className="bg-slate-50/30 text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] border-b">
                   <tr>
-                    <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Karyawan</th>
-                    <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Jabatan</th>
-                    <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">THP Estimasi</th>
-                    <th className="px-8 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Aksi</th>
+                    <th className="px-12 py-8">Karyawan</th>
+                    <th className="px-12 py-8">Bulan</th>
+                    <th className="px-12 py-8">Total Gaji</th>
+                    <th className="px-12 py-8 text-right">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {users.filter(u => u.role !== UserRole.OWNER).map(user => {
-                    const record = calculateRecord(user, selectedMonth);
+                  {payrollRecords.slice().reverse().map(rec => {
+                    const user = users.find(u => u.id === rec.userId);
                     return (
-                      <tr key={user.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-8 py-5">
-                          <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 bg-slate-900 text-white rounded-xl flex items-center justify-center font-black text-sm shadow-sm">
-                              {user.name.charAt(0)}
-                            </div>
-                            <span className="font-bold text-slate-800 text-sm">{user.name}</span>
+                      <tr key={rec.id} className="hover:bg-blue-50/20 transition-all group">
+                        <td className="px-12 py-8">
+                          <div className="flex items-center gap-5">
+                            <div className="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black text-sm">{user?.name.charAt(0)}</div>
+                            <span className="font-black text-slate-800 text-base">{user?.name}</span>
                           </div>
                         </td>
-                        <td className="px-8 py-5">
-                          <span className="px-3 py-1 bg-slate-100 text-slate-500 rounded-lg text-[10px] font-black uppercase tracking-widest">{user.role}</span>
+                        <td className="px-12 py-8">
+                          <span className="px-4 py-2 bg-slate-100 rounded-xl text-[11px] font-black uppercase">
+                            {new Date(rec.month + '-01').toLocaleString('id-ID', { month: 'long', year: 'numeric' })}
+                          </span>
                         </td>
-                        <td className="px-8 py-5">
-                          <span className="font-black text-slate-800 text-sm">{record ? formatCurrency(record.netSalary) : 'N/A'}</span>
-                        </td>
-                        <td className="px-8 py-5 text-right flex justify-end gap-2">
-                          <button onClick={() => setEditingConfig(salaryConfigs.find(c => c.userId === user.id) || { userId: user.id, basicSalary: 0, allowance: 0, mealAllowance: 0, lateDeduction: 0 })} className="p-3 bg-slate-100 text-slate-400 rounded-xl hover:bg-blue-600 hover:text-white transition" title="Config Salary">
-                            <Settings size={16} />
-                          </button>
-                          <button onClick={() => record && setPreviewData({ user, record })} className="p-3 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-600 hover:text-white transition shadow-sm" title="Preview Slip">
-                            <Eye size={16} />
+                        <td className="px-12 py-8 font-black text-blue-600 text-lg">{formatCurrency(rec.netSalary)}</td>
+                        <td className="px-12 py-8 text-right">
+                          <button className="p-4 bg-slate-100 text-slate-400 rounded-2xl hover:bg-slate-900 hover:text-white transition">
+                            <Printer size={18} />
                           </button>
                         </td>
                       </tr>
@@ -300,165 +557,37 @@ const PayrollModule: React.FC<PayrollProps> = ({
                 </tbody>
               </table>
             </div>
-          </div>
-          <div className="bg-slate-900 text-white p-10 rounded-[3.5rem] shadow-2xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/20 blur-3xl rounded-full -mr-16 -mt-16"></div>
-            <Landmark className="text-blue-400 mb-8" size={32} />
-            <h4 className="text-2xl font-black italic uppercase tracking-tight mb-8">Summary {selectedMonth}</h4>
-            <div className="space-y-4 pt-8 border-t border-white/5">
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-black text-slate-500 uppercase">TOTAL KARYAWAN</span>
-                <span className="text-lg font-black">{users.length - 1} Orang</span>
-              </div>
-              <div className="flex justify-between items-center bg-blue-600 p-6 rounded-[2rem] shadow-xl">
-                <span className="text-[10px] font-black text-white uppercase">TOTAL PAYOUT</span>
-                <span className="text-xl font-black text-white">{formatCurrency(users.filter(u => u.role !== UserRole.OWNER).reduce((acc, u) => acc + (calculateRecord(u, selectedMonth)?.netSalary || 0), 0))}</span>
-              </div>
+          ) : (
+            <div className="p-32 text-center">
+              <FileCheck size={64} className="mx-auto text-slate-100" />
+              <p className="text-base font-black text-slate-300 uppercase tracking-widest italic mt-6">Belum Ada Riwayat Slip</p>
             </div>
-          </div>
-        </div>
-      ) : (
-        <div className="bg-white rounded-[3.5rem] shadow-xl border border-slate-100 overflow-hidden">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-slate-50/50 text-slate-400 text-[9px] font-black uppercase tracking-[0.2em] border-b">
-                <th className="px-10 py-6">KARYAWAN</th>
-                <th className="px-10 py-6">BULAN</th>
-                <th className="px-10 py-6">NOMINAL</th>
-                <th className="px-10 py-6 text-right">AKSI</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {payrollRecords.slice().reverse().map(rec => {
-                const user = users.find(u => u.id === rec.userId);
-                return (
-                  <tr key={rec.id} className="hover:bg-blue-50/20 transition-colors">
-                    <td className="px-10 py-6 flex items-center space-x-3">
-                      <div className="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center font-black text-[10px]">{user?.name.charAt(0)}</div>
-                      <span className="text-xs font-black text-slate-800">{user?.name}</span>
-                    </td>
-                    <td className="px-10 py-6 text-[10px] font-black uppercase text-slate-400">{rec.month}</td>
-                    <td className="px-10 py-6 text-sm font-black text-blue-600">{formatCurrency(rec.netSalary)}</td>
-                    <td className="px-10 py-6 text-right">
-                      <button onClick={() => user && setPreviewData({ user, record: rec })} className="p-3 bg-slate-100 text-slate-400 rounded-xl hover:bg-blue-600 hover:text-white transition">
-                        <Eye size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          )}
         </div>
       )}
 
-      {/* Preview Slip Modal */}
-      {previewData && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/95 backdrop-blur-xl p-4 overflow-y-auto">
-          <div className="bg-white rounded-[3.5rem] w-full max-w-2xl my-8 shadow-2xl border border-white/20 animate-in zoom-in duration-300">
+      {previewBlob && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-8 bg-slate-950/95 backdrop-blur-3xl animate-in fade-in duration-500">
+          <div className="bg-white rounded-[4rem] w-full max-w-6xl h-full flex flex-col shadow-2xl border border-white/20 overflow-hidden">
             <div className="p-10 border-b flex justify-between items-center bg-slate-50/50">
               <div>
-                <h3 className="text-2xl font-black text-slate-800 italic uppercase tracking-tighter leading-none">Slip Preview</h3>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">{previewData.user.name} • {previewData.record.month}</p>
+                <h3 className="text-2xl font-black text-slate-800 italic uppercase">Konfirmasi Slip Gaji</h3>
+                <p className="text-[10px] font-black text-slate-400 uppercase mt-2">Pastikan semua nominal sudah benar sebelum dikirim.</p>
               </div>
-              <button onClick={() => setPreviewData(null)} className="p-4 bg-slate-200 rounded-2xl hover:bg-rose-500 hover:text-white transition">✕</button>
-            </div>
-            <div className="p-10 space-y-8">
-              <div className="bg-white border-2 border-slate-100 rounded-[2rem] p-8 shadow-inner relative overflow-hidden flex flex-col">
-                <div className="absolute top-0 left-0 right-0 h-1 bg-blue-600"></div>
-                <div className={`flex w-full items-center gap-4 mb-8 ${settings.companyProfile.logoPosition === 'top' ? 'flex-col' :
-                    settings.companyProfile.logoPosition === 'right' ? 'flex-row-reverse' : 'flex-row'
-                  }`}>
-                  {settings.companyProfile.logoUrl && (
-                    <img src={settings.companyProfile.logoUrl} className="h-14 w-auto object-contain" alt="Logo" />
-                  )}
-                  <div className={`flex-1 ${settings.companyProfile.textAlignment === 'left' ? 'text-left' :
-                      settings.companyProfile.textAlignment === 'right' ? 'text-right' : 'text-center'
-                    }`}>
-                    <h4 className="text-base font-black text-slate-800 uppercase leading-none mb-1">{settings.companyProfile.name}</h4>
-                    <p className="text-[8px] font-bold text-slate-400 leading-tight">{settings.companyProfile.address}</p>
-                    <p className="text-[8px] font-black text-blue-600 mt-1">{settings.companyProfile.phone}</p>
-                  </div>
-                </div>
-                <div className="h-[1px] bg-slate-200 mb-6"></div>
-                <div className="text-center mb-6">
-                  <h5 className="text-xs font-black text-slate-800 uppercase tracking-widest">SLIP GAJI KARYAWAN</h5>
-                  <p className="text-[9px] font-bold text-slate-400">{previewData.record.month}</p>
-                </div>
-                <div className="grid grid-cols-2 gap-4 mb-6">
-                  <div className="p-4 bg-slate-50 rounded-xl">
-                    <p className="text-[8px] font-black text-slate-400 uppercase mb-1">KARYAWAN</p>
-                    <p className="text-[10px] font-black text-slate-800">{previewData.user.name}</p>
-                    <p className="text-[9px] font-bold text-slate-500">{previewData.user.role}</p>
-                  </div>
-                  <div className="p-4 bg-slate-50 rounded-xl">
-                    <p className="text-[8px] font-black text-slate-400 uppercase mb-1">TELEGRAM ID</p>
-                    <p className="text-[10px] font-black text-blue-600">{previewData.user.telegramUsername}</p>
-                  </div>
-                </div>
-                <div className="space-y-2 mb-8">
-                  <div className="flex justify-between items-center text-[9px] font-black text-slate-400 border-b pb-1"><span>ITEM</span><span>NOMINAL</span></div>
-                  <div className="flex justify-between text-xs font-bold text-slate-600"><span>Gaji Pokok</span><span>{formatCurrency(previewData.record.basicSalary)}</span></div>
-                  <div className="flex justify-between text-xs font-bold text-slate-600"><span>Tunjangan</span><span>{formatCurrency(previewData.record.allowance)}</span></div>
-                  <div className="flex justify-between text-xs font-bold text-slate-600"><span>Uang Makan</span><span>{formatCurrency(previewData.record.totalMealAllowance)}</span></div>
-                  <div className="flex justify-between text-xs font-bold text-rose-500"><span>Potongan Telat</span><span>-{formatCurrency(previewData.record.deductions)}</span></div>
-                </div>
-                <div className="flex justify-between items-center p-4 bg-slate-900 text-white rounded-xl">
-                  <span className="text-[10px] font-black uppercase">TOTAL TAKE HOME PAY</span>
-                  <span className="text-base font-black">{formatCurrency(previewData.record.netSalary)}</span>
-                </div>
-              </div>
-              <button
-                onClick={() => handleSendSingle(previewData.user, previewData.record)}
-                disabled={isProcessing}
-                className={`w-full py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-2xl transition flex items-center justify-center gap-3 ${isProcessing ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-slate-900 text-white hover:bg-blue-600'}`}
-              >
-                {isProcessing ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full animate-spin"></div>
-                    SEDANG MENGIRIM...
-                  </>
-                ) : (
-                  <>
-                    <Send size={18} /> {previewData.record.isSent ? "KIRIM ULANG SLIP" : "KIRIM SLIP VIA TELEGRAM"}
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Editing Salary Config Modal */}
-      {editingConfig && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4">
-          <div className="bg-white rounded-[3.5rem] w-full max-w-lg p-12 shadow-2xl border border-white/20 animate-in zoom-in duration-300">
-            <h3 className="text-2xl font-black text-slate-800 mb-8 italic uppercase">Salary Configuration</h3>
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">GAJI POKOK (IDR)</label>
-                  <input type="number" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl outline-none font-black text-sm" value={editingConfig.basicSalary} onChange={e => setEditingConfig({ ...editingConfig, basicSalary: Number(e.target.value) })} />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">TUNJANGAN JABATAN</label>
-                  <input type="number" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl outline-none font-black text-sm" value={editingConfig.allowance} onChange={e => setEditingConfig({ ...editingConfig, allowance: Number(e.target.value) })} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">MAKAN (PER HARI)</label>
-                  <input type="number" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl outline-none font-black text-sm" value={editingConfig.mealAllowance} onChange={e => setEditingConfig({ ...editingConfig, mealAllowance: Number(e.target.value) })} />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">POTONGAN TELAT</label>
-                  <input type="number" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl outline-none font-black text-sm" value={editingConfig.lateDeduction} onChange={e => setEditingConfig({ ...editingConfig, lateDeduction: Number(e.target.value) })} />
-                </div>
+              <div className="flex gap-4">
+                <button onClick={() => setPreviewBlob(null)} className="px-8 py-4 bg-slate-200 text-slate-600 rounded-2xl text-[10px] font-black uppercase">Batal</button>
+                <button onClick={handleSend} disabled={isProcessing} className="px-10 py-4 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase flex items-center gap-3">
+                  {isProcessing ? <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div> : <Send size={16} />}
+                  Kirim via Telegram
+                </button>
               </div>
             </div>
-            <div className="flex gap-4 mt-10">
-              <button onClick={() => setEditingConfig(null)} className="flex-1 py-4 text-slate-400 font-black uppercase tracking-widest hover:bg-slate-100 rounded-2xl transition text-[10px]">BATAL</button>
-              <button onClick={() => { onUpdateSalary(editingConfig); setEditingConfig(null); }} className="flex-1 bg-slate-900 text-white py-4 rounded-[1.5rem] font-black uppercase tracking-widest hover:bg-blue-600 transition text-[10px] shadow-xl">SIMPAN CONFIG</button>
+            <div className="flex-1 bg-slate-900 p-12 overflow-hidden">
+              <iframe
+                src={URL.createObjectURL(previewBlob)}
+                className="w-full h-full rounded-[2.5rem] bg-white border-none"
+                title="PDF Preview"
+              />
             </div>
           </div>
         </div>

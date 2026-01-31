@@ -68,7 +68,7 @@ export async function POST(request: Request) {
                     deductions: pr.deductions,
                     netSalary: pr.netSalary,
                     isSent: (pr.isSent ? 1 : 0) as any,
-                    processedAt: (pr.processedAt ? new Date(pr.processedAt) : new Date()) as any,
+                    processedAt: BigInt(pr.processedAt || Date.now()),
                     metadataJson: pr.metadata ? JSON.stringify(pr.metadata) : null
                 }
             });

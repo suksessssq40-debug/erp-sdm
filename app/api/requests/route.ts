@@ -1,6 +1,14 @@
+
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
+
+// Helper to serialize BigInt
+const serialize = (data: any): any => {
+    return JSON.parse(JSON.stringify(data, (key, value) =>
+        typeof value === 'bigint' ? Number(value) : value
+    ));
+};
 
 export async function GET(request: Request) {
     try {
@@ -15,7 +23,7 @@ export async function GET(request: Request) {
         const where: any = { tenantId };
         if (!isAdmin) where.userId = user.id;
 
-        // Smart Filter: Filter by Request Date (Execution Date)
+        // Smart Filter
         if (startDate && endDate) {
             where.startDate = {
                 gte: new Date(startDate),
@@ -30,25 +38,13 @@ export async function GET(request: Request) {
         const requests = await prisma.leaveRequest.findMany({
             where,
             orderBy: { createdAt: 'desc' },
-            take: startDate ? undefined : 150 // Limit 150 if no filter
+            take: startDate ? undefined : 150 // Limit 150 if no filter to prevent overload
         });
 
-        const formatted = requests.map(r => ({
-            id: r.id,
-            userId: r.userId,
-            tenantId: (r as any).tenantId,
-            type: r.type,
-            description: r.description,
-            startDate: r.startDate ? r.startDate.toISOString().split('T')[0] : '',
-            endDate: r.endDate ? r.endDate.toISOString().split('T')[0] : (r.startDate ? r.startDate.toISOString().split('T')[0] : ''),
-            attachmentUrl: r.attachmentUrl || undefined,
-            status: r.status,
-            createdAt: r.createdAt ? Number(r.createdAt) : Date.now()
-        }));
-
-        return NextResponse.json(formatted);
+        // Use helper to serialize
+        return NextResponse.json(serialize(requests));
     } catch (e: any) {
-        console.error(e);
+        console.error("GET Requests Error:", e);
         return NextResponse.json({ error: 'Failed', details: e.message }, { status: 500 });
     }
 }
@@ -59,6 +55,7 @@ export async function POST(request: Request) {
         const { tenantId } = user;
         const r = await request.json();
 
+        // 1. Create Data
         const newRequest = await prisma.leaveRequest.create({
             data: {
                 id: r.id,
@@ -70,16 +67,15 @@ export async function POST(request: Request) {
                 endDate: r.endDate ? new Date(r.endDate) : new Date(r.startDate),
                 attachmentUrl: r.attachmentUrl || null,
                 status: r.status,
-                createdAt: r.createdAt ? BigInt(new Date(r.createdAt).getTime()) : BigInt(Date.now())
+                createdAt: r.createdAt ? BigInt(r.createdAt) : BigInt(Date.now())
             }
         });
 
-        // --- TELEGRAM NOTIFICATION START ---
+        // --- TELEGRAM NOTIFICATION ---
         try {
             const telegramSettings = await prisma.settings.findUnique({ where: { tenantId } });
 
             if (telegramSettings?.telegramBotToken && telegramSettings?.telegramGroupId) {
-                // 1. Get Accurate Jakarta Time
                 const now = new Date();
                 const jakartaTime = new Intl.DateTimeFormat('id-ID', {
                     timeZone: 'Asia/Jakarta',
@@ -88,7 +84,6 @@ export async function POST(request: Request) {
                     hour12: false
                 }).format(now);
 
-                // 2. Prepare Message
                 const startDate = new Date(r.startDate);
                 const endDate = new Date(r.endDate || r.startDate);
                 const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
@@ -121,56 +116,55 @@ export async function POST(request: Request) {
                     `👉 <b>Segera cek Dashboard Management untuk memberikan keputusan.</b>`
                 ].join('\n');
 
-                // 3. Centralized Submission (Internal API Call for standard handling if possible, or direct fetch with current improvements)
-                // For API reliability, we'll use the bot API with fallback logic
                 const sendTele = async (targetId: string) => {
-                    await fetch(`https://api.telegram.org/bot${telegramSettings.telegramBotToken}/sendMessage`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            chat_id: targetId,
-                            text: message,
-                            parse_mode: 'HTML'
-                        })
-                    });
+                    try {
+                        const res = await fetch(`https://api.telegram.org/bot${telegramSettings.telegramBotToken}/sendMessage`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                chat_id: targetId,
+                                text: message,
+                                parse_mode: 'HTML'
+                            })
+                        });
+                    } catch (err) { console.error("Tele Send Error", err); }
                 };
 
                 const fullDest = telegramSettings.telegramGroupId;
                 if (fullDest.includes('/')) {
                     const [chatId, topicId] = fullDest.split('/');
                     let targetChat = chatId.trim();
-                    // Fix prefix
-                    if (!targetChat.startsWith('-')) targetChat = '-100' + targetChat;
-                    else if (targetChat.startsWith('-') && !targetChat.startsWith('-100')) targetChat = '-100' + targetChat.substring(1);
+                    if (!targetChat.startsWith('-')) targetChat = '-100' + targetChat.replace(/^-/, '');
 
-                    const body: any = { chat_id: targetChat, text: message, parse_mode: 'HTML' };
-                    if (topicId && topicId.trim() !== '1') body.message_thread_id = parseInt(topicId.trim());
+                    const topicBody = {
+                        chat_id: targetChat,
+                        text: message,
+                        parse_mode: 'HTML',
+                        message_thread_id: parseInt(topicId.trim())
+                    };
 
-                    const res = await fetch(`https://api.telegram.org/bot${telegramSettings.telegramBotToken}/sendMessage`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(body)
-                    });
-
-                    if (!res.ok) {
-                        // Fallback to Main Group if Topic fails
-                        await sendTele(targetChat);
-                    }
+                    try {
+                        const res = await fetch(`https://api.telegram.org/bot${telegramSettings.telegramBotToken}/sendMessage`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(topicBody)
+                        });
+                        if (!res.ok) await sendTele(targetChat); // Fallback
+                    } catch (e) { await sendTele(targetChat); }
                 } else {
                     let targetChat = fullDest.trim();
-                    if (!targetChat.startsWith('-')) targetChat = '-100' + targetChat;
-                    else if (targetChat.startsWith('-') && !targetChat.startsWith('-100')) targetChat = '-100' + targetChat.substring(1);
+                    if (!targetChat.startsWith('-') && !targetChat.startsWith('@')) targetChat = '-100' + targetChat; // Assuming ID
                     await sendTele(targetChat);
                 }
             }
         } catch (notifError) {
             console.error("[Telegram] Request integration error:", notifError);
         }
-        // --- TELEGRAM NOTIFICATION END ---
 
-        return NextResponse.json(r, { status: 201 });
+        // Return the ACTUAL created object, serialized properly
+        return NextResponse.json(serialize(newRequest), { status: 201 });
     } catch (error: any) {
-        console.error(error);
+        console.error("POST Request Error:", error);
         return NextResponse.json({ error: 'Failed', details: error.message }, { status: 500 });
     }
 }

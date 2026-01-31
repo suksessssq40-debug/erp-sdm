@@ -13,7 +13,7 @@ export interface Tenant {
   description?: string;
   isActive: boolean;
   featuresJson?: string; // Modular Features JSON string: "['finance', 'attendance']"
-  
+
   // New: Advanced Config
   workStrategy?: 'FIXED' | 'SHIFT' | 'FLEXIBLE';
   radiusTolerance?: number;
@@ -135,7 +135,7 @@ export interface LeaveRequest {
   description: string;
   startDate: string;
   endDate: string;
-  attachmentUrl?: string; 
+  attachmentUrl?: string;
   status: RequestStatus;
   createdAt: number;
   // Audit Fields
@@ -199,7 +199,7 @@ export interface Transaction {
   accountId?: string; // Relation ID
   businessUnitId?: string; // Optional: Link transaction to a specific business unit (KB Pos)
   imageUrl?: string; // New field for payment proof
-  
+
   // New Accrual Fields
   coaId?: string;
   coa?: ChartOfAccount;
@@ -231,6 +231,9 @@ export interface PayrollRecord {
   metadata?: {
     totalHadir: number;
     totalTelat: number;
+    totalIzin?: number;
+    dailyRate?: number;
+    notes?: string;
   };
 }
 
@@ -272,10 +275,10 @@ export enum SystemActionType {
   AUTH_LOGOUT = 'AUTH_LOGOUT',
   AUTH_CHANGE_PASSWORD = 'AUTH_CHANGE_PASSWORD',
   AUTH_RESET_DEVICE = 'AUTH_RESET_DEVICE',
-  
+
   ATTENDANCE_CLOCK_IN = 'ATTENDANCE_CLOCK_IN',
   ATTENDANCE_CLOCK_OUT = 'ATTENDANCE_CLOCK_OUT',
-  
+
   REQUEST_CREATE = 'REQUEST_CREATE',
   REQUEST_APPROVE = 'REQUEST_APPROVE',
   REQUEST_REJECT = 'REQUEST_REJECT',
@@ -286,16 +289,16 @@ export enum SystemActionType {
   PROJECT_TASK_COMPLETE = 'PROJECT_TASK_COMPLETE',
   PROJECT_COMMENT = 'PROJECT_COMMENT',
   PROJECT_DELETE = 'PROJECT_DELETE',
-  
+
   FINANCE_CREATE = 'FINANCE_CREATE',
   FINANCE_UPDATE = 'FINANCE_UPDATE',
   FINANCE_SALARY_CONFIG = 'FINANCE_SALARY_CONFIG',
   FINANCE_PAYROLL_GENERATE = 'FINANCE_PAYROLL_GENERATE',
-  
+
   USER_CREATE = 'USER_CREATE',
   USER_UPDATE = 'USER_UPDATE',
   USER_DELETE = 'USER_DELETE',
-  
+
   SETTINGS_UPDATE = 'SETTINGS_UPDATE'
 }
 
@@ -336,10 +339,10 @@ export interface ChatMessage {
   attachmentUrl?: string; // Image or file
   replyToId?: string;
   replyToMessage?: {
-     id: string;
-     senderName: string;
-     content: string;
-  }; 
+    id: string;
+    senderName: string;
+    content: string;
+  };
   createdAt: number;
   senderName?: string; // Populated on fetch
   senderRole?: UserRole;
