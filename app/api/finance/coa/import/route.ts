@@ -94,41 +94,59 @@ export async function POST(request: Request) {
 
         // Atomic Upsert
         let successCount = 0;
+        let updateCount = 0;
+
         await prisma.$transaction(async (tx) => {
             for (const coa of coasToImport) {
                 const id = `coa_${coa.code.toLowerCase()}_${tenantId}`;
-                await tx.chartOfAccount.upsert({
+
+                // Optimized check: See if it exists first to separate Create vs Update stats
+                const existing = await tx.chartOfAccount.findUnique({
                     where: {
                         tenantId_code: {
                             tenantId: coa.tenantId,
                             code: coa.code
                         }
-                    },
-                    update: {
-                        name: coa.name,
-                        type: coa.type,
-                        normalPos: coa.normalPos,
-                        description: coa.description,
-                        isActive: true
-                    },
-                    create: {
-                        id,
-                        ...coa,
-                        createdAt: BigInt(Date.now())
                     }
                 });
-                successCount++;
+
+                if (existing) {
+                    await tx.chartOfAccount.update({
+                        where: { id: existing.id },
+                        data: {
+                            name: coa.name,
+                            type: coa.type,
+                            normalPos: coa.normalPos,
+                            description: coa.description,
+                            isActive: true
+                        }
+                    });
+                    updateCount++;
+                } else {
+                    await tx.chartOfAccount.create({
+                        data: {
+                            id,
+                            ...coa,
+                            createdAt: BigInt(Date.now())
+                        }
+                    });
+                    successCount++;
+                }
             }
-        });
+        }, { timeout: 30000 });
 
         return NextResponse.json({
             success: true,
-            message: `Berhasil mengimport ${successCount} akun (COA).`,
+            message: `Import Selesai: ${successCount} Akun Baru, ${updateCount} Akun Diperbarui.`,
+            processed: successCount + updateCount,
             errors: errors.length > 0 ? errors : undefined
         });
 
     } catch (error: any) {
-        console.error('COA IMPORT ERROR:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        console.error('COA IMPORT CRITICAL ERROR:', error);
+        return NextResponse.json({
+            error: 'Terjadi kesalahan sistem saat import.',
+            details: [error.message]
+        }, { status: 500 });
     }
 }

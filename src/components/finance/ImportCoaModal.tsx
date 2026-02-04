@@ -22,6 +22,13 @@ export const ImportCoaModal: React.FC<ImportCoaModalProps> = ({ isOpen, onClose,
 
     const handleUpload = async () => {
         if (!file) return;
+
+        const token = localStorage.getItem('sdm_erp_auth_token');
+        if (!token) {
+            toast.error("Sesi habis. Silakan login ulang.");
+            return;
+        }
+
         setIsUploading(true);
         setResults(null);
 
@@ -29,7 +36,6 @@ export const ImportCoaModal: React.FC<ImportCoaModalProps> = ({ isOpen, onClose,
         formData.append('file', file);
 
         try {
-            const token = localStorage.getItem('sdm_erp_token');
             const res = await fetch('/api/finance/coa/import', {
                 method: 'POST',
                 headers: {
@@ -44,18 +50,41 @@ export const ImportCoaModal: React.FC<ImportCoaModalProps> = ({ isOpen, onClose,
                 toast.success("Import Berhasil!");
                 onSuccess();
             } else {
-                toast.error(data.error || "Gagal mengimport.");
-                setResults({ message: data.error, errors: data.details });
+                const errorMsg = data.error || "Gagal mengimport.";
+                toast.error(errorMsg);
+                setResults({ message: errorMsg, errors: data.details || data.errors });
             }
-        } catch (e) {
+        } catch (e: any) {
+            console.error("Import Error:", e);
             toast.error("Terjadi kesalahan koneksi.");
+            setResults({ message: "Terjadi kesalahan koneksi ke server.", errors: [e.message] });
         } finally {
             setIsUploading(false);
         }
     };
 
-    const downloadTemplate = () => {
-        window.location.href = '/api/finance/coa/template';
+    const downloadTemplate = async () => {
+        try {
+            const token = localStorage.getItem('sdm_erp_auth_token') || '';
+            if (!token) {
+                toast.error("Sesi habis. Silakan login ulang.");
+                return;
+            }
+            const res = await fetch('/api/finance/coa/template', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!res.ok) throw new Error("Gagal download template");
+            const blob = await res.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'Template_Import_COA.xlsx';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+        } catch (e) {
+            toast.error("Gagal mendownload template.");
+        }
     };
 
     if (!isOpen) return null;
