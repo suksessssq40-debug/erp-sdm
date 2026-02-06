@@ -66,9 +66,9 @@ export default function AttendanceReportPage() {
 
         // Sort descending: Use createdAt if available (more reliable), otherwise fallback to date string
         return data.sort((a, b) => {
-            // Prioritize createdAt timestamp (BigInt/Number)
-            const timeA = a.createdAt ? Number(a.createdAt) : new Date(a.date).getTime();
-            const timeB = b.createdAt ? Number(b.createdAt) : new Date(b.date).getTime();
+            // Fix: createdAt is ISO String (DateTime in Prisma), so Number() yields NaN. Use new Date().getTime()
+            const timeA = a.createdAt ? new Date(a.createdAt).getTime() : new Date(a.date).getTime();
+            const timeB = b.createdAt ? new Date(b.createdAt).getTime() : new Date(b.date).getTime();
             return timeB - timeA;
         });
     }, [store.attendance, startDate, endDate, searchUser, store.users, store.currentUser, isStaff]);
@@ -453,16 +453,21 @@ export default function AttendanceReportPage() {
                                                 </div>
                                                 <div>
                                                     <p className="text-[10px] font-mono text-slate-400">LATITUDE / LONGITUDE</p>
-                                                    <p className="text-xs font-bold font-mono">{selectedRecord.location.lat.toFixed(6)}, {selectedRecord.location.lng.toFixed(6)}</p>
+                                                    <p className="text-xs font-bold font-mono">
+                                                        {selectedRecord.location?.lat ? selectedRecord.location.lat.toFixed(6) : 'N/A'},
+                                                        {selectedRecord.location?.lng ? selectedRecord.location.lng.toFixed(6) : 'N/A'}
+                                                    </p>
                                                 </div>
                                             </div>
-                                            <a
-                                                href={`https://www.google.com/maps/search/?api=1&query=${selectedRecord.location.lat},${selectedRecord.location.lng}`}
-                                                target="_blank"
-                                                className="w-full sm:w-auto px-6 py-3 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition shadow-lg text-center"
-                                            >
-                                                Buka Peta
-                                            </a>
+                                            {selectedRecord.location?.lat && selectedRecord.location?.lng && (
+                                                <a
+                                                    href={`https://www.google.com/maps/search/?api=1&query=${selectedRecord.location.lat},${selectedRecord.location.lng}`}
+                                                    target="_blank"
+                                                    className="w-full sm:w-auto px-6 py-3 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition shadow-lg text-center"
+                                                >
+                                                    Buka Peta
+                                                </a>
+                                            )}
                                         </div>
                                     </div>
                                 </div>

@@ -57,7 +57,7 @@ export const StaffDashboard = () => {
         if (activeSession) {
             // Verify it's really recent (within 24 hours)
             const checkInTime = activeSession.createdAt
-                ? Number(activeSession.createdAt)
+                ? new Date(activeSession.createdAt).getTime()
                 : new Date(activeSession.date + 'T' + (activeSession.timeIn || '00:00:00')).getTime();
 
             const hoursSinceCheckIn = (Date.now() - checkInTime) / (1000 * 60 * 60);
@@ -86,7 +86,7 @@ export const StaffDashboard = () => {
 
                     // Priority: Use createdAt timestamp if available (Most Accurate)
                     if (todayAttendance.createdAt) {
-                        startTimeTime = Number(todayAttendance.createdAt);
+                        startTimeTime = new Date(todayAttendance.createdAt).getTime();
                     } else {
                         // Fallback: Parse String Date + TimeIn
                         const d = new Date(todayAttendance.date);
@@ -331,8 +331,8 @@ export const StaffDashboard = () => {
                                 <div className="flex justify-between items-start mb-2">
                                     <span className="text-xs font-black uppercase text-slate-500 tracking-wider text-[10px]">{latestRequest.type}</span>
                                     <span className={`text-[10px] px-2 py-1 rounded font-black uppercase ${latestRequest.status === RequestStatus.APPROVED ? 'bg-emerald-100 text-emerald-600' :
-                                            latestRequest.status === RequestStatus.REJECTED ? 'bg-rose-100 text-rose-600' :
-                                                'bg-amber-100 text-amber-600'
+                                        latestRequest.status === RequestStatus.REJECTED ? 'bg-rose-100 text-rose-600' :
+                                            'bg-amber-100 text-amber-600'
                                         }`}>
                                         {latestRequest.status}
                                     </span>
