@@ -15,8 +15,20 @@ export async function GET(request: Request) {
     const startDate = searchParams.get('start');
     const endDate = searchParams.get('end');
 
+    const targetUserId = searchParams.get('userId');
+
     const where: any = { tenantId };
-    if (!isAdmin) where.userId = user.id;
+
+    if (targetUserId) {
+      // Security: Non-admins can only see their own data
+      if (!isAdmin && targetUserId !== user.id) {
+        return NextResponse.json({ error: 'Unauthorized view of other users' }, { status: 403 });
+      }
+      where.userId = targetUserId;
+    } else {
+      // Default behavior: Staff sees only self, Admin sees all
+      if (!isAdmin) where.userId = user.id;
+    }
 
     if (startDate && endDate) {
       where.date = { gte: startDate, lte: endDate };

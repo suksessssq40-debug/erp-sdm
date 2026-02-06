@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
-import { serialize } from '@/lib/serverUtils';
+import { serialize, recordSystemLog } from '@/lib/serverUtils';
 
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   try {
@@ -32,6 +32,16 @@ export async function PUT(request: Request, { params }: { params: { id: string }
         isManagementOnly: p.isManagementOnly ? 1 : 0,
         priority: p.priority
       }
+    });
+
+    await recordSystemLog({
+      actorId: user.id,
+      actorName: user.name,
+      actorRole: user.role,
+      actionType: 'PROJECT_UPDATE',
+      details: `Project details updated (Full Put)`,
+      targetObj: id,
+      tenantId
     });
 
     return NextResponse.json(serialize(p));
@@ -89,12 +99,43 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       data: updateData
     });
 
+    // LOGGING
+    let logAction = 'PROJECT_UPDATE';
+    let logDetail = `Update proyek: ${action}`;
+
+    if (action === 'MOVE_STATUS') {
+      logAction = 'PROJECT_MOVE_STATUS';
+      logDetail = `Status berubah menjadi ${data.status}`;
+    } else if (action === 'ADD_COMMENT') {
+      logAction = 'PROJECT_COMMENT';
+      logDetail = `Komentar baru ditambahkan`;
+    } else if (action === 'UPDATE_TASK') {
+      const t = data.task;
+      if (t.isCompleted) {
+        logAction = 'PROJECT_TASK_COMPLETE';
+        logDetail = `Tugas "${t.title}" diselesaikan`;
+      } else {
+        logDetail = `Update tugas "${t.title}"`;
+      }
+    }
+
+    await recordSystemLog({
+      actorId: user.id,
+      actorName: user.name,
+      actorRole: user.role,
+      actionType: logAction,
+      details: logDetail,
+      targetObj: id, // Target is Project ID
+      tenantId
+    });
+
     return NextResponse.json(serialize(updated));
   } catch (error) {
     console.error("PATCH Error:", error);
     return NextResponse.json({ error: 'Failed to patch project' }, { status: 500 });
   }
 }
+// Import recordSystemLog at the top if not present!
 
 // Support DELETE - Management Level
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {

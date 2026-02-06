@@ -8,9 +8,12 @@ export const createAttendanceActions = (
   authHeaders: Record<string, string>,
   addLog: (actionType: SystemActionType, details: string, target?: string, metadata?: any) => Promise<void>
 ) => {
-  const fetchAttendance = async () => {
+  const fetchAttendance = async (userId?: string) => {
     try {
-      const res = await fetch(`${API_BASE}/api/attendance`, { headers: authHeaders });
+      let url = `${API_BASE}/api/attendance`;
+      if (userId) url += `?userId=${userId}`;
+
+      const res = await fetch(url, { headers: authHeaders });
       if (res.ok) {
         const data = await res.json();
         setState(prev => ({ ...prev, attendance: data }));

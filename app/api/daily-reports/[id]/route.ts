@@ -24,7 +24,8 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     await prisma.dailyReport.update({
       where: { id },
       data: {
-        activitiesJson: JSON.stringify(r.activities || [])
+        activitiesJson: JSON.stringify(r.activities || []),
+        updatedAt: new Date()
       }
     });
 

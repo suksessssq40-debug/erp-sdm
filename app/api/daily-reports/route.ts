@@ -29,7 +29,14 @@ export async function GET(request: Request) {
       take: startDate ? undefined : 200
     });
 
-    return NextResponse.json(serialize(reports));
+    const formatted = reports.map(r => ({
+      ...r,
+      activities: r.activitiesJson ? JSON.parse(r.activitiesJson) : [],
+      // Ensure date is consistent string
+      date: r.date
+    }));
+
+    return NextResponse.json(serialize(formatted));
   } catch (e: any) {
     console.error(e);
     return NextResponse.json({ error: 'Failed', details: e.message }, { status: 500 });
@@ -52,7 +59,9 @@ export async function POST(request: Request) {
         tenantId,
         userId: r.userId,
         date: r.date,
-        activitiesJson: JSON.stringify(r.activities || [])
+        activitiesJson: JSON.stringify(r.activities || []),
+        createdAt: new Date(),
+        updatedAt: new Date()
       }
     });
 
