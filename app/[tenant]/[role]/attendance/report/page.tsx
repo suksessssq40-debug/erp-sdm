@@ -21,8 +21,9 @@ export default function AttendanceReportPage() {
     useEffect(() => {
         if (store.currentUser) {
             store.fetchAttendance();
-            if (!store.users || store.users.length === 0) {
-                // store.fetchUsers(); // Removed as it doesn't exist, users come from bootstrap
+            // Fetch users only if allowed (Owner/Manager/Finance) to populate names
+            if ([UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(store.currentUser.role)) {
+                if (store.fetchUsers) store.fetchUsers();
             }
         }
     }, [store.currentUser]);

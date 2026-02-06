@@ -26,7 +26,11 @@ export async function GET(request: Request) {
       }
       where.userId = targetUserId;
     } else {
-      // Default behavior: Staff sees only self, Admin sees all
+      // IMPORTANT FIX:
+      // If no targetUserId is specified:
+      // - STAFF: Restricted to own data.
+      // - ADMIN (Owner/Mgr/Fin): Allowed to see ALL data (for Reports).
+      // Administrators wanting to see THEIR OWN data must explicitly send ?userId=...
       if (!isAdmin) where.userId = user.id;
     }
 
