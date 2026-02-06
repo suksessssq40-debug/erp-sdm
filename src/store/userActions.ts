@@ -12,8 +12,8 @@ export const createUserActions = (
     try {
       let deviceId = typeof window !== 'undefined' ? window.localStorage.getItem('sdm_device_id') : null;
       if (!deviceId) {
-         deviceId = Math.random().toString(36).substring(2) + Date.now().toString(36);
-         if (typeof window !== 'undefined') window.localStorage.setItem('sdm_device_id', deviceId);
+        deviceId = Math.random().toString(36).substring(2) + Date.now().toString(36);
+        if (typeof window !== 'undefined') window.localStorage.setItem('sdm_device_id', deviceId);
       }
 
       const res = await fetch(`${API_BASE}/api/login`, {
@@ -28,33 +28,33 @@ export const createUserActions = (
         }
         throw new Error(payload?.error || 'Login failed');
       }
-      const user: User = { 
-          ...payload.user, 
-          roleSlug: payload.user.role.toLowerCase(),
-          features: payload.user.features 
+      const user: User = {
+        ...payload.user,
+        roleSlug: payload.user.role.toLowerCase(),
+        features: payload.user.features
       };
       const token: string | undefined = payload.token;
-      
+
       setState(prev => ({ ...prev, currentUser: user, authToken: token as any }));
-      
+
       try {
         const loginLog: any = {
-            id: Math.random().toString(36).substr(2,9),
-            timestamp: Date.now(),
-            actorId: user.id,
-            actorName: user.name,
-            actorRole: user.role,
-            actionType: SystemActionType.AUTH_LOGIN,
-            details: 'User logged in successfully',
-            target: 'Session'
+          id: Math.random().toString(36).substr(2, 9),
+          timestamp: Date.now(),
+          actorId: user.id,
+          actorName: user.name,
+          actorRole: user.role,
+          actionType: SystemActionType.AUTH_LOGIN,
+          details: 'User logged in successfully',
+          target: 'Session'
         };
         fetch(`${API_BASE}/api/system-logs`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify(loginLog)
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(loginLog)
         });
         setState(prev => ({ ...prev, logs: [loginLog, ...prev.logs] }));
-      } catch(e) {}
+      } catch (e) { }
 
       if (typeof window !== 'undefined') {
         window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
@@ -102,23 +102,23 @@ export const createUserActions = (
         body: JSON.stringify(user)
       });
       if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || 'Failed to update user');
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to update user');
       }
       const updated: User = await res.json();
-      
+
       setState(prev => {
         const newUsers = prev.users.map(u => u.id === updated.id ? { ...u, ...updated } : u);
         let newCurrentUser = prev.currentUser;
         if (prev.currentUser && prev.currentUser.id === updated.id) {
-            newCurrentUser = { ...prev.currentUser, ...updated };
-            if (typeof window !== 'undefined') {
-                window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(newCurrentUser));
-            }
+          newCurrentUser = { ...prev.currentUser, ...updated };
+          if (typeof window !== 'undefined') {
+            window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(newCurrentUser));
+          }
         }
         return { ...prev, users: newUsers, currentUser: newCurrentUser };
       });
-      
+
       addLog(SystemActionType.USER_UPDATE, `Updated user info: ${updated.name}`, updated.id);
     } catch (e) {
       console.error(e);
@@ -148,12 +148,7 @@ export const createUserActions = (
         headers: { ...authHeaders }
       });
       if (!res.ok) throw new Error('Failed to delete user');
-      
-      setState(prev => ({
-        ...prev,
-        users: prev.users.filter(u => u.id !== userId)
-      }));
-      
+
       addLog(SystemActionType.USER_DELETE, `Deleted user ${userId}`, userId);
     } catch (e) {
       console.error(e);
@@ -161,5 +156,15 @@ export const createUserActions = (
     }
   };
 
-  return { login, logout, addUser, updateUser, resetDevice, deleteUser };
+  const fetchUsers = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/users`, { headers: authHeaders });
+      if (res.ok) {
+        const data = await res.json();
+        setState(prev => ({ ...prev, users: data }));
+      }
+    } catch (e) { console.error("Fetch Users Failed", e); }
+  };
+
+  return { login, logout, addUser, updateUser, resetDevice, deleteUser, fetchUsers };
 };

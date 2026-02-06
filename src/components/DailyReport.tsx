@@ -204,7 +204,8 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
                     </td>
                     <td className="px-6 py-5">
                       <p className="text-xs font-medium text-slate-500 italic truncate max-w-xs">
-                        "{report.activities[0]?.task || 'No activity'}" {report.activities.length > 1 && `dan ${report.activities.length - 1} lainnya...`}
+                        "{report.activities && report.activities.length > 0 ? (report.activities[0]?.task || 'No task title') : 'No activity'}"
+                        {report.activities && report.activities.length > 1 && ` dan ${report.activities.length - 1} lainnya...`}
                       </p>
                     </td>
                     <td className="px-6 py-5">
