@@ -160,9 +160,8 @@ export const StaffDashboard = () => {
     const totalPresent = monthlyAttendance.length;
 
     // 3. Task Priority (Assigned to Me & Incomplete)
+    // FIX: Show tasks assigned to me even if not explicitly in project collaborators list
     const myTasks = projects.flatMap(p => {
-        // Only projects I'm in
-        if (!p.collaborators.includes(currentUser?.id || '')) return [];
         if (p.status === 'DONE') return []; // Ignore done projects
 
         return p.tasks

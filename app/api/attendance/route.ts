@@ -52,16 +52,21 @@ export async function POST(request: Request) {
     let finalDateStr = jkt.isoDate;
     const serverTimeStr = jkt.isoTime;
 
-    // NIGHT SHIFT LOGIC: Before 06:00 AM counts as previous day
+    // NIGHT SHIFT LOGIC (Fixed for Consistency)
+    // If hour < 6 AM, it belongs to the "Previous Working Day"
     const currentHourNum = parseInt(jkt.parts.hh);
     if (currentHourNum < 6) {
-      const yesterday = new Date();
-      yesterday.setHours(yesterday.getHours() - 24);
-      const yStr = yesterday.toISOString().split('T')[0];
-      finalDateStr = yStr;
-      console.log(`[SHIFT DETECTED] Date rolled back to ${finalDateStr}`);
+      const yesterday = new Date(jkt.isoDate); // Parse from Jakarta Date String
+      yesterday.setDate(yesterday.getDate() - 1);
+      finalDateStr = yesterday.toISOString().split('T')[0];
+      console.log(`[SHIFT DETECTED] Before 06:00 WIB. Date rolled back to ${finalDateStr}`);
     }
 
+    // ... (Tenant Check Code remains same, skipping for brevity in replacement) ...
+    // We need to re-fetch tenant here if not including full block, 
+    // BUT since we are replacing a block, let's keep the flow correct.
+
+    // Validate Tenant & Settings
     const tenant = await prisma.tenant.findUnique({
       where: { id: tenantId },
       include: { settings: true }
@@ -98,9 +103,9 @@ export async function POST(request: Request) {
     if (strategy === 'FIXED') {
       effectiveStartTime = settings?.officeStartTime || '08:00';
     } else if (strategy === 'SHIFT') {
-      if (!shiftId) return NextResponse.json({ error: 'Shift required' }, { status: 400 });
+      if (!shiftId) return NextResponse.json({ error: 'Shift required for SHIFT strategy' }, { status: 400 });
       const shift = await prisma.shift.findUnique({ where: { id: shiftId } });
-      if (!shift) return NextResponse.json({ error: 'Invalid Shift' }, { status: 400 });
+      if (!shift) return NextResponse.json({ error: 'Invalid Shift ID provided' }, { status: 400 });
       effectiveStartTime = shift.startTime;
     }
 
@@ -109,10 +114,15 @@ export async function POST(request: Request) {
       const [limitH, limitM] = effectiveStartTime.split(':').map(Number);
       let currTotal = currH * 60 + currM;
       const limitTotal = limitH * 60 + limitM;
-      if (limitTotal > 1080 && currTotal < 360) currTotal += 1440; // Overnight
+
+      // Handle Overnight Shift Limit (e.g. start 23:00, now 00:15)
+      // If Limit > 18:00 and Current < 06:00, add 24h to Current
+      if (limitTotal > 1080 && currTotal < 360) currTotal += 1440;
+
       isLateCalculated = currTotal > (limitTotal + graceMinutes);
     }
 
+    // FINAL CREATE (WITH createdAt!)
     const created = await prisma.attendance.create({
       data: {
         id: a.id,
@@ -125,7 +135,8 @@ export async function POST(request: Request) {
         selfieUrl: a.selfieUrl,
         locationLat: a.location.lat,
         locationLng: a.location.lng,
-        shiftId: shiftId
+        shiftId: shiftId,
+        createdAt: new Date() // CRITICAL FIX: Add server timestamp for sorting
       }
     });
 

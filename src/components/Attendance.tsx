@@ -109,48 +109,56 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
     return () => clearInterval(timer);
   }, [serverOffset]);
 
-  // DATE LOGIC
-  const getISOString = (d: Date) => {
-    const y = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${y}-${mm}-${dd}`;
+  // DATE LOGIC (FIXED: Consistent Jakarta Timezone)
+  const getTodayJakarta = () => {
+    const now = new Date();
+    // Convert to Jakarta timezone (UTC+7)
+    const jakartaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+    return jakartaTime.toISOString().split('T')[0]; // Format: YYYY-MM-DD
   };
 
-  const serverTime = new Date(Date.now() + serverOffset);
-  const effectiveDate = new Date(serverTime);
-  if (effectiveDate.getHours() < 6) effectiveDate.setDate(effectiveDate.getDate() - 1);
-  const todayISO = getISOString(effectiveDate);
+  const todayStr = getTodayJakarta();
 
-  // ACTIVE SESSION TRACKING (Supports Cross-Day Attendance)
+  // ACTIVE SESSION TRACKING (New Robust Logic from Dashboard)
   const myAttendanceToday = React.useMemo(() => {
+    if (!currentUser?.id) return undefined;
+
+    // Get all my attendance records
     const myLogs = attendanceLog.filter(a => a.userId === currentUser.id);
-    myLogs.sort((a, b) => {
-      const tA = a.createdAt ? new Date(a.createdAt).getTime() : new Date(a.date).getTime();
-      const tB = b.createdAt ? new Date(b.createdAt).getTime() : new Date(b.date).getTime();
-      return tB - tA;
+
+    // 1. Find today's record (exact date match)
+    const todayRecord = myLogs.find(a => a.date === todayStr);
+
+    if (todayRecord) return todayRecord;
+
+    // 2. Fallback: Check if there's an active session from yesterday (night shift)
+    // This handles case where user checked in at 23:00 yesterday, now it's 01:00 today
+    const yesterdayLogs = myLogs.filter(a => {
+      if (!a.date) return false;
+      const logDate = new Date(a.date + 'T00:00:00');
+      const today = new Date(todayStr + 'T00:00:00');
+      const diffDays = Math.floor((today.getTime() - logDate.getTime()) / (1000 * 60 * 60 * 24));
+      return diffDays === 1; // Exactly 1 day ago
     });
 
-    const latest = myLogs[0];
-    if (!latest) return undefined;
-    if (!latest.timeOut) {
-      let tStart = latest.createdAt ? new Date(latest.createdAt).getTime() : 0;
-      if (!tStart && latest.date) {
-        const d = new Date(latest.date);
-        if (latest.timeIn) {
-          const [h, m] = latest.timeIn.replace('.', ':').split(':').map(Number);
-          d.setHours(h || 0, m || 0);
-        }
-        tStart = d.getTime();
+    // Find the most recent one that's still open (no checkout)
+    const activeSession = yesterdayLogs.find(a => !a.timeOut);
+
+    if (activeSession) {
+      // Verify it's really recent (within 24 hours) check validity
+      const checkInTime = activeSession.createdAt
+        ? new Date(activeSession.createdAt).getTime()
+        : new Date(activeSession.date + 'T' + (activeSession.timeIn || '00:00:00')).getTime();
+
+      const hoursSinceCheckIn = (Date.now() - checkInTime) / (1000 * 60 * 60);
+
+      if (hoursSinceCheckIn < 24) {
+        return activeSession; // Valid active session
       }
-      if (tStart > 0) {
-        const diffHours = (Date.now() - tStart) / (1000 * 60 * 60);
-        if (diffHours < 24) return latest;
-      } else return latest;
     }
-    if (latest.date === todayISO) return latest;
+
     return undefined;
-  }, [attendanceLog, currentUser.id, todayISO]);
+  }, [attendanceLog, currentUser.id, todayStr]);
 
   // CAMERA INITIALIZATION LOGIC
   useEffect(() => {
@@ -288,7 +296,7 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
             const record: Attendance = {
               id: Math.random().toString(36).substr(2, 9),
               userId: currentUser.id,
-              date: todayISO,
+              date: todayStr, // Corrected variable
               timeIn: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
               isLate,
               lateReason: isLate ? lateReason : undefined,
@@ -423,7 +431,7 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
           <AttendanceHistory
             attendanceLog={attendanceLog}
             currentUserId={currentUser.id}
-            todayISO={todayISO}
+            todayISO={todayStr} // Corrected variable
           />
         </div>
 
