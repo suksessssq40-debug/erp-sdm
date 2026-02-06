@@ -15,8 +15,8 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     const existing = await prisma.project.findFirst({ where: { id, tenantId } });
     if (!existing) return NextResponse.json({ error: 'Project not found or unauthorized' }, { status: 404 });
 
-    if (p.status === 'DONE' && user.role === 'STAFF') {
-      return NextResponse.json({ error: 'Not allowed to mark DONE' }, { status: 403 });
+    if (p.status === 'DONE' && user.role !== 'OWNER') {
+      return NextResponse.json({ error: 'Only OWNER can mark project as DONE' }, { status: 403 });
     }
 
     await prisma.project.update({
@@ -60,8 +60,8 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
     if (action === 'MOVE_STATUS') {
       // 1. Status Update
-      if (data.status === 'DONE' && user.role === 'STAFF') {
-        return NextResponse.json({ error: 'Staff cannot mark as DONE' }, { status: 403 });
+      if (data.status === 'DONE' && user.role !== 'OWNER') {
+        return NextResponse.json({ error: 'Only OWNER can mark project as DONE' }, { status: 403 });
       }
       updateData.status = data.status;
     }

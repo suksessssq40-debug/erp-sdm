@@ -152,19 +152,19 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
     setEditingProject(null);
   };
 
-  const handleMoveStatus = (project: Project, newStatus: KanbanStatus) => {
+  const handleMoveStatus = async (project: Project, newStatus: KanbanStatus) => {
     // Definisi Otoritas
-    const isStaff = currentUser.role === UserRole.STAFF;
+    const isOwner = currentUser.role === UserRole.OWNER;
 
-    if (isStaff && newStatus === KanbanStatus.DONE) {
-      toast.warning("Staff hanya dapat update sampai status PREVIEW. Mohon lapor manajemen untuk finalisasi ke DONE / SELESAI.");
+    if (!isOwner && newStatus === KanbanStatus.DONE) {
+      toast.warning("Hanya OWNER yang memiliki otoritas untuk memindahkan proyek ke status SELESAI (DONE). Mohon lapor ke Owner untuk finalisasi.");
       return;
     }
 
     if (project.status === newStatus) return;
 
     try {
-      patchProject(project.id, 'MOVE_STATUS', { status: newStatus });
+      await patchProject(project.id, 'MOVE_STATUS', { status: newStatus });
 
       if (newStatus === KanbanStatus.DONE && onCelebrate) {
         onCelebrate(`Proyek "${project.title}" selesai!`);
