@@ -38,6 +38,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     const [formData, setFormData] = useState<Transaction>(initialData);
     const [accountSearch, setAccountSearch] = useState('');
     const [showAccountDropdown, setShowAccountDropdown] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false); // State to locking UI processing
 
     // COA Search State (Single Mode)
     const [coaSearch, setCoaSearch] = useState('');
@@ -81,6 +82,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     }
 
     const handleSubmit = async () => {
+        if (isSubmitting) return;
+
         // COMMON VALIDATION
         if (formData.amount <= 0) {
             toast.warning("Nominal Total harus lebih dari 0");
@@ -92,114 +95,132 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             return;
         }
 
-        // --- SPLIT MODE SAVE LOGIC ---
-        if (isSplit) {
-            // 1. Validate Totals
-            const totalSplit = splitItems.reduce((sum, item) => sum + item.amount, 0);
-            if (Math.abs(totalSplit - formData.amount) > 100) { // Tolerance 100 rupiah
-                toast.warning(`Total Pecahan (${totalSplit}) tidak klop dengan Total Nominal (${formData.amount})`);
+        setIsSubmitting(true);
+
+        try {
+            // --- SPLIT MODE SAVE LOGIC ---
+            if (isSplit) {
+                // 1. Validate Totals
+                const totalSplit = splitItems.reduce((sum, item) => sum + item.amount, 0);
+                if (Math.abs(totalSplit - formData.amount) > 100) { // Tolerance 100 rupiah
+                    toast.warning(`Total Pecahan (${totalSplit}) tidak klop dengan Total Nominal (${formData.amount})`);
+                    setIsSubmitting(false);
+                    return;
+                }
+
+                // 2. Validate Items
+                for (const item of splitItems) {
+                    if (!item.coaId) {
+                        toast.warning("Semua baris pecahan wajib pilih Akun Lawan (COA)");
+                        setIsSubmitting(false);
+                        return;
+                    }
+                }
+
+                toast.info(`Menyimpan ${splitItems.length} transaksi pecahan...`);
+
+                // 3. Save Multiple Transactions
+                const baseId = isEditing ? formData.id : Math.random().toString(36).substr(2, 9);
+
+                for (let i = 0; i < splitItems.length; i++) {
+                    const item = splitItems[i];
+                    const payload: Transaction = {
+                        ...formData,
+                        id: i === 0 && isEditing ? baseId : `${baseId}_split_${i + 1}`, // Keep original ID for first one if editing
+                        account: finalAccountName,
+
+                        // Per-Item Overrides
+                        amount: item.amount, // Part Amount
+                        type: item.type,     // Allow mix IN/OUT? Usually split is same direction. But let's respect item type.
+
+                        // COA & Category
+                        category: item.coaName, // Legacy
+                        coaId: item.coaId,
+                        description: `${formData.description} (${item.description || item.coaName})`, // Append detail
+
+                        // Ensure Date is same
+                        date: formData.date ? new Date(formData.date).toISOString() : new Date().toISOString()
+                    };
+
+                    await onSave(payload);
+                }
+
+                onClose();
                 return;
             }
 
-            // 2. Validate Items
-            for (const item of splitItems) {
-                if (!item.coaId) {
-                    toast.warning("Semua baris pecahan wajib pilih Akun Lawan (COA)");
-                    return;
+            // --- NORMAL MODE SAVE LOGIC ---
+            if (!formData.description) {
+                toast.warning("Deskripsi wajib diisi");
+                setIsSubmitting(false);
+                return;
+            }
+
+            // Auto-Create Account Logic CHECK (Only for Cash Mode)
+            if (!isGeneralMode) {
+                const accountExists = financialAccounts.some(acc => acc.name.toLowerCase() === finalAccountName.toLowerCase());
+                if (!accountExists) {
+                    if (!confirm(`Akun Keuangan "${finalAccountName}" belum ada. Buat baru otomatis?`)) {
+                        setIsSubmitting(false);
+                        return;
+                    }
+                    if (onAddAccount) {
+                        await onAddAccount({
+                            id: Math.random().toString(36).substr(2, 9),
+                            name: finalAccountName,
+                            bankName: 'General / Tunai',
+                            accountNumber: '-',
+                            description: 'Auto-created from transaction entry',
+                            isActive: true
+                        });
+                    }
                 }
             }
 
-            toast.info(`Menyimpan ${splitItems.length} transaksi pecahan...`);
-
-            // 3. Save Multiple Transactions
-            const baseId = isEditing ? formData.id : Math.random().toString(36).substr(2, 9);
-
-            for (let i = 0; i < splitItems.length; i++) {
-                const item = splitItems[i];
-                const payload: Transaction = {
-                    ...formData,
-                    id: i === 0 && isEditing ? baseId : `${baseId}_split_${i + 1}`, // Keep original ID for first one if editing
-                    account: finalAccountName,
-
-                    // Per-Item Overrides
-                    amount: item.amount, // Part Amount
-                    type: item.type,     // Allow mix IN/OUT? Usually split is same direction. But let's respect item type.
-
-                    // COA & Category
-                    category: item.coaName, // Legacy
-                    coaId: item.coaId,
-                    description: `${formData.description} (${item.description || item.coaName})`, // Append detail
-
-                    // Ensure Date is same
-                    date: formData.date ? new Date(formData.date).toISOString() : new Date().toISOString()
-                };
-
-                await onSave(payload);
+            // Auto-Create COA Logic CHECK
+            if (!formData.coaId && coaSearch) {
+                const coaExists = coaList.some(c => `${c.code} - ${c.name}`.toLowerCase() === coaSearch.toLowerCase());
+                if (!coaExists) {
+                    if (confirm(`Akun/Kategori "${coaSearch}" belum ada. Buat baru otomatis?`)) {
+                        // We let the backend handle the creation if coaId is missing, 
+                        // but we can also trigger onAddAccount logic if we have an onAddCoa prop.
+                        // For now, the updated API handles this perfectly when it receives a category name without coaId.
+                    } else {
+                        setIsSubmitting(false);
+                        return; // User canceled
+                    }
+                }
             }
 
+            if (!formData.coaId && !coaSearch) {
+                toast.warning("Wajib pilih Akun (COA)");
+                setIsSubmitting(false);
+                return;
+            }
+
+            // Accrual Validation
+            if (formData.status === 'PENDING' && !formData.contactName) {
+                toast.warning("Wajib isi Nama Kontak untuk transaksi hutang/piutang");
+                setIsSubmitting(false);
+                return;
+            }
+
+            const payload: Transaction = {
+                ...formData,
+                account: finalAccountName,
+                category: coaSearch,
+                id: isEditing ? formData.id : (formData.id || Math.random().toString(36).substr(2, 9)),
+                date: formData.date ? new Date(formData.date).toISOString() : new Date().toISOString()
+            };
+
+            await onSave(payload);
             onClose();
-            return;
+
+        } catch (e) {
+            console.error("Submit Error", e);
+            toast.error("Terjadi kesalahan saat menyimpan transaksi.");
+            setIsSubmitting(false);
         }
-
-        // --- NORMAL MODE SAVE LOGIC ---
-        if (!formData.description) {
-            toast.warning("Deskripsi wajib diisi");
-            return;
-        }
-
-        // Auto-Create Account Logic CHECK (Only for Cash Mode)
-        if (!isGeneralMode) {
-            const accountExists = financialAccounts.some(acc => acc.name.toLowerCase() === finalAccountName.toLowerCase());
-            if (!accountExists) {
-                if (!confirm(`Akun Keuangan "${finalAccountName}" belum ada. Buat baru otomatis?`)) return;
-                if (onAddAccount) {
-                    await onAddAccount({
-                        id: Math.random().toString(36).substr(2, 9),
-                        name: finalAccountName,
-                        bankName: 'General / Tunai',
-                        accountNumber: '-',
-                        description: 'Auto-created from transaction entry',
-                        isActive: true
-                    });
-                }
-            }
-        }
-
-        // Auto-Create COA Logic CHECK
-        if (!formData.coaId && coaSearch) {
-            const coaExists = coaList.some(c => `${c.code} - ${c.name}`.toLowerCase() === coaSearch.toLowerCase());
-            if (!coaExists) {
-                if (confirm(`Akun/Kategori "${coaSearch}" belum ada. Buat baru otomatis?`)) {
-                    // We let the backend handle the creation if coaId is missing, 
-                    // but we can also trigger onAddAccount logic if we have an onAddCoa prop.
-                    // For now, the updated API handles this perfectly when it receives a category name without coaId.
-                } else {
-                    return; // User canceled
-                }
-            }
-        }
-
-        if (!formData.coaId && !coaSearch) {
-            toast.warning("Wajib pilih Akun (COA)");
-            return;
-        }
-
-        // Accrual Validation
-        if (formData.status === 'PENDING' && !formData.contactName) {
-            toast.warning("Wajib isi Nama Kontak untuk transaksi hutang/piutang");
-            return;
-        }
-
-        const payload: Transaction = {
-            ...formData,
-            account: finalAccountName,
-            category: coaSearch,
-            id: isEditing ? formData.id : (formData.id || Math.random().toString(36).substr(2, 9)),
-            date: formData.date ? new Date(formData.date).toISOString() : new Date().toISOString()
-        };
-
-        await onSave(payload);
-        onClose();
     };
 
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -438,9 +459,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                                     <div className="flex-1 space-y-1">
                                         <div className="relative">
                                             <input
-                                                className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-blue-500"
+                                                className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-blue-500 disabled:opacity-50 disabled:bg-slate-50"
                                                 placeholder="Pilih atau Ketik Akun..."
                                                 value={item.coaName}
+                                                disabled={isSubmitting}
                                                 onFocus={() => { setActiveSplitIndex(idx); setShowCoaDropdown(true); }}
                                                 onChange={(e) => {
                                                     const newItems = [...splitItems];
@@ -479,9 +501,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                                             )}
                                         </div>
                                         <input
-                                            className="w-full px-4 py-2 bg-transparent border-b border-dashed border-slate-300 text-[10px] font-medium outline-none placeholder:text-slate-400"
+                                            className="w-full px-4 py-2 bg-transparent border-b border-dashed border-slate-300 text-[10px] font-medium outline-none placeholder:text-slate-400 disabled:opacity-50"
                                             placeholder="Keterangan tambahan item ini..."
                                             value={item.description}
+                                            disabled={isSubmitting}
                                             onChange={(e) => {
                                                 const newItems = [...splitItems];
                                                 newItems[idx].description = e.target.value;
@@ -492,9 +515,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                                     <div className="w-32">
                                         <input
                                             type="number"
-                                            className="w-full px-3 py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none text-right"
+                                            className="w-full px-3 py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none text-right disabled:opacity-50 disabled:bg-slate-50"
                                             placeholder="0"
                                             value={item.amount || ''}
+                                            disabled={isSubmitting}
                                             onChange={(e) => {
                                                 const newItems = [...splitItems];
                                                 newItems[idx].amount = parseFloat(e.target.value);
@@ -521,17 +545,19 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                     <div className="grid grid-cols-2 gap-6">
                         <div className="space-y-3">
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">TANGGAL</label>
-                            <input type="date" className="w-full p-4 bg-slate-50 rounded-[1.5rem] text-xs font-bold outline-none"
+                            <input type="date" className="w-full p-4 bg-slate-50 rounded-[1.5rem] text-xs font-bold outline-none disabled:opacity-50"
                                 value={formData.date ? formData.date.split('T')[0] : ''}
                                 onChange={e => setFormData({ ...formData, date: e.target.value })}
+                                disabled={isSubmitting}
                             />
                         </div>
                         <div className="space-y-3">
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">KONTAK</label>
-                            <input className="w-full p-4 bg-slate-50 rounded-[1.5rem] text-xs font-bold outline-none"
+                            <input className="w-full p-4 bg-slate-50 rounded-[1.5rem] text-xs font-bold outline-none disabled:opacity-50"
                                 placeholder="Nama Orang/PT"
                                 value={formData.contactName || ''}
                                 onChange={e => setFormData({ ...formData, contactName: e.target.value })}
+                                disabled={isSubmitting}
                             />
                         </div>
                     </div>
@@ -540,10 +566,11 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                         <div className="space-y-3">
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">DESKRIPSI UMUM</label>
                             <textarea
-                                className="w-full p-5 bg-slate-50 rounded-[1.5rem] text-xs font-bold outline-none resize-none h-20"
+                                className="w-full p-5 bg-slate-50 rounded-[1.5rem] text-xs font-bold outline-none resize-none h-20 disabled:opacity-50"
                                 placeholder="Keterangan transaksi..."
                                 value={formData.description || ''}
                                 onChange={e => setFormData({ ...formData, description: e.target.value })}
+                                disabled={isSubmitting}
                             />
                         </div>
                     )}
@@ -552,9 +579,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                     <div className="space-y-3">
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ALOKASI UNIT (KB POS)</label>
                         <select
-                            className="w-full p-4 bg-slate-50 border-none rounded-[1.5rem] text-xs font-bold uppercase outline-none"
+                            className="w-full p-4 bg-slate-50 border-none rounded-[1.5rem] text-xs font-bold uppercase outline-none disabled:opacity-50"
                             value={formData.businessUnitId || ''}
                             onChange={e => setFormData({ ...formData, businessUnitId: e.target.value })}
+                            disabled={isSubmitting}
                         >
                             <option value="">-- ILUSTRASI UMUM / SHARED --</option>
                             {businessUnits.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -563,9 +591,26 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
                     {/* Actions */}
                     <div className="flex gap-6 pt-6 border-t border-slate-50">
-                        <button onClick={onClose} className="flex-1 py-4 text-slate-400 font-bold uppercase tracking-widest hover:bg-slate-50 rounded-[1.5rem] transition text-xs">BATAL</button>
-                        <button onClick={handleSubmit} className="flex-1 py-4 bg-slate-900 text-white rounded-[2rem] font-bold uppercase tracking-widest hover:bg-blue-600 transition text-xs shadow-xl">
-                            {isEditing ? 'UPDATE' : 'SIMPAN'}
+                        <button
+                            onClick={onClose}
+                            disabled={isSubmitting}
+                            className="flex-1 py-4 text-slate-400 font-bold uppercase tracking-widest hover:bg-slate-50 rounded-[1.5rem] transition text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            BATAL
+                        </button>
+                        <button
+                            onClick={handleSubmit}
+                            disabled={isSubmitting}
+                            className={`flex-1 py-4 text-white rounded-[2rem] font-bold uppercase tracking-widest transition text-xs shadow-xl flex items-center justify-center gap-2 ${isSubmitting ? 'bg-slate-400 cursor-not-allowed' : 'bg-slate-900 hover:bg-blue-600'}`}
+                        >
+                            {isSubmitting ? (
+                                <>
+                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                    MENYIMPAN...
+                                </>
+                            ) : (
+                                isEditing ? 'UPDATE' : 'SIMPAN'
+                            )}
                         </button>
                     </div>
 

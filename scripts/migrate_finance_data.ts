@@ -24,10 +24,10 @@ async function main() {
 
     while ((match = regex.exec(content)) !== null) {
       const [_, id, name, bankName, accountNumber, description, isActiveStr, createdAtStr] = match;
-      
+
       // Clean up inputs
       const cleanName = name.trim();
-      
+
       // Check if exists
       const exists = await prisma.financialAccount.findUnique({ where: { id } });
       if (!exists) {
@@ -63,67 +63,67 @@ async function main() {
     const processedCodes = new Set();
 
     while ((match = regex.exec(content)) !== null) {
-        const [_, id, rawName, legacyType, parentId, createdAtStr] = match;
-        
-        // Parse Code and Name
-        // Format: "CODE-Name"
-        const parts = rawName.split('-');
-        let code = '';
-        let name = rawName;
+      const [_, id, rawName, legacyType, parentId, createdAtStr] = match;
 
-        if (parts.length > 1 && /^\d+$/.test(parts[0])) {
-            code = parts[0];
-            name = parts.slice(1).join('-').trim();
-        } else {
-            // No code found, generate dummy code or skip?
-            // Let's generate a slug code
-            code = rawName.replace(/[^a-zA-Z0-9]/g, '').substr(0, 6).toUpperCase();
-        }
+      // Parse Code and Name
+      // Format: "CODE-Name"
+      const parts = rawName.split('-');
+      let code = '';
+      let name = rawName;
 
-        if (processedCodes.has(code)) continue; // Avoid duplicates based on code
+      if (parts.length > 1 && /^\d+$/.test(parts[0])) {
+        code = parts[0];
+        name = parts.slice(1).join('-').trim();
+      } else {
+        // No code found, generate dummy code or skip?
+        // Let's generate a slug code
+        code = rawName.replace(/[^a-zA-Z0-9]/g, '').substr(0, 6).toUpperCase();
+      }
 
-        // Determine Type & NormalPos
-        let type = 'EXPENSE';
-        let normalPos = 'DEBIT';
-        const prefix = code.charAt(0);
+      if (processedCodes.has(code)) continue; // Avoid duplicates based on code
 
-        switch (prefix) {
-            case '1': type = 'ASSET'; normalPos = 'DEBIT'; break;
-            case '2': type = 'LIABILITY'; normalPos = 'CREDIT'; break;
-            case '3': type = 'EQUITY'; normalPos = 'CREDIT'; break;
-            case '4': type = 'REVENUE'; normalPos = 'CREDIT'; break; // Sales
-            case '5': type = 'EXPENSE'; normalPos = 'DEBIT'; break; // COGS
-            case '6': type = 'EXPENSE'; normalPos = 'DEBIT'; break; // OPEX
-            case '7': type = 'REVENUE'; normalPos = 'CREDIT'; break; // Other Income
-            case '8': type = 'EXPENSE'; normalPos = 'DEBIT'; break; // Other Expense
-            default: type = legacyType === 'IN' ? 'REVENUE' : 'EXPENSE'; normalPos = legacyType === 'IN' ? 'CREDIT' : 'DEBIT'; break;
-        }
+      // Determine Type & NormalPos
+      let type = 'EXPENSE';
+      let normalPos = 'DEBIT';
+      const prefix = code.charAt(0);
 
-        // Insert COA
-        const exists = await prisma.chartOfAccount.findUnique({ where: { id } });
-        // Also check if code exists to avoid unique constraint error
-        const codeExists = await prisma.chartOfAccount.findUnique({ where: { code } });
+      switch (prefix) {
+        case '1': type = 'ASSET'; normalPos = 'DEBIT'; break;
+        case '2': type = 'LIABILITY'; normalPos = 'CREDIT'; break;
+        case '3': type = 'EQUITY'; normalPos = 'CREDIT'; break;
+        case '4': type = 'REVENUE'; normalPos = 'CREDIT'; break; // Sales
+        case '5': type = 'EXPENSE'; normalPos = 'DEBIT'; break; // COGS
+        case '6': type = 'EXPENSE'; normalPos = 'DEBIT'; break; // OPEX
+        case '7': type = 'REVENUE'; normalPos = 'CREDIT'; break; // Other Income
+        case '8': type = 'EXPENSE'; normalPos = 'DEBIT'; break; // Other Expense
+        default: type = legacyType === 'IN' ? 'REVENUE' : 'EXPENSE'; normalPos = legacyType === 'IN' ? 'CREDIT' : 'DEBIT'; break;
+      }
 
-        if (!exists && !codeExists) {
-            await prisma.chartOfAccount.create({
-                data: {
-                    id,
-                    code,
-                    name,
-                    type,
-                    normalPos,
-                    description: `Migrated from Category: ${rawName}`,
-                    isActive: true,
-                    createdAt: BigInt(createdAtStr)
-                }
-            });
-            count++;
-            processedCodes.add(code);
-        }
+      // Insert COA
+      const exists = await prisma.chartOfAccount.findUnique({ where: { id } });
+      // Also check if code exists to avoid unique constraint error
+      const codeExists = await prisma.chartOfAccount.findFirst({ where: { code, tenantId: 'sdm' } });
+
+      if (!exists && !codeExists) {
+        await prisma.chartOfAccount.create({
+          data: {
+            id,
+            code,
+            name,
+            type,
+            normalPos,
+            description: `Migrated from Category: ${rawName}`,
+            isActive: true,
+            createdAt: BigInt(createdAtStr)
+          }
+        });
+        count++;
+        processedCodes.add(code);
+      }
     }
     console.log(`✅ Migrated ${count} Chart of Accounts.`);
   } else {
-     console.log('⚠️ transaction_categories_rows.sql not found.');
+    console.log('⚠️ transaction_categories_rows.sql not found.');
   }
 }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import pool from '@/lib/db';
+import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
+import { serialize } from '@/lib/serverUtils';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,72 +11,61 @@ export async function GET(request: Request) {
     const { tenantId } = user;
     const { searchParams } = new URL(request.url);
     const roomId = searchParams.get('roomId');
-    const after = searchParams.get('after');
     const before = searchParams.get('before');
 
     if (!roomId) return NextResponse.json({ error: 'Room ID required' }, { status: 400 });
 
     // Verify membership AND tenant ownership
-    const roomCheck = await pool.query(`
-        SELECT 1 FROM chat_rooms r
-        INNER JOIN chat_members cm ON r.id = cm.room_id
-        WHERE r.id = $1 AND cm.user_id = $2 AND r.tenant_id = $3
-    `, [roomId, user.id, tenantId]);
+    const membership = await prisma.chatMember.findUnique({
+      where: { roomId_userId: { roomId, userId: user.id } },
+      include: { room: { select: { tenantId: true } } }
+    });
 
-    if (roomCheck.rows.length === 0) {
+    if (!membership || membership.room.tenantId !== tenantId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    let query = `
-      SELECT m.*, 
-             u.name as sender_name, u.role as sender_role,
-             r.content as reply_content, r.sender_id as reply_sender_id,
-             ru.name as reply_sender_name
-      FROM chat_messages m
-      LEFT JOIN users u ON m.sender_id = u.id
-      LEFT JOIN chat_messages r ON m.reply_to_id = r.id
-      LEFT JOIN users ru ON r.sender_id = ru.id
-      WHERE m.room_id = $1
-    `;
-    const params: any[] = [roomId];
+    const messages = await prisma.chatMessage.findMany({
+      where: {
+        roomId,
+        ...(before ? { createdAt: { lt: BigInt(before) } } : {})
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      include: {
+        sender: { select: { name: true, role: true } },
+        ...({
+          replyTo: {
+            select: {
+              id: true,
+              content: true,
+              sender: { select: { name: true } }
+            }
+          }
+        } as any)
+      }
+    } as any);
 
-    if (before && Number(before) > 0) {
-       query = `SELECT * FROM (${query} AND m.created_at < $2 ORDER BY m.created_at DESC LIMIT 50) sub ORDER BY sub.created_at ASC`;
-       params.push(BigInt(before));
-    } else if (after && Number(after) > 0) {
-       query += ` AND m.created_at > $2 ORDER BY m.created_at ASC`;
-       params.push(BigInt(after));
-    } else {
-       query = `SELECT * FROM (${query} ORDER BY m.created_at DESC LIMIT 50) sub ORDER BY sub.created_at ASC`;
-    }
-
-    const res = await pool.query(query, params);
-
-    const messages = res.rows.map(row => ({
-      id: row.id,
-      roomId: row.room_id,
-      senderId: row.sender_id,
-      content: row.content,
-      attachmentUrl: row.attachment_url,
-      replyToId: row.reply_to_id,
-      replyToMessage: row.reply_to_id ? {
-         id: row.reply_to_id,
-         senderName: row.reply_sender_name || 'Unknown',
-         content: row.reply_content || 'Message deleted'
+    // Transform for frontend
+    const formatted = messages.reverse().map((m: any) => ({
+      id: m.id,
+      roomId: m.roomId,
+      senderId: m.senderId,
+      content: m.content,
+      attachmentUrl: m.attachmentUrl,
+      replyToId: m.replyToId,
+      replyToMessage: m.replyTo ? {
+        id: m.replyTo.id,
+        senderName: m.replyTo.sender?.name || 'Unknown',
+        content: m.replyTo.content
       } : undefined,
-      createdAt: Number(row.created_at),
-      senderName: row.sender_name,
-      senderRole: row.sender_role,
-      isPinned: row.is_pinned || false
+      createdAt: Number(m.createdAt),
+      senderName: m.sender?.name || 'Unknown',
+      senderRole: m.sender?.role || 'STAFF',
+      isPinned: m.isPinned
     }));
 
-    const memberRes = await pool.query('SELECT user_id, last_read_at FROM chat_members WHERE room_id = $1', [roomId]);
-    const readStatus: Record<string, number> = {};
-    memberRes.rows.forEach(r => {
-       if (r.last_read_at) readStatus[r.user_id] = Number(r.last_read_at);
-    });
-
-    return NextResponse.json({ messages, readStatus });
+    return NextResponse.json(serialize(formatted));
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: 'Failed' }, { status: 500 });
@@ -92,49 +82,50 @@ export async function POST(request: Request) {
     if (!roomId || (!content && !attachmentUrl)) return NextResponse.json({ error: 'Invalid' }, { status: 400 });
 
     // Verify membership AND tenant isolation
-    const roomCheck = await pool.query(`
-        SELECT 1 FROM chat_rooms r
-        INNER JOIN chat_members cm ON r.id = cm.room_id
-        WHERE r.id = $1 AND cm.user_id = $2 AND r.tenant_id = $3
-    `, [roomId, user.id, tenantId]);
+    const membership = await prisma.chatMember.findUnique({
+      where: { roomId_userId: { roomId, userId: user.id } },
+      include: { room: { select: { tenantId: true } } }
+    });
 
-    if (roomCheck.rows.length === 0) {
+    if (!membership || membership.room.tenantId !== tenantId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
     const id = Math.random().toString(36).substr(2, 9);
-    const createdAt = Date.now();
+    const now = BigInt(Date.now());
 
-    await pool.query(
-      'INSERT INTO chat_messages (id, room_id, sender_id, content, attachment_url, reply_to_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-      [id, roomId, user.id, content || '', attachmentUrl || '', replyToId || null, createdAt]
-    );
-
-    const senderRes = await pool.query('SELECT name, role FROM users WHERE id = $1', [user.id]);
-    const sender = senderRes.rows[0];
-
-    let replyInfo = undefined;
-    if (replyToId) {
-       const replyRes = await pool.query(`
-         SELECT m.content, u.name as sender_name 
-         FROM chat_messages m 
-         LEFT JOIN users u ON m.sender_id = u.id 
-         WHERE m.id = $1
-       `, [replyToId]);
-       if (replyRes.rows.length > 0) {
-          replyInfo = {
-             id: replyToId,
-             senderName: replyRes.rows[0].sender_name,
-             content: replyRes.rows[0].content
-          };
-       }
-    }
-
-    return NextResponse.json({
-       id, roomId, senderId: user.id, content, attachmentUrl, createdAt, 
-       replyToId, replyToMessage: replyInfo,
-       senderName: sender?.name || 'Unknown', senderRole: sender?.role || user.role 
+    const created = await (prisma.chatMessage as any).create({
+      data: {
+        id,
+        roomId,
+        senderId: user.id,
+        content: content || '',
+        attachmentUrl: attachmentUrl || '',
+        replyToId: replyToId || null,
+        createdAt: now
+      },
+      include: {
+        sender: { select: { name: true, role: true } },
+        replyTo: {
+          select: {
+            id: true,
+            content: true,
+            sender: { select: { name: true } }
+          }
+        }
+      }
     });
+
+    return NextResponse.json(serialize({
+      ...created,
+      senderName: created.sender?.name || 'Unknown',
+      senderRole: created.sender?.role || 'STAFF',
+      replyToMessage: created.replyTo ? {
+        id: created.replyTo.id,
+        senderName: created.replyTo.sender?.name || 'Unknown',
+        content: created.replyTo.content
+      } : undefined
+    }));
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: 'Failed' }, { status: 500 });
@@ -150,21 +141,23 @@ export async function PUT(request: Request) {
 
     if (!messageId || !content) return NextResponse.json({ error: 'Invalid' }, { status: 400 });
 
-    // Strict Cross-Tenant Guard for Message Edit
-    const msgCheck = await pool.query(`
-        SELECT m.sender_id 
-        FROM chat_messages m
-        INNER JOIN chat_rooms r ON m.room_id = r.id
-        WHERE m.id = $1 AND r.tenant_id = $2
-    `, [messageId, tenantId]);
+    const msg = await prisma.chatMessage.findUnique({
+      where: { id: messageId },
+      include: { room: { select: { tenantId: true } } }
+    });
 
-    if (msgCheck.rows.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    
-    if (msgCheck.rows[0].sender_id !== user.id) {
-       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    if (!msg || !msg.room || msg.room.tenantId !== tenantId) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
-    await pool.query('UPDATE chat_messages SET content = $1 WHERE id = $2', [content, messageId]);
+    if (msg.senderId !== user.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+
+    await prisma.chatMessage.update({
+      where: { id: messageId },
+      data: { content }
+    });
 
     return NextResponse.json({ success: true });
   } catch (err) {
@@ -172,3 +165,4 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: 'Failed' }, { status: 500 });
   }
 }
+

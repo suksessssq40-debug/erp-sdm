@@ -1,6 +1,8 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
+import { serialize } from '@/lib/serverUtils';
 
 export async function GET(request: Request) {
     try {
@@ -31,7 +33,7 @@ export async function GET(request: Request) {
             metadata: typeof pr.metadataJson === 'string' ? JSON.parse(pr.metadataJson) : undefined
         }));
 
-        return NextResponse.json(formatted);
+        return NextResponse.json(serialize(formatted));
     } catch (e) {
         console.error(e);
         return NextResponse.json({ error: 'Failed' }, { status: 500 });
@@ -93,7 +95,7 @@ export async function POST(request: Request) {
             });
         });
 
-        return NextResponse.json(pr, { status: 201 });
+        return NextResponse.json(serialize(pr), { status: 201 });
     } catch (error) {
         console.error(error);
         return NextResponse.json({ error: 'Failed' }, { status: 500 });

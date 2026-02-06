@@ -64,6 +64,7 @@ const PayrollModule: React.FC<PayrollProps> = ({
 
   // Handle User Selection
   const handleSelectUser = (user: User) => {
+    if (isProcessing) return;
     setSelectedUser(user);
     const config = salaryConfigs.find(c => c.userId === user.id);
     if (config) {
@@ -260,29 +261,36 @@ const PayrollModule: React.FC<PayrollProps> = ({
   };
 
   const handlePreview = async () => {
-    if (!selectedUser) return;
-    const record: PayrollRecord = {
-      id: 'preview',
-      userId: selectedUser.id,
-      month: selectedMonth,
-      basicSalary: form.basicSalary,
-      allowance: form.allowance,
-      totalMealAllowance: 0,
-      bonus: form.bonus,
-      deductions: form.deductions,
-      netSalary,
-      isSent: false,
-      processedAt: Date.now(),
-      metadata: {
-        totalHadir: form.totalHadir,
-        totalTelat: 0,
-        totalIzin: form.totalIzin,
-        dailyRate: form.dailyRate,
-        notes: form.notes
-      }
-    };
-    const blob = await generatePDF(selectedUser, record);
-    setPreviewBlob(blob);
+    if (!selectedUser || isProcessing) return;
+    setIsProcessing(true);
+    try {
+      const record: PayrollRecord = {
+        id: 'preview',
+        userId: selectedUser.id,
+        month: selectedMonth,
+        basicSalary: form.basicSalary,
+        allowance: form.allowance,
+        totalMealAllowance: 0,
+        bonus: form.bonus,
+        deductions: form.deductions,
+        netSalary,
+        isSent: false,
+        processedAt: Date.now(),
+        metadata: {
+          totalHadir: form.totalHadir,
+          totalTelat: 0,
+          totalIzin: form.totalIzin,
+          dailyRate: form.dailyRate,
+          notes: form.notes
+        }
+      };
+      const blob = await generatePDF(selectedUser, record);
+      setPreviewBlob(blob);
+    } catch (e: any) {
+      toast.error("Gagal membuat preview slip gaji.");
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleSend = async () => {
@@ -356,13 +364,15 @@ const PayrollModule: React.FC<PayrollProps> = ({
         <div className="flex items-center gap-4 relative z-10">
           <input
             type="month"
-            className="p-5 bg-white/5 border-2 border-white/10 rounded-3xl font-black text-xs text-white outline-none focus:border-blue-500 focus:bg-white/10 transition-all shadow-xl"
+            className="p-5 bg-white/5 border-2 border-white/10 rounded-3xl font-black text-xs text-white outline-none focus:border-blue-500 focus:bg-white/10 transition-all shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
             value={selectedMonth}
             onChange={e => setSelectedMonth(e.target.value)}
+            disabled={isProcessing}
           />
           <button
             onClick={() => setActiveTab(activeTab === 'MANAGEMENT' ? 'HISTORY' : 'MANAGEMENT')}
-            className={`px-10 py-5 rounded-3xl text-[10px] font-black uppercase tracking-widest flex items-center transition-all shadow-2xl ${activeTab === 'MANAGEMENT' ? 'bg-blue-600 text-white hover:bg-white hover:text-blue-600' : 'bg-white text-slate-900'}`}
+            disabled={isProcessing}
+            className={`px-10 py-5 rounded-3xl text-[10px] font-black uppercase tracking-widest flex items-center transition-all shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed ${activeTab === 'MANAGEMENT' ? 'bg-blue-600 text-white hover:bg-white hover:text-blue-600' : 'bg-white text-slate-900'}`}
           >
             {activeTab === 'MANAGEMENT' ? <HistoryIcon className="mr-2" size={16} /> : <Users className="mr-2" size={16} />}
             {activeTab === 'MANAGEMENT' ? 'Lihat Riwayat' : 'Buat Slip Baru'}
@@ -385,7 +395,8 @@ const PayrollModule: React.FC<PayrollProps> = ({
                   <button
                     key={user.id}
                     onClick={() => handleSelectUser(user)}
-                    className={`w-full text-left p-8 transition-all border-b border-slate-50 flex items-center gap-5 group ${selectedUser?.id === user.id ? 'bg-blue-600 text-white shadow-inner' : 'hover:bg-slate-50 text-slate-600'}`}
+                    disabled={isProcessing}
+                    className={`w-full text-left p-8 transition-all border-b border-slate-50 flex items-center gap-5 group disabled:opacity-50 disabled:cursor-not-allowed ${selectedUser?.id === user.id ? 'bg-blue-600 text-white shadow-inner' : 'hover:bg-slate-50 text-slate-600'}`}
                   >
                     <div className={`w-14 h-14 rounded-3xl flex items-center justify-center font-black text-sm shadow-xl transition-transform group-hover:scale-110 ${selectedUser?.id === user.id ? 'bg-white/20' : 'bg-slate-900 text-white'}`}>
                       {user.avatarUrl ? (
@@ -433,15 +444,15 @@ const PayrollModule: React.FC<PayrollProps> = ({
                     <div className="space-y-6">
                       <div className="space-y-3">
                         <label className="text-[10px] font-black text-slate-400 ml-2 tracking-widest uppercase">GAJI POKOK (Rp)</label>
-                        <input type="number" className="w-full p-6 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[2rem] outline-none font-black text-xl text-slate-800 transition-all shadow-inner" value={form.basicSalary} onChange={e => setForm({ ...form, basicSalary: Number(e.target.value) })} />
+                        <input type="number" disabled={isProcessing} className="w-full p-6 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[2rem] outline-none font-black text-xl text-slate-800 transition-all shadow-inner disabled:opacity-50 disabled:cursor-not-allowed" value={form.basicSalary} onChange={e => setForm({ ...form, basicSalary: Number(e.target.value) })} />
                       </div>
                       <div className="space-y-3">
                         <label className="text-[10px] font-black text-slate-400 ml-2 tracking-widest uppercase">INSENTIF KEHADIRAN (Rp)</label>
-                        <input type="number" className="w-full p-6 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[2rem] outline-none font-black text-xl text-slate-800 transition-all shadow-inner" value={form.allowance} onChange={e => setForm({ ...form, allowance: Number(e.target.value) })} />
+                        <input type="number" disabled={isProcessing} className="w-full p-6 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[2rem] outline-none font-black text-xl text-slate-800 transition-all shadow-inner disabled:opacity-50 disabled:cursor-not-allowed" value={form.allowance} onChange={e => setForm({ ...form, allowance: Number(e.target.value) })} />
                       </div>
                       <div className="space-y-3">
                         <label className="text-[10px] font-black text-slate-400 ml-2 tracking-widest uppercase">BONUS / THR (Rp)</label>
-                        <input type="number" className="w-full p-6 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[2rem] outline-none font-black text-xl text-slate-800 transition-all shadow-inner" value={form.bonus} onChange={e => setForm({ ...form, bonus: Number(e.target.value) })} />
+                        <input type="number" disabled={isProcessing} className="w-full p-6 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[2rem] outline-none font-black text-xl text-slate-800 transition-all shadow-inner disabled:opacity-50 disabled:cursor-not-allowed" value={form.bonus} onChange={e => setForm({ ...form, bonus: Number(e.target.value) })} />
                       </div>
                     </div>
                   </div>
@@ -454,27 +465,27 @@ const PayrollModule: React.FC<PayrollProps> = ({
                     <div className="grid grid-cols-2 gap-6">
                       <div className="space-y-3">
                         <label className="text-[10px] font-black text-slate-400 ml-2 tracking-widest uppercase">HARI HADIR</label>
-                        <input type="number" className="w-full p-6 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[2rem] outline-none font-black text-xl text-slate-800 transition-all shadow-inner" value={form.totalHadir} onChange={e => setForm({ ...form, totalHadir: Number(e.target.value) })} />
+                        <input type="number" disabled={isProcessing} className="w-full p-6 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[2rem] outline-none font-black text-xl text-slate-800 transition-all shadow-inner disabled:opacity-50 disabled:cursor-not-allowed" value={form.totalHadir} onChange={e => setForm({ ...form, totalHadir: Number(e.target.value) })} />
                       </div>
                       <div className="space-y-3">
                         <label className="text-[10px] font-black text-slate-400 ml-2 tracking-widest uppercase">JML IZIN</label>
-                        <input type="number" className="w-full p-6 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[2rem] outline-none font-black text-xl text-slate-800 transition-all shadow-inner" value={form.totalIzin} onChange={e => setForm({ ...form, totalIzin: Number(e.target.value) })} />
+                        <input type="number" disabled={isProcessing} className="w-full p-6 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[2rem] outline-none font-black text-xl text-slate-800 transition-all shadow-inner disabled:opacity-50 disabled:cursor-not-allowed" value={form.totalIzin} onChange={e => setForm({ ...form, totalIzin: Number(e.target.value) })} />
                       </div>
                     </div>
                     <div className="space-y-3">
                       <label className="text-[10px] font-black text-slate-400 ml-2 tracking-widest uppercase">GAJI PER HARI (Rp)</label>
-                      <input type="number" className="w-full p-6 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[2rem] outline-none font-black text-xl text-slate-800 transition-all shadow-inner" value={form.dailyRate} onChange={e => setForm({ ...form, dailyRate: Number(e.target.value) })} />
+                      <input type="number" disabled={isProcessing} className="w-full p-6 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[2rem] outline-none font-black text-xl text-slate-800 transition-all shadow-inner disabled:opacity-50 disabled:cursor-not-allowed" value={form.dailyRate} onChange={e => setForm({ ...form, dailyRate: Number(e.target.value) })} />
                     </div>
                     <div className="space-y-3">
                       <label className="text-[10px] font-black text-rose-500 ml-2 tracking-widest uppercase italic border-b border-rose-100 pb-1">Total Potongan (Rp) *</label>
-                      <input type="number" className="w-full p-6 bg-rose-50 border-2 border-transparent focus:border-rose-500 focus:bg-white rounded-[2rem] outline-none font-black text-xl text-rose-600 transition-all shadow-inner" value={form.deductions} onChange={e => setForm({ ...form, deductions: Number(e.target.value) })} />
+                      <input type="number" disabled={isProcessing} className="w-full p-6 bg-rose-50 border-2 border-transparent focus:border-rose-500 focus:bg-white rounded-[2rem] outline-none font-black text-xl text-rose-600 transition-all shadow-inner disabled:opacity-50 disabled:cursor-not-allowed" value={form.deductions} onChange={e => setForm({ ...form, deductions: Number(e.target.value) })} />
                     </div>
                   </div>
                 </div>
 
                 <div className="space-y-4">
                   <label className="text-[10px] font-black text-slate-500 ml-2 tracking-widest uppercase">Catatan Slip (Optional)</label>
-                  <textarea rows={2} className="w-full p-8 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[2.5rem] outline-none font-bold text-sm transition-all shadow-inner" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Ketik catatan tambahan yang akan muncul di slip..." />
+                  <textarea rows={2} disabled={isProcessing} className="w-full p-8 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-[2.5rem] outline-none font-bold text-sm transition-all shadow-inner disabled:opacity-50 disabled:cursor-not-allowed" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Ketik catatan tambahan yang akan muncul di slip..." />
                 </div>
 
                 <div className="pt-12 border-t flex flex-col xl:flex-row gap-8 items-center justify-between">
@@ -486,8 +497,13 @@ const PayrollModule: React.FC<PayrollProps> = ({
                     </div>
                   </div>
                   <div className="flex gap-4 w-full xl:w-auto">
-                    <button onClick={handlePreview} className="flex-1 xl:flex-none px-10 py-6 bg-white border-2 border-slate-100 text-slate-800 rounded-3xl text-[11px] font-black uppercase tracking-widest hover:border-slate-900 transition-all flex items-center justify-center gap-3">
-                      <Eye size={20} /> Preview
+                    <button
+                      onClick={handlePreview}
+                      disabled={isProcessing}
+                      className="flex-1 xl:flex-none px-10 py-6 bg-white border-2 border-slate-100 text-slate-800 rounded-3xl text-[11px] font-black uppercase tracking-widest hover:border-slate-900 transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isProcessing ? <div className="w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div> : <Eye size={20} />}
+                      Preview
                     </button>
                     <button
                       onClick={handleSend}

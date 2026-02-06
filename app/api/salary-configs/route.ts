@@ -1,6 +1,8 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
+import { serialize } from '@/lib/serverUtils';
 
 export async function GET(request: Request) {
     try {

@@ -96,9 +96,23 @@ model User {
   requests         LeaveRequest[]
   payrollRecords   PayrollRecord[]
   salaryConfig     SalaryConfig?
+  pushSubscriptions PushSubscription[]
   tenant           Tenant?         @relation(fields: [tenantId], references: [id])
 
   @@map("users")
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_subscriptions")
 }
 
 model Settings {
@@ -374,6 +388,8 @@ model ChatMessage {
   createdAt     BigInt?   @map("created_at")
   room          ChatRoom? @relation(fields: [roomId], references: [id])
   sender        User?     @relation(fields: [senderId], references: [id])
+  replyTo       ChatMessage? @relation("ReplyTo", fields: [replyToId], references: [id])
+  replies       ChatMessage[] @relation("ReplyTo")
 
   @@map("chat_messages")
 }

@@ -1,14 +1,8 @@
-
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
-
-// Helper to serialize BigInt
-const serialize = (data: any): any => {
-    return JSON.parse(JSON.stringify(data, (key, value) =>
-        typeof value === 'bigint' ? Number(value) : value
-    ));
-};
+import { serialize } from '@/lib/serverUtils';
 
 export async function GET(request: Request) {
     try {
@@ -131,17 +125,28 @@ export async function POST(request: Request) {
                 };
 
                 const fullDest = telegramSettings.telegramGroupId;
-                if (fullDest.includes('/')) {
-                    const [chatId, topicId] = fullDest.split('/');
-                    let targetChat = chatId.trim();
-                    if (!targetChat.startsWith('-')) targetChat = '-100' + targetChat.replace(/^-/, '');
+                const delimiter = fullDest.includes('/') ? '/' : (fullDest.includes('_') ? '_' : null);
 
-                    const topicBody = {
+                if (delimiter) {
+                    const [chatId, topicId] = fullDest.split(delimiter);
+                    let targetChat = chatId.trim();
+
+                    // Robust normalization for Supergroup IDs
+                    if (targetChat.startsWith('-') && !targetChat.startsWith('-100')) {
+                        targetChat = '-100' + targetChat.substring(1);
+                    } else if (!targetChat.startsWith('-') && !targetChat.startsWith('@')) {
+                        targetChat = '-100' + targetChat;
+                    }
+
+                    const topicBody: any = {
                         chat_id: targetChat,
                         text: message,
-                        parse_mode: 'HTML',
-                        message_thread_id: parseInt(topicId.trim())
+                        parse_mode: 'HTML'
                     };
+
+                    if (topicId && topicId.trim()) {
+                        topicBody.message_thread_id = parseInt(topicId.trim());
+                    }
 
                     try {
                         const res = await fetch(`https://api.telegram.org/bot${telegramSettings.telegramBotToken}/sendMessage`, {
@@ -149,7 +154,12 @@ export async function POST(request: Request) {
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(topicBody)
                         });
-                        if (!res.ok) await sendTele(targetChat); // Fallback
+
+                        // Fallback: If topic ID is invalid, send to main chat
+                        if (!res.ok && topicBody.message_thread_id) {
+                            delete topicBody.message_thread_id;
+                            await sendTele(targetChat);
+                        }
                     } catch (e) { await sendTele(targetChat); }
                 } else {
                     let targetChat = fullDest.trim();
@@ -160,6 +170,23 @@ export async function POST(request: Request) {
         } catch (notifError) {
             console.error("[Telegram] Request integration error:", notifError);
         }
+
+        // --- SYSTEM LOGGING ---
+        try {
+            await prisma.systemLog.create({
+                data: {
+                    id: Math.random().toString(36).substr(2, 9),
+                    timestamp: BigInt(Date.now()),
+                    actorId: user.id,
+                    actorName: user.name,
+                    actorRole: user.role,
+                    actionType: 'REQUEST_SUBMIT',
+                    details: `Mengajukan ${r.type}: ${r.description}`,
+                    targetObj: 'LeaveRequest',
+                    tenantId: tenantId
+                }
+            });
+        } catch (logErr) { console.error("Logging Error:", logErr); }
 
         // Return the ACTUAL created object, serialized properly
         return NextResponse.json(serialize(newRequest), { status: 201 });

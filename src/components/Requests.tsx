@@ -42,6 +42,7 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
   const [selectedRequest, setSelectedRequest] = useState<LeaveRequest | null>(null);
   const [attachment, setAttachment] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   // Date filter initialized to empty to show all history by default
   const [filterStart, setFilterStart] = useState('');
@@ -124,21 +125,27 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
   };
 
   const handleDelete = async (id: string) => {
+    if (isSubmitting) return;
     if (!window.confirm("Apakah Anda yakin ingin menghapus data permohonan ini?")) return;
 
+    setIsSubmitting(true);
     try {
       if (store.deleteRequest) {
         await store.deleteRequest(id);
         toast.success("Berhasil menghapus data.");
-        store.fetchRequests(filterStart, filterEnd);
+        if (store.fetchRequests) store.fetchRequests(filterStart, filterEnd);
       }
     } catch (e: any) {
       toast.error("Gagal menghapus data: " + (e.message || "Unknown error"));
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleSubmit = async () => {
+    if (isSubmitting || isUploading) return;
     if (!validateRequest()) return;
+
     setIsSubmitting(true);
     try {
       if (editId) {
@@ -166,6 +173,7 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
       handleCloseModal();
       if (store.fetchRequests) store.fetchRequests(filterStart, filterEnd);
     } catch (err: any) {
+      console.error(err);
       toast.error("Gagal memproses permohonan.");
     } finally {
       setIsSubmitting(false);
@@ -185,13 +193,14 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
   };
 
   const handleAction = async (req: LeaveRequest, status: RequestStatus) => {
-    if (!isManagement) return;
+    if (!isManagement || isSubmitting) return;
 
     if (status === RequestStatus.REJECTED && !actionNote.trim()) {
       toast.warning("Mohon sertakan alasan penolakan pada catatan.");
       return;
     }
 
+    setIsSubmitting(true);
     try {
       await onUpdateRequest({
         ...req,
@@ -205,7 +214,10 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
       setSelectedRequest(null);
       if (store.fetchRequests) store.fetchRequests(filterStart, filterEnd);
     } catch (err: any) {
+      console.error(err);
       toast.error("Gagal memproses aksi.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -213,21 +225,28 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (uploadFile) {
-      const loadingId = toast.loading("Mengupload lampiran...");
-      try {
+    setIsUploading(true);
+    const loadingId = toast.loading("Mengupload lampiran...");
+    try {
+      if (uploadFile) {
         const url = await uploadFile(file);
         setAttachment(url);
         toast.dismiss(loadingId);
         toast.success("Upload berhasil");
-      } catch (error) {
-        toast.dismiss(loadingId);
-        toast.error("Upload gagal");
+      } else {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setAttachment(reader.result as string);
+          toast.dismiss(loadingId);
+          toast.success("Upload berhasil (Local)");
+        };
+        reader.readAsDataURL(file);
       }
-    } else {
-      const reader = new FileReader();
-      reader.onloadend = () => setAttachment(reader.result as string);
-      reader.readAsDataURL(file);
+    } catch (error) {
+      toast.dismiss(loadingId);
+      toast.error("Upload gagal");
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -302,7 +321,7 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                     <td className="px-10 py-7">
                       <div className="flex items-center gap-5">
                         <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white font-black text-sm shadow-lg transition-transform group-hover:scale-110 ${req.type === RequestType.SAKIT ? 'bg-rose-500' :
-                            req.type === RequestType.CUTI ? 'bg-blue-600' : 'bg-amber-500'
+                          req.type === RequestType.CUTI ? 'bg-blue-600' : 'bg-amber-500'
                           }`}>
                           {req.type === RequestType.SAKIT ? <Plus size={24} className="rotate-45" /> :
                             req.type === RequestType.CUTI ? <Calendar size={24} /> : <Clock size={24} />}
@@ -311,7 +330,7 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                           <p className="text-slate-800 font-black text-base italic">{applicant?.name || 'Unknown'}</p>
                           <div className="flex items-center gap-2 mt-1">
                             <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-wider ${req.type === RequestType.SAKIT ? 'bg-rose-50 text-rose-500' :
-                                req.type === RequestType.CUTI ? 'bg-blue-50 text-blue-500' : 'bg-amber-50 text-amber-500'
+                              req.type === RequestType.CUTI ? 'bg-blue-50 text-blue-500' : 'bg-amber-50 text-amber-500'
                               }`}>{req.type}</span>
                             <span className="text-slate-300">•</span>
                             <span className="text-[9px] font-black text-slate-400 uppercase">{applicant?.role}</span>
@@ -346,8 +365,8 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                     </td>
                     <td className="px-10 py-7">
                       <span className={`px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-[0.1em] flex w-fit items-center gap-2 shadow-sm ${req.status === RequestStatus.APPROVED ? 'bg-emerald-500 text-white' :
-                          req.status === RequestStatus.REJECTED ? 'bg-rose-500 text-white' :
-                            'bg-amber-100 text-amber-600'
+                        req.status === RequestStatus.REJECTED ? 'bg-rose-500 text-white' :
+                          'bg-amber-100 text-amber-600'
                         }`}>
                         {req.status === RequestStatus.PENDING && <Clock size={12} className="animate-pulse" />}
                         {req.status}
@@ -357,15 +376,15 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                       <div className="flex justify-end gap-2" onClick={e => e.stopPropagation()}>
                         {isManagement && req.status === RequestStatus.PENDING && (
                           <>
-                            <button onClick={() => handleAction(req, RequestStatus.APPROVED)} className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white flex items-center justify-center transition shadow-sm border border-emerald-100"><Check size={18} /></button>
-                            <button onClick={() => handleAction(req, RequestStatus.REJECTED)} className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-500 hover:text-white flex items-center justify-center transition shadow-sm border border-rose-100"><X size={18} /></button>
+                            <button onClick={() => handleAction(req, RequestStatus.APPROVED)} disabled={isSubmitting} className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white flex items-center justify-center transition shadow-sm border border-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed"><Check size={18} /></button>
+                            <button onClick={() => handleAction(req, RequestStatus.REJECTED)} disabled={isSubmitting} className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-500 hover:text-white flex items-center justify-center transition shadow-sm border border-rose-100 disabled:opacity-50 disabled:cursor-not-allowed"><X size={18} /></button>
                           </>
                         )}
                         {!isResolved ? (
                           <>
-                            <button onClick={() => handleEdit(req)} className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white flex items-center justify-center transition shadow-sm border border-blue-100"><Edit size={18} /></button>
+                            <button onClick={() => handleEdit(req)} disabled={isSubmitting} className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white flex items-center justify-center transition shadow-sm border border-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"><Edit size={18} /></button>
                             {isManagement && (
-                              <button onClick={() => handleDelete(req.id)} className="w-10 h-10 rounded-xl bg-slate-50 text-slate-400 hover:bg-rose-500 hover:text-white flex items-center justify-center transition shadow-sm border border-slate-100"><Trash2 size={18} /></button>
+                              <button onClick={() => handleDelete(req.id)} disabled={isSubmitting} className="w-10 h-10 rounded-xl bg-slate-50 text-slate-400 hover:bg-rose-500 hover:text-white flex items-center justify-center transition shadow-sm border border-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"><Trash2 size={18} /></button>
                             )}
                           </>
                         ) : (
@@ -408,7 +427,7 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                     <UserIcon size={40} className="text-slate-300" />
                   )}
                   <div className={`absolute bottom-0 right-0 w-8 h-8 rounded-full border-4 border-white ${selectedRequest.status === RequestStatus.APPROVED ? 'bg-emerald-500' :
-                      selectedRequest.status === RequestStatus.REJECTED ? 'bg-rose-500' : 'bg-amber-500'
+                    selectedRequest.status === RequestStatus.REJECTED ? 'bg-rose-500' : 'bg-amber-500'
                     }`}></div>
                 </div>
                 <div>
@@ -469,8 +488,8 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                       <CheckCircle2 size={14} className="text-blue-600" /> STATUS PENGAJUAN
                     </label>
                     <div className={`p-8 rounded-[2rem] border-4 text-xl font-black uppercase tracking-[0.3em] flex items-center justify-center gap-4 transition-all hover:scale-[1.02] shadow-xl ${selectedRequest.status === RequestStatus.APPROVED ? 'bg-emerald-500 border-white text-white rotate-1 shadow-emerald-200' :
-                        selectedRequest.status === RequestStatus.REJECTED ? 'bg-rose-500 border-white text-white -rotate-1 shadow-rose-200' :
-                          'bg-amber-100 border-amber-200 text-amber-700 shadow-amber-100'
+                      selectedRequest.status === RequestStatus.REJECTED ? 'bg-rose-500 border-white text-white -rotate-1 shadow-rose-200' :
+                        'bg-amber-100 border-amber-200 text-amber-700 shadow-amber-100'
                       }`}>
                       {selectedRequest.status === RequestStatus.APPROVED ? <CheckCircle2 size={32} /> :
                         selectedRequest.status === RequestStatus.REJECTED ? <AlertCircle size={32} /> : <Clock size={32} className="animate-spin" />}
@@ -558,8 +577,22 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                       />
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
-                      <button onClick={() => handleAction(selectedRequest, RequestStatus.REJECTED)} className="py-6 bg-rose-500/10 border-2 border-rose-500/20 text-rose-500 font-black uppercase tracking-[0.2em] rounded-[1.8rem] hover:bg-rose-500 hover:text-white transition-all text-[11px] shadow-xl">Tolak Permanen</button>
-                      <button onClick={() => handleAction(selectedRequest, RequestStatus.APPROVED)} className="py-6 bg-blue-600 text-white font-black uppercase tracking-[0.2em] rounded-[1.8rem] hover:bg-white hover:text-blue-600 transition-all text-[11px] shadow-2xl shadow-blue-500/30">Setujui Sekarang</button>
+                      <button
+                        onClick={() => handleAction(selectedRequest, RequestStatus.REJECTED)}
+                        disabled={isSubmitting}
+                        className="py-6 bg-rose-500/10 border-2 border-rose-500/20 text-rose-500 font-black uppercase tracking-[0.2em] rounded-[1.8rem] hover:bg-rose-500 hover:text-white transition-all text-[11px] shadow-xl flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isSubmitting ? <div className="w-4 h-4 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" /> : null}
+                        Tolak Permanen
+                      </button>
+                      <button
+                        onClick={() => handleAction(selectedRequest, RequestStatus.APPROVED)}
+                        disabled={isSubmitting}
+                        className="py-6 bg-blue-600 text-white font-black uppercase tracking-[0.2em] rounded-[1.8rem] hover:bg-white hover:text-blue-600 transition-all text-[11px] shadow-2xl shadow-blue-500/30 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isSubmitting ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : null}
+                        Setujui Sekarang
+                      </button>
                     </div>
                   </div>
                 )}
@@ -614,12 +647,18 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
               <div className="space-y-4">
                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-3">Unggah Bukti (Format Gambar)</label>
                 {!attachment ? (
-                  <label className="flex flex-col items-center justify-center w-full h-40 border-4 border-dashed border-slate-100 rounded-[2.5rem] cursor-pointer hover:bg-blue-50/50 hover:border-blue-200 transition-all group overflow-hidden">
-                    <div className="p-4 bg-slate-50 rounded-2xl group-hover:bg-blue-100 transition">
-                      <UploadCloud className="text-slate-300 group-hover:text-blue-600 transition" size={32} />
+                  <label className={`flex flex-col items-center justify-center w-full h-40 border-4 border-dashed rounded-[2.5rem] transition-all group overflow-hidden ${isUploading ? 'bg-blue-50 border-blue-200 cursor-not-allowed' : 'border-slate-100 cursor-pointer hover:bg-blue-50/50 hover:border-blue-200'}`}>
+                    <div className={`p-4 rounded-2xl transition ${isUploading ? 'bg-blue-100' : 'bg-slate-50 group-hover:bg-blue-100'}`}>
+                      {isUploading ? (
+                        <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <UploadCloud className="text-slate-300 group-hover:text-blue-600 transition" size={32} />
+                      )}
                     </div>
-                    <p className="text-[10px] font-black text-slate-400 group-hover:text-blue-600 uppercase mt-4 tracking-widest">Klik Untuk Memilih File</p>
-                    <input type="file" onChange={handleFileChange} className="hidden" accept="image/*" />
+                    <p className={`text-[10px] font-black uppercase mt-4 tracking-widest ${isUploading ? 'text-blue-600' : 'text-slate-400 group-hover:text-blue-600'}`}>
+                      {isUploading ? 'Sedang Mengunggah...' : 'Klik Untuk Memilih File'}
+                    </p>
+                    <input type="file" onChange={handleFileChange} className="hidden" accept="image/*" disabled={isUploading || isSubmitting} />
                   </label>
                 ) : (
                   <div className="relative h-40 rounded-[2.5rem] overflow-hidden group shadow-2xl border-4 border-white">
@@ -635,8 +674,24 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
             </div>
 
             <div className="p-10 shrink-0 border-t border-slate-100">
-              <button onClick={handleSubmit} disabled={isSubmitting} className="w-full py-6 bg-blue-600 text-white rounded-[1.8rem] font-black uppercase text-xs tracking-[0.4em] hover:bg-slate-900 hover:scale-[1.02] active:scale-95 transition-all shadow-2xl shadow-blue-500/40 disabled:opacity-50 border-b-4 border-blue-800 active:border-b-0 active:translate-y-1">
-                {isSubmitting ? 'MENGHUBUNGKAN...' : editId ? 'SIMPAN PERUBAHAN' : 'KIRIM PERMOHONAN'}
+              <button
+                onClick={handleSubmit}
+                disabled={isSubmitting || isUploading}
+                className="w-full py-6 bg-blue-600 text-white rounded-[1.8rem] font-black uppercase text-xs tracking-[0.4em] hover:bg-slate-900 hover:scale-[1.02] active:scale-95 transition-all shadow-2xl shadow-blue-500/40 disabled:opacity-50 border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 flex items-center justify-center gap-3"
+              >
+                {isSubmitting ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    MENGHUBUNGKAN...
+                  </>
+                ) : isUploading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    MENGUNGGAH...
+                  </>
+                ) : (
+                  editId ? 'SIMPAN PERUBAHAN' : 'KIRIM PERMOHONAN'
+                )}
               </button>
             </div>
           </div>

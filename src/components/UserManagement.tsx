@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
-import { Plus, Bot, Layout as LayoutIcon, Unlock, Download, Upload, Pencil, Trash2, X, Save } from 'lucide-react';
+import { Plus, Bot, Layout as LayoutIcon, Unlock, Download, Upload, Pencil, Trash2, X, Save, CheckCircle2 } from 'lucide-react';
 import { User, UserRole, Tenant, Shift } from '@/types';
 import { useStore } from '../store';
 import { useToast } from './Toast';
@@ -26,10 +26,10 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
   const [targetUser, setTargetUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [filter, setFilter] = useState('');
-  
+
   // State for Add/Edit Form
   const [formData, setFormData] = useState({ name: '', username: '', telegramId: '', telegramUsername: '', role: 'STAFF', password: '', passwordConfirm: '', isFreelance: false, tenantId: currentUser?.tenantId || 'sdm' });
-  
+
   // Ref for file input
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -58,12 +58,12 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
 
   const handleDelete = async (user: User) => {
     if (window.confirm(`Yakin ingin menghapus user ${user.name}? Tindakan ini permanen.`)) {
-       try {
-         await onDeleteUser(user.id);
-         toast.success(`User ${user.name} berhasil dihapus.`);
-       } catch (e: any) {
-         toast.error(e.message || "Gagal menghapus user.");
-       }
+      try {
+        await onDeleteUser(user.id);
+        toast.success(`User ${user.name} berhasil dihapus.`);
+      } catch (e: any) {
+        toast.error(e.message || "Gagal menghapus user.");
+      }
     }
   };
 
@@ -72,7 +72,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
       toast.warning("Nama dan Username wajib diisi.");
       return;
     }
-    
+
     // Username uniqueness check (skip if editing same user)
     if (!isEdit || (isEdit && targetUser?.username !== formData.username)) {
       if (users.some(u => u.username === formData.username)) {
@@ -109,8 +109,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
         toast.success(`Data user ${updatedUser.name} berhasil diperbarui.`);
         setShowEdit(false);
       } else {
-        const newUser: User = { 
-          id: Date.now().toString(), 
+        const newUser: User = {
+          id: Date.now().toString(),
           name: formData.name,
           username: formData.username,
           role: formData.role as UserRole,
@@ -148,16 +148,16 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
 
   const handleExportUsers = () => {
     const headers = "ID,Name,Username,Role,TelegramID,TelegramUsername,DeviceID\n";
-    const rows = users.map(u => 
+    const rows = users.map(u =>
       `"${u.id}","${u.name}","${u.username}","${u.role}","${u.telegramId || ''}","${u.telegramUsername || ''}","${u.deviceId || ''}"`
     ).join("\n");
-    
+
     const csvContent = headers + rows;
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `sdm_users_export_${new Date().toISOString().slice(0,10)}.csv`;
+    a.download = `sdm_users_export_${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -173,7 +173,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
     reader.onload = async (event) => {
       const text = event.target?.result as string;
       const rows = text.split('\n').slice(1); // Skip header
-      
+
       let successCount = 0;
       let failCount = 0;
       setIsLoading(true);
@@ -186,36 +186,36 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
         // Handle CSV split better (simple implementation)
         const cols = row.split(',').map(s => s.trim().replace(/^"|"$/g, ''));
         const [name, username, role, telegramId, telegramUsername, password] = cols;
-        
+
         if (name && username && role && password) {
-           // Basic validation passed
-           try {
-             await onAddUser({
-               id: Math.random().toString(36).substr(2, 9),
-               name,
-               username,
-               role: role as UserRole,
-               telegramId: telegramId || '',
-               telegramUsername: telegramUsername || '',
-               password, tenantId: currentUser?.tenantId || 'sdm'
-             });
-             successCount++;
-           } catch (e) {
-             console.error("Import failed for row", row, e);
-             failCount++;
-           }
+          // Basic validation passed
+          try {
+            await onAddUser({
+              id: Math.random().toString(36).substr(2, 9),
+              name,
+              username,
+              role: role as UserRole,
+              telegramId: telegramId || '',
+              telegramUsername: telegramUsername || '',
+              password, tenantId: currentUser?.tenantId || 'sdm'
+            });
+            successCount++;
+          } catch (e) {
+            console.error("Import failed for row", row, e);
+            failCount++;
+          }
         } else {
           failCount++;
         }
       }
       setIsLoading(false);
-      
+
       if (successCount > 0) {
         toast.success(`Import selesai: ${successCount} berhasil${failCount > 0 ? `, ${failCount} gagal` : ''}.`);
       } else {
         toast.error(`Import gagal. Pastikan format CSV sesuai template.`);
       }
-      
+
       // Reset input
       if (fileInputRef.current) fileInputRef.current.value = '';
     };
@@ -224,147 +224,150 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
 
   return (
     <div className="space-y-10 animate-in fade-in duration-500 pb-20">
-      
+
       {/* PROTOCOL TABS */}
       {currentUser?.role === UserRole.OWNER && (
-          <div className="flex gap-1 bg-slate-100 p-1.5 rounded-2xl w-fit border border-slate-200 shadow-inner">
-             <button 
-                onClick={() => setActiveTab('DIRECTORY')}
-                className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'DIRECTORY' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
-             >
-                User Directory
-             </button>
-             <button 
-                onClick={() => setActiveTab('ACCESS_TOWER')}
-                className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'ACCESS_TOWER' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
-             >
-                Access Control Tower
-             </button>
-          </div>
+        <div className="flex gap-1 bg-slate-100 p-1.5 rounded-2xl w-fit border border-slate-200 shadow-inner">
+          <button
+            onClick={() => setActiveTab('DIRECTORY')}
+            className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'DIRECTORY' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
+          >
+            User Directory
+          </button>
+          <button
+            onClick={() => setActiveTab('ACCESS_TOWER')}
+            className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'ACCESS_TOWER' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
+          >
+            Access Control Tower
+          </button>
+        </div>
       )}
 
       {activeTab === 'ACCESS_TOWER' ? (
-          <AccessTower store={store} />
+        <AccessTower store={store} />
       ) : (
-          <>
+        <>
           <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6">
             <div>
               <h3 className="text-3xl font-black text-slate-800 tracking-tight leading-none italic uppercase">Directory SDM</h3>
               <p className="text-xs font-black text-slate-400 uppercase tracking-[0.3em] mt-3">Identity Management Protocol</p>
             </div>
             <div className="flex flex-wrap gap-4 items-center">
-               <input 
-                 className="bg-white border-2 border-slate-100 rounded-xl px-6 py-4 text-sm font-bold w-full md:w-80 outline-none focus:border-indigo-500 shadow-sm transition-all" 
-                 placeholder="Search team members..." 
-                 value={filter} 
-                 onChange={e => setFilter(e.target.value)} 
-               />
-               
-               {/* Action Buttons Group */}
-               <div className="flex gap-2">
-                  <button onClick={handleDownloadTemplate} className="bg-emerald-50 text-emerald-600 p-4 rounded-xl hover:bg-emerald-600 hover:text-white transition border border-emerald-100 shadow-sm" title="Download Template Import">
-                     <LayoutIcon size={20} />
-                  </button>
-                  <button onClick={handleExportUsers} className="bg-slate-50 text-slate-600 p-4 rounded-xl hover:bg-slate-600 hover:text-white transition border border-slate-200 shadow-sm" title="Export Semua Data User">
-                     <Download size={20} />
-                  </button>
-                  <button onClick={() => fileInputRef.current?.click()} className="bg-indigo-50 text-indigo-600 p-4 rounded-xl hover:bg-indigo-600 hover:text-white transition border border-indigo-100 shadow-sm" title="Import User dari Excel/CSV">
-                     <Upload size={20} />
-                  </button>
-                  <input type="file" ref={fileInputRef} className="hidden" accept=".csv" onChange={handleImportFile} />
-                  
-                  <button 
-                    onClick={() => { resetForm(); setShowAdd(true); }} 
-                    className="bg-slate-900 text-white px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center space-x-3 shadow-xl hover:bg-indigo-600 transition shrink-0"
-                  >
-                      <Plus size={18} /> <span className="hidden md:inline">ADD NEW IDENTITY</span>
-                      <span className="md:hidden">ADD</span>
-                  </button>
-               </div>
+              <input
+                className="bg-white border-2 border-slate-100 rounded-xl px-6 py-4 text-sm font-bold w-full md:w-80 outline-none focus:border-indigo-500 shadow-sm transition-all"
+                placeholder="Search team members..."
+                value={filter}
+                onChange={e => setFilter(e.target.value)}
+              />
+
+              {/* Action Buttons Group */}
+              <div className="flex gap-2">
+                <button onClick={handleDownloadTemplate} className="bg-emerald-50 text-emerald-600 p-4 rounded-xl hover:bg-emerald-600 hover:text-white transition border border-emerald-100 shadow-sm" title="Download Template Import">
+                  <LayoutIcon size={20} />
+                </button>
+                <button onClick={handleExportUsers} className="bg-slate-50 text-slate-600 p-4 rounded-xl hover:bg-slate-600 hover:text-white transition border border-slate-200 shadow-sm" title="Export Semua Data User">
+                  <Download size={20} />
+                </button>
+                <button onClick={() => fileInputRef.current?.click()} className="bg-indigo-50 text-indigo-600 p-4 rounded-xl hover:bg-indigo-600 hover:text-white transition border border-indigo-100 shadow-sm" title="Import User dari Excel/CSV">
+                  <Upload size={20} />
+                </button>
+                <input type="file" ref={fileInputRef} className="hidden" accept=".csv" onChange={handleImportFile} />
+
+                <button
+                  onClick={() => { resetForm(); setShowAdd(true); }}
+                  className="bg-slate-900 text-white px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center space-x-3 shadow-xl hover:bg-indigo-600 transition shrink-0"
+                >
+                  <Plus size={18} /> <span className="hidden md:inline">ADD NEW IDENTITY</span>
+                  <span className="md:hidden">ADD</span>
+                </button>
+              </div>
             </div>
           </div>
 
-      <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="bg-slate-50 border-b border-slate-100">
-              <tr>
-                <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Anggota</th>
-                <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Role & Akses</th>
-                <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Koneksi</th>
-                <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Status Device</th>
-                <th className="px-6 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Kontrol</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {filteredUsers.map((u: any) => (
-                <tr key={u.id} className="hover:bg-slate-50/50 transition-colors group">
-                  <td className="px-6 py-5">
-                    <div className="flex items-center gap-4">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-black shadow-lg overflow-hidden border-2 border-white/20 ${
-                         u.role === UserRole.OWNER ? 'bg-purple-600' :
-                         u.role === UserRole.MANAGER ? 'bg-amber-500' :
-                         u.role === UserRole.FINANCE ? 'bg-emerald-500' : 'bg-blue-600'
-                      }`}>
-                        {u.avatarUrl ? (
-                            <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover" />
-                        ) : (
-                            u.name.charAt(0)
+          <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 border-b border-slate-100">
+                  <tr>
+                    <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Anggota</th>
+                    <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Role & Akses</th>
+                    <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Koneksi</th>
+                    <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Status Device</th>
+                    <th className="px-6 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Kontrol</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {filteredUsers.map((u: any) => (
+                    <tr key={u.id} className="hover:bg-slate-50/50 transition-colors group">
+                      <td className="px-6 py-5">
+                        <div className="flex items-center gap-4">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-black shadow-lg overflow-hidden border-2 border-white/20 ${u.role === UserRole.OWNER ? 'bg-purple-600' :
+                            u.role === UserRole.MANAGER ? 'bg-amber-500' :
+                              u.role === UserRole.FINANCE ? 'bg-emerald-500' : 'bg-blue-600'
+                            }`}>
+                            {u.avatarUrl ? (
+                              <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover" />
+                            ) : (
+                              u.name.charAt(0)
+                            )}
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-800 text-sm">{u.name}</p>
+                            <p className="text-[10px] text-slate-400 font-bold">@{u.username}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-5">
+                        <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${u.role === UserRole.OWNER ? 'bg-purple-100 text-purple-700' :
+                          u.role === UserRole.MANAGER ? 'bg-amber-100 text-amber-700' :
+                            u.role === UserRole.FINANCE ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
+                          }`}>{u.role}</span>
+                        {['OWNER', 'MANAGER', 'FINANCE'].includes(u.role) && (
+                          <span className="ml-2 px-2 py-1 rounded-lg text-[8px] font-black bg-slate-900 text-white border border-slate-700 shadow-sm flex-inline items-center gap-1 uppercase tracking-tighter italic">
+                            <CheckCircle2 size={8} className="inline mr-1 text-blue-400" /> Approver
+                          </span>
                         )}
-                      </div>
-                      <div>
-                        <p className="font-bold text-slate-800 text-sm">{u.name}</p>
-                        <p className="text-[10px] text-slate-400 font-bold">@{u.username}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-5">
-                    <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${
-                      u.role === UserRole.OWNER ? 'bg-purple-100 text-purple-700' :
-                      u.role === UserRole.MANAGER ? 'bg-amber-100 text-amber-700' :
-                      u.role === UserRole.FINANCE ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
-                    }`}>{u.role}</span>
-                    {u.isFreelance && (
-                       <span className="ml-2 px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-600 border border-emerald-200">
-                          REMOTE
-                       </span>
-                    )}
-                  </td>
-                  <td className="px-6 py-5">
-                     <div className="flex items-center text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg w-fit">
-                       <Bot size={14} className="mr-2 text-blue-500" />
-                       <span className="text-[10px] font-bold">{u.telegramUsername || '-'}</span>
-                     </div>
-                  </td>
-                  <td className="px-6 py-5">
-                     {(() => {
-                        const count = u.deviceIds?.length ?? (u.deviceId ? 1 : 0);
-                        if (count > 0) {
-                          return (
-                           <span className="flex items-center gap-2 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg w-fit cursor-help" title={`Devices: ${count}/2`}>
-                             <LayoutIcon size={12} /> TERKUNCI ({count}/2)
-                           </span>
-                          );
-                        } else {
-                          return (
-                           <span className="flex items-center gap-2 text-[10px] font-bold text-slate-400 bg-slate-50 px-3 py-1 rounded-lg w-fit">
-                             <Unlock size={12} /> BEBAS
-                           </span>
-                          );
-                        }
-                     })()}
-                  </td>
-                  <td className="px-6 py-5 text-right">
-                     {/* Controls visible for OWNER, MANAGER, FINANCE */}
-                     {['OWNER', 'MANAGER', 'FINANCE'].includes(currentUser?.role || '') && (
-                        <div className="flex items-center justify-end gap-2">
-                           {/* Protect OWNER accounts from being modified by others */}
-                           {u.role === UserRole.OWNER && currentUser?.role !== UserRole.OWNER ? (
+                        {u.isFreelance && (
+                          <span className="ml-2 px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-600 border border-emerald-200">
+                            REMOTE
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-5">
+                        <div className="flex items-center text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg w-fit">
+                          <Bot size={14} className="mr-2 text-blue-500" />
+                          <span className="text-[10px] font-bold">{u.telegramUsername || '-'}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-5">
+                        {(() => {
+                          const count = u.deviceIds?.length ?? (u.deviceId ? 1 : 0);
+                          if (count > 0) {
+                            return (
+                              <span className="flex items-center gap-2 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg w-fit cursor-help" title={`Devices: ${count}/2`}>
+                                <LayoutIcon size={12} /> TERKUNCI ({count}/2)
+                              </span>
+                            );
+                          } else {
+                            return (
+                              <span className="flex items-center gap-2 text-[10px] font-bold text-slate-400 bg-slate-50 px-3 py-1 rounded-lg w-fit">
+                                <Unlock size={12} /> BEBAS
+                              </span>
+                            );
+                          }
+                        })()}
+                      </td>
+                      <td className="px-6 py-5 text-right">
+                        {/* Controls visible for OWNER, MANAGER, FINANCE */}
+                        {['OWNER', 'MANAGER', 'FINANCE'].includes(currentUser?.role || '') && (
+                          <div className="flex items-center justify-end gap-2">
+                            {/* Protect OWNER accounts from being modified by others */}
+                            {u.role === UserRole.OWNER && currentUser?.role !== UserRole.OWNER ? (
                               <span className="text-[9px] font-bold text-slate-300 italic px-2">LOCKED</span>
-                           ) : (
-                             <>
-                               {(u.deviceIds?.length > 0 || u.deviceId) && (
-                                  <button 
+                            ) : (
+                              <>
+                                {(u.deviceIds?.length > 0 || u.deviceId) && (
+                                  <button
                                     onClick={async () => {
                                       if (window.confirm(`Reset kunci perangkat (semua device) untuk user ${u.name}?`)) {
                                         try {
@@ -380,144 +383,144 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
                                   >
                                     <Unlock size={14} />
                                   </button>
-                               )}
-                               
-                               {/* Edit Button */}
-                               <button onClick={() => handleOpenEdit(u)} className="p-2 bg-slate-50 text-slate-600 rounded-lg hover:bg-blue-600 hover:text-white transition border border-slate-200" title="Edit User">
+                                )}
+
+                                {/* Edit Button */}
+                                <button onClick={() => handleOpenEdit(u)} className="p-2 bg-slate-50 text-slate-600 rounded-lg hover:bg-blue-600 hover:text-white transition border border-slate-200" title="Edit User">
                                   <Pencil size={14} />
-                               </button>
+                                </button>
 
-                               {/* Delete Button (Valid if u.id !== current) */}
-                               {u.id !== currentUser?.id && (
-                                 <button onClick={() => handleDelete(u)} className="p-2 bg-rose-50 text-rose-600 rounded-lg hover:bg-rose-600 hover:text-white transition border border-rose-200" title="Hapus User">
+                                {/* Delete Button (Valid if u.id !== current) */}
+                                {u.id !== currentUser?.id && (
+                                  <button onClick={() => handleDelete(u)} className="p-2 bg-rose-50 text-rose-600 rounded-lg hover:bg-rose-600 hover:text-white transition border border-rose-200" title="Hapus User">
                                     <Trash2 size={14} />
-                                 </button>
-                               )}
-                             </>
-                           )}
-                        </div>
-                     )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {filteredUsers.length === 0 && (
-             <div className="p-12 text-center text-slate-300 font-bold uppercase tracking-widest text-xs">
-               Tidak ada anggota ditemukan
-             </div>
-          )}
-        </div>
-      </div>
-
-      {/* ADD / EDIT MODAL */}
-      {(showAdd || showEdit) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-[3rem] p-10 w-full max-w-2xl space-y-8 shadow-2xl border border-white/20 animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center">
-                <h3 className="text-3xl font-black text-slate-800 leading-tight uppercase tracking-tighter italic">
-                    {showEdit ? `Edit Data: ${targetUser?.name}` : 'Registrasi Anggota Baru'}
-                </h3>
-                <button onClick={() => { setShowAdd(false); setShowEdit(false); resetForm(); }} className="bg-slate-100 p-3 rounded-2xl hover:bg-rose-100 hover:text-rose-500 transition"><X size={24} /></button>
-            </div>
-            
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">NAMA LENGKAP</label>
-                     <input className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-2xl outline-none font-bold transition shadow-sm" placeholder="Contoh: Andi Kurniawan" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
-                  </div>
-                  <div className="space-y-2">
-                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">USERNAME LOGIN</label>
-                     <input className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-2xl outline-none font-bold transition shadow-sm" placeholder="Contoh: andi_sdm" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} disabled={showEdit} />
-                     {showEdit && <p className="text-[9px] text-slate-400 ml-2 italic">Username tidak dapat diubah untuk menjaga integritas data log.</p>}
-                  </div>
-              </div>
-
-              <div className="space-y-2">
-                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">HAK AKSES / ROLE</label>
-                 <select className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-2xl outline-none font-black text-xs uppercase tracking-widest transition shadow-sm" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})}>
-                    <option value={UserRole.STAFF}>STAFF OPERASIONAL</option>
-                    <option value={UserRole.FINANCE}>TIM KEUANGAN (FINANCE)</option>
-                    <option value={UserRole.MANAGER}>MANAGER PROYEK</option>
-                    {/* Only OWNER can create/edit other OWNERS */}
-                    {currentUser?.role === UserRole.OWNER && <option value={UserRole.OWNER}>OWNER / SUPERADMIN</option>}
-                 </select>
-              </div>
-
-              <div className="bg-blue-50 p-6 rounded-[2rem] border border-blue-100">
-                  <h4 className="flex items-center text-blue-600 font-black text-xs uppercase tracking-widest mb-4"><Bot size={16} className="mr-2"/> Integrasi Telegram (Opsional)</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">TELEGRAM ID (NUMERIK)</label>
-                      <input className="w-full p-4 bg-white border-2 border-transparent focus:border-blue-600 rounded-2xl outline-none font-bold transition text-xs" placeholder="Contoh: 123456789" value={formData.telegramId} onChange={e => setFormData({...formData, telegramId: e.target.value})} />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">TELEGRAM USERNAME</label>
-                      <input className="w-full p-4 bg-white border-2 border-transparent focus:border-blue-600 rounded-2xl outline-none font-bold transition text-xs" placeholder="Contoh: @andisdm" value={formData.telegramUsername} onChange={e => setFormData({...formData, telegramUsername: e.target.value})} />
-                    </div>
-                  </div>
-              </div>
-
-              {/* FREELANCE TOGGLE */}
-              <div className="bg-emerald-50 p-6 rounded-[2rem] border border-emerald-100 flex items-center justify-between">
-                 <div>
-                    <h4 className="text-emerald-700 font-black text-xs uppercase tracking-widest flex items-center gap-2">
-                       <LayoutIcon size={16} /> Status Freelance (Remote Work)
-                    </h4>
-                    <p className="text-[10px] text-emerald-600/70 font-bold mt-1 max-w-xs">
-                       Mengizinkan user absen dari lokasi mana saja (melewati validasi radius kantor).
-                    </p>
-                 </div>
-                 <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" className="sr-only peer" checked={formData.isFreelance} onChange={e => setFormData({...formData, isFreelance: e.target.checked})} />
-                    <div className="w-11 h-6 bg-emerald-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                 </label>
-              </div>
-
-              <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-200">
-                 <h4 className="flex items-center text-slate-600 font-black text-xs uppercase tracking-widest mb-4"><Unlock size={16} className="mr-2"/> Keamanan Akun</h4>
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{showEdit ? 'UBAH PASSWORD (OPSIONAL)' : 'PASSWORD PERTAMA'}</label>
-                      <input
-                        type="password"
-                        className="w-full p-4 bg-white border-2 border-transparent focus:border-blue-600 rounded-2xl outline-none font-bold transition text-xs"
-                        placeholder={showEdit ? "Kosongkan jika tidak diubah" : "Minimal 6 karakter"}
-                        value={formData.password}
-                        onChange={e => setFormData({ ...formData, password: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">KONFIRMASI PASSWORD</label>
-                      <input
-                        type="password"
-                        className="w-full p-4 bg-white border-2 border-transparent focus:border-blue-600 rounded-2xl outline-none font-bold transition text-xs"
-                        placeholder="Ulangi password"
-                        value={formData.passwordConfirm}
-                        onChange={e => setFormData({ ...formData, passwordConfirm: e.target.value })}
-                      />
-                    </div>
-                 </div>
-              </div>
-            </div>
-            
-            <div className="flex gap-4 pt-6 border-t border-slate-50">
-               <button onClick={() => { setShowAdd(false); setShowEdit(false); resetForm(); }} className="flex-1 py-4 text-slate-400 font-black uppercase tracking-widest hover:bg-slate-100 rounded-2xl transition text-xs">BATAL</button>
-               <button onClick={() => handleSubmit(showEdit)} disabled={isLoading} className="flex-1 bg-slate-900 text-white p-4 rounded-2xl font-black uppercase tracking-widest hover:bg-blue-600 transition shadow-xl shadow-slate-200 text-xs disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2">
-                 {isLoading ? 'MEMPROSES...' : (
-                    <>
-                        {showEdit ? <Save size={16} /> : <Plus size={16} />}
-                        {showEdit ? 'SIMPAN PERUBAHAN' : 'BUAT AKUN BARU'}
-                    </>
-                 )}
-               </button>
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {filteredUsers.length === 0 && (
+                <div className="p-12 text-center text-slate-300 font-bold uppercase tracking-widest text-xs">
+                  Tidak ada anggota ditemukan
+                </div>
+              )}
             </div>
           </div>
-        </div>
+
+          {/* ADD / EDIT MODAL */}
+          {(showAdd || showEdit) && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+              <div className="bg-white rounded-[3rem] p-10 w-full max-w-2xl space-y-8 shadow-2xl border border-white/20 animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-3xl font-black text-slate-800 leading-tight uppercase tracking-tighter italic">
+                    {showEdit ? `Edit Data: ${targetUser?.name}` : 'Registrasi Anggota Baru'}
+                  </h3>
+                  <button onClick={() => { setShowAdd(false); setShowEdit(false); resetForm(); }} className="bg-slate-100 p-3 rounded-2xl hover:bg-rose-100 hover:text-rose-500 transition"><X size={24} /></button>
+                </div>
+
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">NAMA LENGKAP</label>
+                      <input className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-2xl outline-none font-bold transition shadow-sm" placeholder="Contoh: Andi Kurniawan" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">USERNAME LOGIN</label>
+                      <input className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-2xl outline-none font-bold transition shadow-sm" placeholder="Contoh: andi_sdm" value={formData.username} onChange={e => setFormData({ ...formData, username: e.target.value })} disabled={showEdit} />
+                      {showEdit && <p className="text-[9px] text-slate-400 ml-2 italic">Username tidak dapat diubah untuk menjaga integritas data log.</p>}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">HAK AKSES / ROLE</label>
+                    <select className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-2xl outline-none font-black text-xs uppercase tracking-widest transition shadow-sm" value={formData.role} onChange={e => setFormData({ ...formData, role: e.target.value })}>
+                      <option value={UserRole.STAFF}>STAFF OPERASIONAL</option>
+                      <option value={UserRole.FINANCE}>TIM KEUANGAN (FINANCE)</option>
+                      <option value={UserRole.MANAGER}>MANAGER PROYEK</option>
+                      {/* Only OWNER can create/edit other OWNERS */}
+                      {currentUser?.role === UserRole.OWNER && <option value={UserRole.OWNER}>OWNER / SUPERADMIN</option>}
+                    </select>
+                  </div>
+
+                  <div className="bg-blue-50 p-6 rounded-[2rem] border border-blue-100">
+                    <h4 className="flex items-center text-blue-600 font-black text-xs uppercase tracking-widest mb-4"><Bot size={16} className="mr-2" /> Integrasi Telegram (Opsional)</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">TELEGRAM ID (NUMERIK)</label>
+                        <input className="w-full p-4 bg-white border-2 border-transparent focus:border-blue-600 rounded-2xl outline-none font-bold transition text-xs" placeholder="Contoh: 123456789" value={formData.telegramId} onChange={e => setFormData({ ...formData, telegramId: e.target.value })} />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">TELEGRAM USERNAME</label>
+                        <input className="w-full p-4 bg-white border-2 border-transparent focus:border-blue-600 rounded-2xl outline-none font-bold transition text-xs" placeholder="Contoh: @andisdm" value={formData.telegramUsername} onChange={e => setFormData({ ...formData, telegramUsername: e.target.value })} />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* FREELANCE TOGGLE */}
+                  <div className="bg-emerald-50 p-6 rounded-[2rem] border border-emerald-100 flex items-center justify-between">
+                    <div>
+                      <h4 className="text-emerald-700 font-black text-xs uppercase tracking-widest flex items-center gap-2">
+                        <LayoutIcon size={16} /> Status Freelance (Remote Work)
+                      </h4>
+                      <p className="text-[10px] text-emerald-600/70 font-bold mt-1 max-w-xs">
+                        Mengizinkan user absen dari lokasi mana saja (melewati validasi radius kantor).
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" className="sr-only peer" checked={formData.isFreelance} onChange={e => setFormData({ ...formData, isFreelance: e.target.checked })} />
+                      <div className="w-11 h-6 bg-emerald-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </label>
+                  </div>
+
+                  <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-200">
+                    <h4 className="flex items-center text-slate-600 font-black text-xs uppercase tracking-widest mb-4"><Unlock size={16} className="mr-2" /> Keamanan Akun</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{showEdit ? 'UBAH PASSWORD (OPSIONAL)' : 'PASSWORD PERTAMA'}</label>
+                        <input
+                          type="password"
+                          className="w-full p-4 bg-white border-2 border-transparent focus:border-blue-600 rounded-2xl outline-none font-bold transition text-xs"
+                          placeholder={showEdit ? "Kosongkan jika tidak diubah" : "Minimal 6 karakter"}
+                          value={formData.password}
+                          onChange={e => setFormData({ ...formData, password: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">KONFIRMASI PASSWORD</label>
+                        <input
+                          type="password"
+                          className="w-full p-4 bg-white border-2 border-transparent focus:border-blue-600 rounded-2xl outline-none font-bold transition text-xs"
+                          placeholder="Ulangi password"
+                          value={formData.passwordConfirm}
+                          onChange={e => setFormData({ ...formData, passwordConfirm: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-4 pt-6 border-t border-slate-50">
+                  <button onClick={() => { setShowAdd(false); setShowEdit(false); resetForm(); }} className="flex-1 py-4 text-slate-400 font-black uppercase tracking-widest hover:bg-slate-100 rounded-2xl transition text-xs">BATAL</button>
+                  <button onClick={() => handleSubmit(showEdit)} disabled={isLoading} className="flex-1 bg-slate-900 text-white p-4 rounded-2xl font-black uppercase tracking-widest hover:bg-blue-600 transition shadow-xl shadow-slate-200 text-xs disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2">
+                    {isLoading ? 'MEMPROSES...' : (
+                      <>
+                        {showEdit ? <Save size={16} /> : <Plus size={16} />}
+                        {showEdit ? 'SIMPAN PERUBAHAN' : 'BUAT AKUN BARU'}
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
-      </>
-    )}
     </div>
   );
 };

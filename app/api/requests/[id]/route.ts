@@ -1,14 +1,9 @@
-
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
-
-// Helper to serialize BigInt
-const serialize = (data: any): any => {
-    return JSON.parse(JSON.stringify(data, (key, value) =>
-        typeof value === 'bigint' ? Number(value) : value
-    ));
-};
+import { serialize } from '@/lib/serverUtils';
+import { sendPushNotification } from '@/lib/push';
 
 // UPDATE (Edit) Request
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
@@ -69,6 +64,117 @@ export async function PUT(request: Request, { params }: { params: { id: string }
             data: dataToUpdate
         });
 
+        // --- TELEGRAM NOTIFICATION FOR APPROVAL/REJECTION ---
+        if (isApprovalAction) {
+            try {
+                const telegramSettings = await prisma.settings.findUnique({ where: { tenantId } });
+                if (telegramSettings?.telegramBotToken && telegramSettings?.telegramGroupId) {
+                    const statusIcon = r.status === 'APPROVED' ? '✅' : '❌';
+                    const statusText = r.status === 'APPROVED' ? 'DISETUJUI' : 'DITOLAK';
+
+                    const sDate = existing.startDate ? new Date(existing.startDate) : new Date();
+                    const eDate = existing.endDate ? new Date(existing.endDate) : sDate;
+
+                    const message = [
+                        `🏢 <b>${tenantId.toUpperCase()} - UPDATE STATUS</b>`,
+                        `${statusIcon} <b><u>PERMOHONAN ${statusText}</u></b>`,
+                        ``,
+                        `👤 <b>Karyawan:</b> ${existing.user?.name || 'User'}`,
+                        `📌 <b>Jenis:</b> ${existing.type}`,
+                        `📅 <b>Waktu:</b> ${sDate.toLocaleDateString('id-ID')} s/d ${eDate.toLocaleDateString('id-ID')}`,
+                        ``,
+                        `⚖️ <b>Keputusan:</b> ${statusText}`,
+                        `✍️ <b>Oleh:</b> ${dataToUpdate.approverName}`,
+                        `📝 <b>Catatan:</b> <i>"${r.actionNote || '-'}"</i>`,
+                        ``,
+                        `🚀 <i>Status telah diperbarui di sistem ERP.</i>`
+                    ].join('\n');
+
+                    const sendTele = async (targetId: string) => {
+                        await fetch(`https://api.telegram.org/bot${telegramSettings.telegramBotToken}/sendMessage`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ chat_id: targetId, text: message, parse_mode: 'HTML' })
+                        });
+                    };
+
+                    const fullDest = telegramSettings.telegramGroupId;
+                    const delimiter = fullDest.includes('/') ? '/' : (fullDest.includes('_') ? '_' : null);
+                    if (delimiter) {
+                        const [chatId, topicId] = fullDest.split(delimiter);
+                        let targetChat = chatId.trim();
+
+                        if (targetChat.startsWith('-') && !targetChat.startsWith('-100')) {
+                            targetChat = '-100' + targetChat.substring(1);
+                        } else if (!targetChat.startsWith('-') && !targetChat.startsWith('@')) {
+                            targetChat = '-100' + targetChat;
+                        }
+
+                        const topicBody: any = {
+                            chat_id: targetChat,
+                            text: message,
+                            parse_mode: 'HTML'
+                        };
+
+                        if (topicId && topicId.trim()) {
+                            topicBody.message_thread_id = parseInt(topicId.trim());
+                        }
+
+                        const res = await fetch(`https://api.telegram.org/bot${telegramSettings.telegramBotToken}/sendMessage`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(topicBody)
+                        });
+
+                        // Fallback: If topic fails, send to main chat
+                        if (!res.ok && topicBody.message_thread_id) {
+                            delete topicBody.message_thread_id;
+                            await sendTele(targetChat);
+                        }
+                    } else {
+                        let targetChat = fullDest.trim();
+                        if (targetChat.startsWith('-') && !targetChat.startsWith('-100')) {
+                            targetChat = '-100' + targetChat.substring(1);
+                        } else if (!targetChat.startsWith('-') && !targetChat.startsWith('@')) {
+                            targetChat = '-100' + targetChat;
+                        }
+                        await sendTele(targetChat);
+                    }
+                }
+            } catch (err) { console.error("Telegram Approval Notify Error:", err); }
+        }
+
+        // --- PUSH NOTIFICATION FOR APPLICANT ---
+        if (isApprovalAction) {
+            try {
+                const statusText = r.status === 'APPROVED' ? 'DISETUJUI' : 'DITOLAK';
+                await sendPushNotification(existing.userId!, {
+                    title: `Permohonan ${statusText}`,
+                    body: `Halo ${existing.user?.name}, permohonan ${existing.type} Anda telah ${statusText.toLowerCase()}.`,
+                    url: '/requests'
+                });
+            } catch (err) { console.error("Push Approval Notify Error:", err); }
+        }
+
+        // --- SYSTEM LOGGING ---
+        try {
+            await prisma.systemLog.create({
+                data: {
+                    id: Math.random().toString(36).substr(2, 9),
+                    timestamp: BigInt(Date.now()),
+                    actorId: user.id,
+                    actorName: user.name,
+                    actorRole: user.role,
+                    actionType: isApprovalAction ? 'REQUEST_RESOLVE' : 'REQUEST_UPDATE',
+                    details: isApprovalAction
+                        ? `${r.status}: ${existing.type} - ${existing.user?.name}`
+                        : `Update ${existing.type}`,
+                    targetObj: 'LeaveRequest',
+                    tenantId: tenantId
+                }
+            });
+        } catch (logErr) { console.error("Logging Error:", logErr); }
+
         return NextResponse.json(serialize(updated));
     } catch (error: any) {
         console.error("PUT Request Error:", error);
@@ -94,6 +200,23 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
         await prisma.leaveRequest.delete({
             where: { id }
         });
+
+        // --- SYSTEM LOGGING ---
+        try {
+            await prisma.systemLog.create({
+                data: {
+                    id: Math.random().toString(36).substr(2, 9),
+                    timestamp: BigInt(Date.now()),
+                    actorId: user.id,
+                    actorName: user.name,
+                    actorRole: user.role,
+                    actionType: 'REQUEST_DELETE',
+                    details: `Hapus permohonan ID: ${id}`,
+                    targetObj: 'LeaveRequest',
+                    tenantId: tenantId
+                }
+            });
+        } catch (logErr) { console.error("Logging Error:", logErr); }
 
         return NextResponse.json({ success: true, message: 'Data berhasil dihapus' });
     } catch (error) {

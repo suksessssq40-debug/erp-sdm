@@ -64,19 +64,19 @@ export const useStore = () => {
     const initializeApp = async () => {
       let currentUser: User | null = null;
       let token: string | undefined = undefined;
-      
+
       try {
         const raw = typeof window !== 'undefined' ? window.localStorage.getItem(CURRENT_USER_KEY) : null;
         const rawToken = typeof window !== 'undefined' ? window.localStorage.getItem(CURRENT_TOKEN_KEY) : null;
-        
+
         if (raw && rawToken) {
           const parsedUser = JSON.parse(raw);
           if (parsedUser && parsedUser.id && parsedUser.tenantId) {
-             currentUser = parsedUser;
-             token = rawToken;
+            currentUser = parsedUser;
+            token = rawToken;
           } else if (typeof window !== 'undefined') {
-              window.localStorage.removeItem(CURRENT_USER_KEY);
-              window.localStorage.removeItem(CURRENT_TOKEN_KEY);
+            window.localStorage.removeItem(CURRENT_USER_KEY);
+            window.localStorage.removeItem(CURRENT_TOKEN_KEY);
           }
         }
       } catch (e) {
@@ -84,72 +84,85 @@ export const useStore = () => {
       }
 
       if (currentUser && token) {
-         setState(prev => ({ ...prev, currentUser, authToken: token }));
+        setState(prev => ({ ...prev, currentUser, authToken: token }));
       }
 
       if (token) {
         try {
-            const h = { 'Authorization': `Bearer ${token}` };
-            const [resCat, resUnits, resBootstrap] = await Promise.all([
-                fetch(`${API_BASE}/api/categories`, { headers: h }),
-                fetch(`${API_BASE}/api/business-units`, { headers: h }),
-                fetch(`${API_BASE}/api/bootstrap`, { headers: h, cache: 'no-store' })
-            ]);
-            
-            let initialCategories = [];
-            let initialBusinessUnits = [];
-            if (resCat.ok) initialCategories = await resCat.json();
-            if (resUnits.ok) initialBusinessUnits = await resUnits.json();
+          const h = { 'Authorization': `Bearer ${token}` };
 
-            if (resBootstrap.ok) {
-                const data = await resBootstrap.json();
-                setState(prev => {
-                    const newUsers = data.users || [];
-                    let newMe = prev.currentUser;
-                    if (prev.currentUser) {
-                        const found = newUsers.find((u: User) => u.id === prev.currentUser!.id);
-                        if (found) {
-                            newMe = { ...prev.currentUser, ...found };
-                            if (typeof window !== 'undefined') window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(newMe));
-                        }
-                    }
-                    return {
-                        ...prev,
-                        users: newUsers,
-                        currentUser: newMe,
-                        projects: data.projects || [],
-                        attendance: data.attendance || [],
-                        requests: data.requests || [],
-                        transactions: data.transactions || [],
-                        dailyReports: data.dailyReports || [],
-                        salaryConfigs: data.salaryConfigs || [],
-                        payrollRecords: data.payrollRecords || [],
-                        logs: data.logs || [],
-                        settings: data.settings || prev.settings,
-                        financialAccounts: data.financialAccounts || [],
-                        categories: initialCategories,
-                        businessUnits: initialBusinessUnits
-                    };
-                });
-                
-                // Active Tenant + Shifts
-                if (currentUser?.tenantId) {
-                    const [resTenant, resShifts] = await Promise.all([
-                        fetch(`${API_BASE}/api/tenants/${currentUser.tenantId}`, { headers: h }),
-                        fetch(`${API_BASE}/api/tenants/${currentUser.tenantId}/shifts`, { headers: h })
-                    ]);
-                    if (resTenant.ok) {
-                        const tData = await resTenant.ok ? await resTenant.json() : null;
-                        if (tData) setState(prev => ({ ...prev, currentTenant: tData }));
-                    }
-                    if (resShifts.ok) {
-                        const sData = await resShifts.json();
-                        setState(prev => ({ ...prev, shifts: sData }));
-                    }
+          // Check role before aggressive fetching to prevent 403 logs
+          const role = currentUser?.role || 'STAFF';
+          const canViewFinance = ['OWNER', 'FINANCE', 'MANAGER'].includes(role);
+
+          const promises = [
+            fetch(`${API_BASE}/api/bootstrap`, { headers: h, cache: 'no-store' })
+          ];
+
+          if (canViewFinance) {
+            promises.push(fetch(`${API_BASE}/api/categories`, { headers: h }));
+            promises.push(fetch(`${API_BASE}/api/business-units`, { headers: h }));
+          }
+
+          const results = await Promise.all(promises);
+          const resBootstrap = results[0];
+          const resCat = canViewFinance ? results[1] : null;
+          const resUnits = canViewFinance ? results[2] : null;
+
+          let initialCategories = [];
+          let initialBusinessUnits = [];
+          if (resCat && resCat.ok) initialCategories = await resCat.json();
+          if (resUnits && resUnits.ok) initialBusinessUnits = await resUnits.json();
+
+          if (resBootstrap.ok) {
+            const data = await resBootstrap.json();
+            setState(prev => {
+              const newUsers = data.users || [];
+              let newMe = prev.currentUser;
+              if (prev.currentUser) {
+                const found = newUsers.find((u: User) => u.id === prev.currentUser!.id);
+                if (found) {
+                  newMe = { ...prev.currentUser, ...found };
+                  if (typeof window !== 'undefined') window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(newMe));
                 }
-            } else if (resBootstrap.status === 401) {
-                userActions.logout();
+              }
+              return {
+                ...prev,
+                users: newUsers,
+                currentUser: newMe,
+                projects: data.projects || [],
+                attendance: data.attendance || [],
+                requests: data.requests || [],
+                transactions: data.transactions || [],
+                dailyReports: data.dailyReports || [],
+                salaryConfigs: data.salaryConfigs || [],
+                payrollRecords: data.payrollRecords || [],
+                logs: data.logs || [],
+                settings: data.settings || prev.settings,
+                financialAccounts: data.financialAccounts || [],
+                categories: initialCategories,
+                businessUnits: initialBusinessUnits
+              };
+            });
+
+            // Active Tenant + Shifts
+            if (currentUser?.tenantId) {
+              const [resTenant, resShifts] = await Promise.all([
+                fetch(`${API_BASE}/api/tenants/${currentUser.tenantId}`, { headers: h }),
+                fetch(`${API_BASE}/api/tenants/${currentUser.tenantId}/shifts`, { headers: h })
+              ]);
+              if (resTenant.ok) {
+                const tData = await resTenant.ok ? await resTenant.json() : null;
+                if (tData) setState(prev => ({ ...prev, currentTenant: tData }));
+              }
+              if (resShifts.ok) {
+                const sData = await resShifts.json();
+                setState(prev => ({ ...prev, shifts: sData }));
+              }
             }
+          } else if (resBootstrap.status === 401) {
+            userActions.logout();
+          }
         } catch (e) { console.error("Initialize error:", e); }
       }
       setLoaded(true);
@@ -165,51 +178,51 @@ export const useStore = () => {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, (payload) => {
           if (payload.eventType === 'INSERT') {
             const p = payload.new;
-            const newProject: Project = { 
-               id: p.id,
-               title: p.title,
-               description: p.description || '',
-               status: p.status,
-               priority: p.priority,
-               deadline: p.deadline,
-               tasks: typeof p.tasks_json === 'string' ? JSON.parse(p.tasks_json || '[]') : (p.tasks_json || []),
-               collaborators: typeof p.collaborators_json === 'string' ? JSON.parse(p.collaborators_json || '[]') : (p.collaborators_json || []),
-               comments: typeof p.comments_json === 'string' ? JSON.parse(p.comments_json || '[]') : (p.comments_json || []),
-               isManagementOnly: p.is_management_only === 1 || p.is_management_only === true,
-               createdBy: p.created_by,
-               createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now()
+            const newProject: Project = {
+              id: p.id,
+              title: p.title,
+              description: p.description || '',
+              status: p.status,
+              priority: p.priority,
+              deadline: p.deadline,
+              tasks: typeof p.tasks_json === 'string' ? JSON.parse(p.tasks_json || '[]') : (p.tasks_json || []),
+              collaborators: typeof p.collaborators_json === 'string' ? JSON.parse(p.collaborators_json || '[]') : (p.collaborators_json || []),
+              comments: typeof p.comments_json === 'string' ? JSON.parse(p.comments_json || '[]') : (p.comments_json || []),
+              isManagementOnly: p.is_management_only === 1 || p.is_management_only === true,
+              createdBy: p.created_by,
+              createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now()
             };
             setState(prev => ({ ...prev, projects: [...prev.projects, newProject] }));
-          } 
+          }
           else if (payload.eventType === 'UPDATE') {
-             const p = payload.new;
-             setState(prev => ({
-                ...prev,
-                projects: prev.projects.map(existing => existing.id === p.id ? { 
-                    ...existing,
-                    title: p.title,
-                    description: p.description,
-                    status: p.status,
-                    priority: p.priority,
-                    deadline: p.deadline,
-                    tasks: typeof p.tasks_json === 'string' ? JSON.parse(p.tasks_json || '[]') : (p.tasks_json || []),
-                    collaborators: typeof p.collaborators_json === 'string' ? JSON.parse(p.collaborators_json || '[]') : (p.collaborators_json || []),
-                    comments: typeof p.comments_json === 'string' ? JSON.parse(p.comments_json || '[]') : (p.comments_json || []),
-                    isManagementOnly: p.is_management_only === 1 || p.is_management_only === true,
-                    createdBy: p.created_by || existing.createdBy,
-                    createdAt: p.created_at ? Number(p.created_at) : existing.createdAt
-                } : existing)
-             }));
+            const p = payload.new;
+            setState(prev => ({
+              ...prev,
+              projects: prev.projects.map(existing => existing.id === p.id ? {
+                ...existing,
+                title: p.title,
+                description: p.description,
+                status: p.status,
+                priority: p.priority,
+                deadline: p.deadline,
+                tasks: typeof p.tasks_json === 'string' ? JSON.parse(p.tasks_json || '[]') : (p.tasks_json || []),
+                collaborators: typeof p.collaborators_json === 'string' ? JSON.parse(p.collaborators_json || '[]') : (p.collaborators_json || []),
+                comments: typeof p.comments_json === 'string' ? JSON.parse(p.comments_json || '[]') : (p.comments_json || []),
+                isManagementOnly: p.is_management_only === 1 || p.is_management_only === true,
+                createdBy: p.created_by || existing.createdBy,
+                createdAt: p.created_at ? Number(p.created_at) : existing.createdAt
+              } : existing)
+            }));
           }
           else if (payload.eventType === 'DELETE') {
-             setState(prev => ({ ...prev, projects: prev.projects.filter(p => p.id !== payload.old.id) }));
+            setState(prev => ({ ...prev, projects: prev.projects.filter(p => p.id !== payload.old.id) }));
           }
         })
         .subscribe();
     }
 
     return () => {
-        if (channel) supabase?.removeChannel(channel);
+      if (channel) supabase?.removeChannel(channel);
     };
   }, []);
 
@@ -231,38 +244,38 @@ export const useStore = () => {
     fetchDailyReports: miscActions.fetchDailyReports,
     fetchLogs: otherActions.fetchLogs,
     fetchPayrollRecords: async () => {
-        try {
-           const res = await fetch(`${API_BASE}/api/payroll-records`, { headers: authHeaders });
-           if (res.ok) {
-               const data = await res.json();
-               setState(prev => ({ ...prev, payrollRecords: data }));
-           }
-       } catch(e) { console.error("Fetch Payroll Failed", e); }
+      try {
+        const res = await fetch(`${API_BASE}/api/payroll-records`, { headers: authHeaders });
+        if (res.ok) {
+          const data = await res.json();
+          setState(prev => ({ ...prev, payrollRecords: data }));
+        }
+      } catch (e) { console.error("Fetch Payroll Failed", e); }
     },
     fetchSalaryConfigs: async () => {
-        try {
-           const res = await fetch(`${API_BASE}/api/salary-configs`, { headers: authHeaders });
-           if (res.ok) {
-               const data = await res.json();
-               setState(prev => ({ ...prev, salaryConfigs: data }));
-           }
-       } catch(e) { console.error("Fetch SalaryConfigs Failed", e); }
+      try {
+        const res = await fetch(`${API_BASE}/api/salary-configs`, { headers: authHeaders });
+        if (res.ok) {
+          const data = await res.json();
+          setState(prev => ({ ...prev, salaryConfigs: data }));
+        }
+      } catch (e) { console.error("Fetch SalaryConfigs Failed", e); }
     },
     importCategories: async (cats: any[]) => {
-        try {
-          const res = await fetch(`${API_BASE}/api/categories/import`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', ...authHeaders },
-              body: JSON.stringify({ categories: cats })
-          });
-          if (!res.ok) throw new Error('Failed to import categories');
-          const resCat = await fetch(`${API_BASE}/api/categories`, { headers: authHeaders });
-          if (resCat.ok) {
-              const allCats = await resCat.json();
-              setState(prev => ({ ...prev, categories: allCats }));
-          }
-          addLog(SystemActionType.FINANCE_UPDATE, `Imported ${cats.length} categories`, 'Categories');
-        } catch (e) { console.error(e); throw e; }
+      try {
+        const res = await fetch(`${API_BASE}/api/categories/import`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
+          body: JSON.stringify({ categories: cats })
+        });
+        if (!res.ok) throw new Error('Failed to import categories');
+        const resCat = await fetch(`${API_BASE}/api/categories`, { headers: authHeaders });
+        if (resCat.ok) {
+          const allCats = await resCat.json();
+          setState(prev => ({ ...prev, categories: allCats }));
+        }
+        addLog(SystemActionType.FINANCE_UPDATE, `Imported ${cats.length} categories`, 'Categories');
+      } catch (e) { console.error(e); throw e; }
     }
   };
 };

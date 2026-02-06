@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Transaction, FinancialAccountDef, TransactionType } from '../../types';
+import { Transaction, FinancialAccountDef, TransactionType, ChartOfAccount } from '../../types';
 import { formatCurrency } from '../../utils';
 import { BookOpen, ChevronRight, Receipt } from 'lucide-react';
 import { EmptyState } from '../EmptyState';

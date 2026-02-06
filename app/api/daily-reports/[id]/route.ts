@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
@@ -17,7 +18,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     const isAdmin = ['OWNER', 'MANAGER', 'FINANCE'].includes(user.role);
 
     if (!isOwner && !isAdmin) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     await prisma.dailyReport.update({
@@ -48,7 +49,7 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     const isAdmin = ['OWNER', 'MANAGER', 'FINANCE'].includes(user.role);
 
     if (!isOwner && !isAdmin) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     await prisma.dailyReport.delete({ where: { id } });

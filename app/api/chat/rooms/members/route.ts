@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import pool from '@/lib/db';
+import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
 
 export async function POST(request: Request) {
@@ -12,26 +12,32 @@ export async function POST(request: Request) {
     if (!roomId || !Array.isArray(userIds)) return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
 
     // Verify room belongs to tenant AND current user is a member
-    const roomCheck = await pool.query(`
-        SELECT 1 FROM chat_rooms r
-        INNER JOIN chat_members cm ON r.id = cm.room_id
-        WHERE r.id = $1 AND cm.user_id = $2 AND r.tenant_id = $3
-    `, [roomId, currentUser.id, tenantId]);
+    const membership = await prisma.chatMember.findUnique({
+      where: { roomId_userId: { roomId, userId: currentUser.id } },
+      include: { room: { select: { tenantId: true } } }
+    });
 
-    if (roomCheck.rows.length === 0) {
-      return NextResponse.json({ error: 'Unauthorized to add members' }, { status: 403 });
+    if (!membership || membership.room.tenantId !== tenantId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    // Insert new members - STRICT TENANT CHECK
-    for (const uid of userIds) {
-       // Only allow adding users within same tenant
-       const userCheck = await pool.query('SELECT 1 FROM users WHERE id = $1 AND tenant_id = $2', [uid, tenantId]);
-       if (userCheck.rows.length > 0) {
-          await pool.query(
-            'INSERT INTO chat_members (room_id, user_id, joined_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
-            [roomId, uid, Date.now()]
-          );
-       }
+    const now = BigInt(Date.now());
+
+    // Filter valid members in the same tenant
+    const validUsers = await prisma.user.findMany({
+      where: { id: { in: userIds }, tenantId },
+      select: { id: true }
+    });
+
+    if (validUsers.length > 0) {
+      await prisma.chatMember.createMany({
+        data: validUsers.map(u => ({
+          roomId,
+          userId: u.id,
+          joinedAt: now
+        })),
+        skipDuplicates: true
+      });
     }
 
     return NextResponse.json({ ok: true });
@@ -40,3 +46,4 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Failed' }, { status: 500 });
   }
 }
+

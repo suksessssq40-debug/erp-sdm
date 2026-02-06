@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { recordSystemLog } from '@/lib/serverUtils';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
@@ -13,33 +14,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Username and password required' }, { status: 400 });
     }
 
-    // 1. Find User (Case Insensitive)
-    console.log(`[LOGIN] Attempt: ${username}`);
     const u = await prisma.user.findFirst({
       where: {
         username: {
           equals: username,
-          mode: 'insensitive' // Critical for user ease of use
+          mode: 'insensitive'
         }
       }
     });
 
     if (!u) {
-      console.warn(`[LOGIN] 401: User not found - ${username}`);
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 
-    console.log(`[LOGIN] User found: ${u.username} (ID: ${u.id})`);
-
-    // 2. Password Check
     if (u.passwordHash) {
       const ok = await bcrypt.compare(password, u.passwordHash);
       if (!ok) {
-        console.warn(`[LOGIN] 401: Password mismatch for ${username}`);
         return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
       }
     } else {
-      // Legacy Migration (if plain text exists - strict fallback)
       const hash = await bcrypt.hash(password, 10);
       await prisma.user.update({
         where: { id: u.id },
@@ -47,51 +40,26 @@ export async function POST(request: Request) {
       });
     }
 
-    // 3. Device Lock Logic
-    // Only applies to STAFF or if explicitly enforced
     const currentDeviceIds: string[] = Array.isArray(u.deviceIds) ? (u.deviceIds as string[]) : [];
+    const legacyDeviceId = (u as any).deviceId;
 
-    // Auto-migrate single device_id to list if not present
-    // Note: 'device_id' is not in our Prisma schema? Let's check.
-    // Introspection result DID NOT show 'device_id', only 'device_ids'. 
-    // Wait, the introspected schema showed: deviceIds Json? @default("[]") @map("device_ids")
-    // But server/index.cjs uses `device_id` column.
-    // If 'device_id' column existed in DB, Prisma introspection SHOULD have picked it up.
-    // Let's re-read the schema I wrote.
-    // I wrote: deviceIds Json? ... AND I did NOT include `deviceId` string field.
-    // If the DB has `device_id` column and I missed it in schema, `prisma` won't see it.
-    // `server/index.cjs` line 304: 'UPDATE users SET device_id = $1 ...'
-    // So the column EXISTS in the legacy DB logic.
-    // If `db pull` failed, I constructed schema manually based on `database_schema_master.sql`.
-    // `database_schema_master.sql` MIGHT NOT have had it if it was added dynamically later.
-    // CHECK `app/api/login` line 42: `ALTER TABLE users ADD COLUMN device_ids...`
-    // It seems `device_id` (singular) might have been there or added similarly?
-    // User schema in `server/index.cjs` doesn't explicitly create tables.
-    // Let's assume `device_id` (singular) exists as a Legacy field, but we prefer `device_ids` (plural).
-    // I will add `deviceId` to schema via a raw check or just stick to `deviceIds` (plural) which is the new standard.
-    // BUT, the `server/index.cjs` logic uses `device_id`.
-    // I should perform a "migration" here: If `deviceId` payload is sent, ensuring it's in `deviceIds`.
+    let updatedDeviceIds = [...currentDeviceIds];
+    const isOwner = u.role === 'OWNER';
 
-    // For Safety, I will assume the Prisma Schema needs to map `device_id` if we want to read it.
-    // But since I can't easily change schema on fly without re-generating client (which I did manually),
-    // I will rely on `device_ids` (plural) which IS in my schema.
-
-    if (u.role === 'STAFF') {
-      if (deviceId) {
-        // Check if device is allowed
-        const isKnown = currentDeviceIds.includes(deviceId);
-
-        if (isKnown) {
-          // OK
-        } else if (currentDeviceIds.length < 2) {
-          // Register new device
-          const newDeviceIds = [...currentDeviceIds, deviceId];
+    if (!isOwner && u.role === 'STAFF' && deviceId) {
+      if (!updatedDeviceIds.includes(deviceId)) {
+        if (updatedDeviceIds.length < 2) {
+          updatedDeviceIds.push(deviceId);
           await prisma.user.update({
             where: { id: u.id },
-            data: { deviceIds: newDeviceIds }
+            data: { deviceIds: updatedDeviceIds }
+          });
+          await recordSystemLog({
+            actorId: u.id, actorName: u.name || 'Unknown', actorRole: u.role || 'STAFF',
+            actionType: 'DEVICE_REGISTER', details: `Mendaftarkan perangkat baru: ${deviceId}`,
+            targetObj: 'User', tenantId: u.tenantId || 'sdm'
           });
         } else {
-          // Blocked
           return NextResponse.json({
             error: 'DEVICE_LOCKED_MISMATCH',
             message: 'Maksimal 2 perangkat terdaftar tercapai. Hubungi admin.'
@@ -100,8 +68,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // 4. Update Token
-    const tenantId = (u as any).tenantId || 'sdm';
+    const tenantId = u.tenantId || 'sdm';
     const tenant = await prisma.tenant.findUnique({
       where: { id: tenantId },
       select: { featuresJson: true }
@@ -113,16 +80,22 @@ export async function POST(request: Request) {
       name: u.name,
       username: u.username,
       tenantId: tenantId,
-      telegramId: u.telegramId || '',
-      telegramUsername: u.telegramUsername || '',
+      telegramId: (u.telegramId as string | null) || '',
+      telegramUsername: (u.telegramUsername as string | null) || '',
       role: u.role,
       deviceId: deviceId,
-      avatarUrl: u.avatarUrl || undefined,
+      avatarUrl: (u.avatarUrl as string | null) || undefined,
       isFreelance: !!u.isFreelance,
-      features: features // CRITICAL: Include features here to fix stale menu
+      features: features
     };
 
     const token = jwt.sign(userPayload, JWT_SECRET, { expiresIn: '7d' });
+
+    await recordSystemLog({
+      actorId: u.id, actorName: u.name || 'Unknown', actorRole: u.role || 'STAFF',
+      actionType: 'LOGIN', details: `Login berhasil${deviceId ? ` via perangkan ${deviceId}` : ''}`,
+      targetObj: 'User', tenantId
+    });
 
     return NextResponse.json({ user: userPayload, token });
 
@@ -131,3 +104,4 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Internal Server Error', details: error.message }, { status: 500 });
   }
 }
+

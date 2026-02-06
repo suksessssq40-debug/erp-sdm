@@ -1,5 +1,5 @@
 import { AppState } from './types';
-import { LeaveRequest, FinancialAccountDef, TransactionCategory, BusinessUnit, SystemActionType } from '../types';
+import { LeaveRequest, FinancialAccountDef, TransactionCategory, BusinessUnit, SystemActionType, UserRole } from '../types';
 import { API_BASE } from './constants';
 
 export const createOtherActions = (
@@ -231,6 +231,11 @@ export const createOtherActions = (
   };
 
   const fetchLogs = async (target?: string) => {
+    // Permission Check to prevent 403 Errors
+    const role = state.currentUser?.role;
+    const allowed = [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.SUPERADMIN];
+    if (!role || !allowed.includes(role)) return;
+
     try {
       let url = `${API_BASE}/api/system-logs`;
       if (target) url += `?target=${encodeURIComponent(target)}`;

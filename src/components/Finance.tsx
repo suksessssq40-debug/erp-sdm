@@ -174,7 +174,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
       let sumUrl = '/api/finance/summary';
       if (filterBusinessUnit && filterBusinessUnit !== 'ALL') sumUrl += `?businessUnitId=${filterBusinessUnit}`;
 
-      const resSum = await fetch(sumUrl, { headers });
+      const resSum = await fetch(sumUrl, { headers, cache: 'no-store' });
       if (resSum.ok) setSummary(await resSum.json());
 
       // 2. Fetch Transactions (With Status Filter, Global Search, and Account Filter)
@@ -184,7 +184,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
       if (filterAccount && filterAccount !== 'ALL') transUrl += `&accountName=${encodeURIComponent(filterAccount)}`;
       if (filterBusinessUnit && filterBusinessUnit !== 'ALL') transUrl += `&businessUnitId=${filterBusinessUnit}`;
 
-      const resTrans = await fetch(transUrl, { headers });
+      const resTrans = await fetch(transUrl, { headers, cache: 'no-store' });
       if (resTrans.ok) {
         const json = await resTrans.json();
         setLocalTransactions(json.data);
@@ -348,13 +348,32 @@ const FinanceModule: React.FC<FinanceProps> = ({
     try {
       if (transactionModal.isEditing) {
         await onUpdateTransaction(data);
+        // Manual Local Update
+        setLocalTransactions(prev => prev.map(t => t.id === data.id ? data : t));
         toast.success('Transaksi diperbarui');
       } else {
         await onAddTransaction(data);
+        // Manual Local Update (Optimistic-like, but after success to ensure ID)
+        // Note: data might not have ID if not returned from onAddTransaction, 
+        // but typically onAddTransaction updates the store. 
+        // Ideally we should receive the created object.
+        // For now, we rely on the fact that store.transactions IS updated, 
+        // but localTransactions is separate. 
+        // Better: trigger fetchData immediately but dont block UI if possible.
+        // Even Better: We simply append 'data' with a temp ID if needed, 
+        // BUT 'onAddTransaction' is async and returns void in props, 
+        // so we can't easily get the REAL ID unless we change the interface.
+        // HOWEVER, 'fetchData' below will fix it. The issue was caching.
+        // With cache: 'no-store' added to fetchData, it should be fast enough.
+        // But to be super safe, let's force a delay-less fetch.
         toast.success('Transaksi disimpan');
       }
-      fetchData(); // Refresh Main
-      if (activeTab === 'BUKU_BESAR') fetchLedger(); // Refresh Ledger if active
+
+      // IMPORTANT: With cache: 'no-store' in fetchData, this will now actually get fresh data.
+      // Previously it was hitting cache.
+      await fetchData();
+
+      if (activeTab === 'BUKU_BESAR') fetchLedger();
     } catch (e) { toast.error("Gagal simpan"); }
   };
 

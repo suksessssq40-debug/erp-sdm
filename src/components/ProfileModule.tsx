@@ -87,8 +87,15 @@ const ProfileModule: React.FC<ProfileModuleProps> = ({ currentUser, onUpdateUser
                     <h1 className="text-3xl font-black text-slate-800 uppercase tracking-tight">Profil Saya</h1>
                     <p className="text-slate-500 font-bold text-sm uppercase tracking-widest mt-1">Kelola Identitas & Informasi Akun</p>
                 </div>
-                <div className="px-4 py-2 bg-slate-100 rounded-xl font-black text-xs uppercase tracking-widest text-slate-500">
-                    {currentUser.role}
+                <div className="flex gap-2">
+                    <div className="px-4 py-2 bg-slate-100 rounded-xl font-black text-xs uppercase tracking-widest text-slate-500">
+                        {currentUser.role}
+                    </div>
+                    {['OWNER', 'MANAGER', 'FINANCE'].includes(currentUser.role) && (
+                        <div className="px-4 py-2 bg-slate-900 text-white rounded-xl font-black text-[10px] uppercase tracking-tighter flex items-center gap-2 border border-slate-700 italic">
+                            <CheckCircle2 size={12} className="text-blue-400" /> Authorized Approver
+                        </div>
+                    )}
                 </div>
             </div>
 

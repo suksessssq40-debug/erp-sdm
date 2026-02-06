@@ -1,6 +1,8 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
+import { serialize } from '@/lib/serverUtils';
 
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   try {
@@ -27,12 +29,12 @@ export async function PUT(request: Request, { params }: { params: { id: string }
         status: p.status,
         tasksJson: JSON.stringify(p.tasks || []),
         commentsJson: JSON.stringify(p.comments || []),
-        isManagementOnly: (p.isManagementOnly ? 1 : 0) as any,
+        isManagementOnly: p.isManagementOnly ? 1 : 0,
         priority: p.priority
       }
     });
 
-    return NextResponse.json(p);
+    return NextResponse.json(serialize(p));
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: 'Failed' }, { status: 500 });
@@ -62,7 +64,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
         return NextResponse.json({ error: 'Staff cannot mark as DONE' }, { status: 403 });
       }
       updateData.status = data.status;
-    } 
+    }
     else if (action === 'UPDATE_TASK') {
       // 2. Task Update (Atomic replacement of the specific task in JSON array)
       let tasks: any[] = [];
@@ -70,31 +72,24 @@ export async function PATCH(request: Request, { params }: { params: { id: string
         tasks = JSON.parse(currentProject.tasksJson || '[]');
         if (!Array.isArray(tasks)) tasks = [];
       } catch (e) { tasks = []; }
-      
+
       const updatedTasks = tasks.map((t: any) => t.id === data.taskId ? data.task : t);
       updateData.tasksJson = JSON.stringify(updatedTasks);
     }
     else if (action === 'ADD_COMMENT') {
-       // 3. Add Project Comment
-       const comments = JSON.parse(currentProject.commentsJson || '[]');
-       comments.push(data.comment);
-       updateData.commentsJson = JSON.stringify(comments);
+      // 3. Add Project Comment
+      const comments = JSON.parse(currentProject.commentsJson || '[]');
+      comments.push(data.comment);
+      updateData.commentsJson = JSON.stringify(comments);
     }
-    
+
     // Perform Update
     const updated = await prisma.project.update({
       where: { id },
       data: updateData
     });
 
-    // Fix BigInt serialization
-    const serialized = JSON.parse(JSON.stringify(updated, (key, value) =>
-        typeof value === 'bigint'
-            ? Number(value)
-            : value // return everything else unchanged
-    ));
-
-    return NextResponse.json(serialized);
+    return NextResponse.json(serialize(updated));
   } catch (error) {
     console.error("PATCH Error:", error);
     return NextResponse.json({ error: 'Failed to patch project' }, { status: 500 });
@@ -104,7 +99,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 // Support DELETE - Management Level
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   try {
-    const user = await authorize(['OWNER', 'MANAGER', 'FINANCE']); 
+    const user = await authorize(['OWNER', 'MANAGER', 'FINANCE']);
     const { tenantId } = user;
     const id = params.id;
 
