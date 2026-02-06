@@ -89,7 +89,7 @@ export async function POST(request: Request) {
       features: features
     };
 
-    const token = jwt.sign(userPayload, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign(userPayload, JWT_SECRET, { expiresIn: '30d' });
 
     await recordSystemLog({
       actorId: u.id, actorName: u.name || 'Unknown', actorRole: u.role || 'STAFF',

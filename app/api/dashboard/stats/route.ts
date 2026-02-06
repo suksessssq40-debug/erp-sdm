@@ -26,10 +26,10 @@ export async function GET(request: NextRequest) {
       overdueProjects
     ] = await Promise.all([
       prisma.user.count({ where: { tenantId, role: { not: 'OWNER' } } }),
-      prisma.attendance.count({ where: { tenantId, date: { startsWith: todayISO } } }),
+      prisma.attendance.count({ where: { tenantId, date: todayISO } }),
       prisma.project.count({ where: { tenantId, status: 'ON_GOING' } }),
       prisma.leaveRequest.count({ where: { tenantId, status: 'PENDING' } }),
-      prisma.attendance.count({ where: { tenantId, date: { startsWith: todayISO }, isLate: 1 } }),
+      prisma.attendance.count({ where: { tenantId, date: todayISO, isLate: 1 } }),
       prisma.project.count({
         where: {
           tenantId,
