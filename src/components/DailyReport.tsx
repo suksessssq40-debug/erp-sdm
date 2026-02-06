@@ -210,7 +210,7 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
                     </td>
                     <td className="px-6 py-5">
                       <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">
-                        {report.activities.length} AKTIVITAS
+                        {(report.activities || []).length} AKTIVITAS
                       </span>
                     </td>
                     <td className="px-6 py-5 text-right">
