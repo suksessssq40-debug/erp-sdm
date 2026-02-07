@@ -41,7 +41,8 @@ export async function GET(request: Request) {
     const records = await prisma.attendance.findMany({
       where,
       orderBy: [
-        { date: 'desc' },
+        { createdAt: 'desc' }, // Priority 1: True Timestamp (Fixes 2026 vs Jan issue)
+        { date: 'desc' },      // Priority 2: Legacy fallback
         { timeIn: 'desc' }
       ],
       take: 200

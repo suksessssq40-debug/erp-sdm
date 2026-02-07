@@ -25,7 +25,10 @@ export async function GET(request: Request) {
 
     const reports = await prisma.dailyReport.findMany({
       where,
-      orderBy: { date: 'desc' },
+      orderBy: [
+        { createdAt: 'desc' },
+        { date: 'desc' }
+      ],
       take: startDate ? undefined : 200
     });
 
