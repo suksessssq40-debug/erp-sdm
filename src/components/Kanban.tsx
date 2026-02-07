@@ -5,7 +5,7 @@ import { KANBAN_COLUMNS } from '../constants';
 import {
   Plus, CheckCircle, Clock, EyeOff, UserPlus, UserCheck,
   History as HistoryIcon, Edit2, CheckCircle2, LayoutGrid, X, Circle,
-  ChevronRight, BarChart2
+  ChevronRight, BarChart2, FileText
 } from 'lucide-react';
 import { sendTelegramNotification, escapeHTML } from '../utils';
 import { useToast } from './Toast';
@@ -42,6 +42,7 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
   const [historyProject, setHistoryProject] = useState<Project | null>(null); // State for history modal
+  const [isExporting, setIsExporting] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'priority' | 'deadline' | 'search'>('priority');
   const [searchQuery, setSearchQuery] = useState('');
@@ -183,6 +184,154 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
     }
   };
 
+  const handleExportPDF = async () => {
+    if (finalProjects.length === 0) {
+      toast.warning("Tidak ada proyek untuk di-export.");
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      const { jsPDF } = await import('jspdf');
+      // @ts-ignore
+      const autoTable = (await import('jspdf-autotable')).default;
+      const doc = new jsPDF('p', 'mm', 'a4');
+      const pageWidth = doc.internal.pageSize.getWidth();
+
+      // --- HEADER ---
+      doc.setFillColor(30, 41, 59); // Slate-800
+      doc.rect(0, 0, pageWidth, 40, 'F');
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(22);
+      doc.setFont('helvetica', 'bold');
+      doc.text('LAPORAN PROGRESS KANBAN', 14, 18);
+
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Dicetak Oleh: ${currentUser.name}`, 14, 26);
+      doc.text(`Tanggal Cetak: ${new Date().toLocaleString('id-ID')}`, 14, 32);
+      doc.text(`Total Proyek: ${finalProjects.length}`, pageWidth - 50, 32);
+
+      let currentY = 50;
+
+      // --- PROJECTS LOOP ---
+      finalProjects.forEach((project, index) => {
+        // Add new page if space is tight (roughly 60mm needed for project header + some tasks)
+        if (currentY > 230) {
+          doc.addPage();
+          currentY = 20;
+        }
+
+        // Project Title Header
+        doc.setFillColor(248, 250, 252); // Slate-50
+        doc.rect(14, currentY, pageWidth - 28, 12, 'F');
+        doc.setDrawColor(226, 232, 240); // Slate-200
+        doc.line(14, currentY, 14, currentY + 12);
+
+        doc.setTextColor(30, 41, 59);
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`${index + 1}. ${project.title.toUpperCase()}`, 18, currentY + 8);
+
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`PRIORITY: ${project.priority} | STATUS: ${project.status}`, pageWidth - 70, currentY + 8);
+        currentY += 18;
+
+        // Description
+        doc.setTextColor(100, 116, 139);
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'italic');
+        const splitDesc = doc.splitTextToSize(project.description || 'Tidak ada deskripsi.', pageWidth - 32);
+        doc.text(splitDesc, 18, currentY);
+        currentY += (splitDesc.length * 5) + 6;
+
+        // Collaborators
+        const teamNames = project.collaborators.map(id => users.find(u => u.id === id)?.name || 'Unknown').join(', ');
+        doc.setTextColor(30, 41, 59);
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`TIM KANBAN: `, 18, currentY);
+        doc.setFont('helvetica', 'normal');
+        doc.text(teamNames, 42, currentY);
+        currentY += 8;
+
+        // Tasks Table
+        const taskData = project.tasks.map((task, tIdx) => [
+          tIdx + 1,
+          task.title,
+          task.assignedTo.map(id => users.find(u => u.id === id)?.name || '-').join(', '),
+          task.isCompleted ? 'SELESAI' : 'PROSES',
+          task.isCompleted && task.completionProof ? (task.completionProof.description + (task.completionProof.link ? `\n[LINK: ${task.completionProof.link}]` : '')) : '-'
+        ]);
+
+        autoTable(doc, {
+          startY: currentY,
+          head: [['No', 'Tugas / Pekerjaan', 'PIC Tugas', 'Status', 'Hasil Kerja & Link Bukti']],
+          body: taskData,
+          theme: 'grid',
+          headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold' },
+          bodyStyles: { fontSize: 7.5, textColor: [30, 41, 59], cellPadding: 3 },
+          columnStyles: {
+            0: { cellWidth: 8 },
+            1: { cellWidth: 50 },
+            2: { cellWidth: 35 },
+            3: { cellWidth: 15 },
+            4: { cellWidth: 'auto' }
+          },
+          margin: { left: 18 },
+          didDrawPage: (data: any) => {
+            currentY = data.cursor.y + 8;
+          }
+        });
+
+        // --- DISCUSSION SECTION ---
+        if (project.comments && project.comments.length > 0) {
+          if (currentY > 240) { doc.addPage(); currentY = 20; }
+
+          doc.setFillColor(241, 245, 249);
+          doc.rect(18, currentY, pageWidth - 36, 6, 'F');
+          doc.setTextColor(71, 85, 105);
+          doc.setFontSize(8);
+          doc.setFont('helvetica', 'bold');
+          doc.text('CATATAN DISKUSI & INSTRUKSI PROYEK', 22, currentY + 4);
+          currentY += 10;
+
+          project.comments.slice(-5).forEach(comment => {
+            const userName = users.find(u => u.id === comment.userId)?.name || 'System';
+            const date = new Date(comment.createdAt).toLocaleDateString('id-ID');
+
+            doc.setTextColor(30, 41, 59);
+            doc.setFont('helvetica', 'bold');
+            doc.text(`${userName} (${date}):`, 22, currentY);
+
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(100, 116, 139);
+            const splitComment = doc.splitTextToSize(comment.text, pageWidth - 50);
+            doc.text(splitComment, 22, currentY + 4);
+            currentY += (splitComment.length * 4) + 4;
+          });
+          currentY += 4;
+        }
+
+        // Add separator between projects
+        if (index < finalProjects.length - 1) {
+          doc.setDrawColor(241, 245, 249);
+          doc.line(14, currentY - 5, pageWidth - 14, currentY - 5);
+        }
+      });
+
+      doc.save(`Laporan_Kanban_${currentUser.name}_${new Date().toISOString().split('T')[0]}.pdf`);
+      toast.success("Laporan PDF berhasil di-generate!");
+    } catch (e) {
+      console.error(e);
+      toast.error("Gagal membuat PDF.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const onDragStart = (e: React.DragEvent, id: string) => {
     setDraggedProjectId(id);
     e.dataTransfer.setData("projectId", id);
@@ -207,6 +356,18 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
             <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">DRAG & DROP UNTUK UPDATE STATUS</p>
           </div>
           <div className="flex gap-3 w-full md:w-auto">
+            <button
+              onClick={handleExportPDF}
+              disabled={isExporting}
+              className="bg-rose-50 text-rose-600 px-5 py-3 rounded-2xl flex items-center justify-center space-x-2 hover:bg-rose-600 hover:text-white transition flex-1 md:flex-none shadow-sm font-black text-xs uppercase tracking-widest disabled:opacity-50"
+            >
+              {isExporting ? (
+                <div className="w-4 h-4 border-2 border-rose-600 border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                <FileText size={18} />
+              )}
+              <span>{isExporting ? 'EXPORTING...' : 'EXPORT PDF'}</span>
+            </button>
             <button onClick={() => router.push(`/${currentUser.tenantId || 'sdm'}/${currentUser.role.toLowerCase()}/projects`)} className="bg-slate-100 text-slate-600 px-5 py-3 rounded-2xl flex items-center justify-center space-x-2 hover:bg-slate-200 transition flex-1 md:flex-none">
               <LayoutGrid size={20} /> <span className="font-black text-xs uppercase tracking-widest">DETAIL VIEW</span>
             </button>
