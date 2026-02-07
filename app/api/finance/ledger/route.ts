@@ -33,7 +33,7 @@ export async function GET(request: Request) {
             let paramIdx = 3;
 
             if (accountName && accountName !== 'ALL') {
-                openingQuery += ` AND (t.account = $${paramIdx} OR (fa.name = $${paramIdx} AND fa.tenant_id = $1))`;
+                openingQuery += ` AND (t.account ILIKE $${paramIdx} OR (fa.name ILIKE $${paramIdx} AND fa.tenant_id = $1))`;
                 openingParams.push(accountName);
                 paramIdx++;
             }
@@ -58,7 +58,7 @@ export async function GET(request: Request) {
             paramIdx = 4;
 
             if (accountName && accountName !== 'ALL') {
-                transQuery += ` AND (t.account = $${paramIdx} OR (fa.name = $${paramIdx} AND fa.tenant_id = $1))`;
+                transQuery += ` AND (t.account ILIKE $${paramIdx} OR (fa.name ILIKE $${paramIdx} AND fa.tenant_id = $1))`;
                 transParams.push(accountName);
                 paramIdx++;
             }

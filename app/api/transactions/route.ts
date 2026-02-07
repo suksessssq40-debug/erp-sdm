@@ -33,7 +33,7 @@ export async function GET(request: Request) {
       whereClause.businessUnitId = businessUnitId;
     }
     if (accountName && accountName !== 'ALL') {
-      whereClause.account = accountName;
+      whereClause.account = { equals: accountName, mode: 'insensitive' };
     }
     if (search) {
       whereClause.OR = [
