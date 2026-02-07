@@ -15,7 +15,6 @@ export async function middleware(request: NextRequest) {
     request.nextUrl.pathname.startsWith('/favicon.ico') ||
     request.nextUrl.pathname.startsWith('/api/cron') ||
     request.nextUrl.pathname.startsWith('/api/check-db') ||
-    request.nextUrl.pathname.startsWith('/api/check-noncash') ||
     request.nextUrl.pathname.startsWith('/api/migrate') ||
     request.nextUrl.pathname.startsWith('/api/finance/import/template') ||
     request.nextUrl.pathname.startsWith('/api/finance/coa/template')

@@ -107,7 +107,12 @@ export async function POST(request: Request) {
     let accountId: string | null = null;
     let finalAccountName = t.account;
 
-    if (t.account) {
+    // Check if flagged as Non-Cash (General Journal) from Frontend
+    if (t.isNonCash) {
+      // Do NOT look up FinancialAccount. Keep accountId null.
+      // finalAccountName is just the COA string (e.g. "Debit Account")
+      accountId = null;
+    } else if (t.account) {
       let acc = await prisma.financialAccount.findFirst({
         where: {
           tenantId,

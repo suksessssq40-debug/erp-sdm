@@ -205,12 +205,13 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 return;
             }
 
-            const payload: Transaction = {
+            const payload: Transaction & { isNonCash?: boolean } = {
                 ...formData,
                 account: finalAccountName,
                 category: coaSearch,
                 id: isEditing ? formData.id : (formData.id || Math.random().toString(36).substr(2, 9)),
-                date: formData.date ? new Date(formData.date).toISOString() : new Date().toISOString()
+                date: formData.date ? new Date(formData.date).toISOString() : new Date().toISOString(),
+                isNonCash: isGeneralMode
             };
 
             await onSave(payload);
