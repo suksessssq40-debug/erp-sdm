@@ -163,7 +163,17 @@ const FinanceModule: React.FC<FinanceProps> = ({
   const [importCoaModal, setImportCoaModal] = useState(false); // COA Import Modal State
 
   // --- DATA FETCHING (MAIN) ---
+  // --- DATA FETCHING (MAIN) ---
+  const fetchController = React.useRef<AbortController | null>(null);
+
   const fetchData = async () => {
+    // 1. Cancel previous request if exists (Race Condition Protection)
+    if (fetchController.current) {
+      fetchController.current.abort();
+    }
+    const controller = new AbortController();
+    fetchController.current = controller;
+
     setIsLoading(true);
     const token = typeof window !== 'undefined' ? localStorage.getItem('sdm_erp_auth_token') : null;
     const headers: Record<string, string> = {};
@@ -174,9 +184,6 @@ const FinanceModule: React.FC<FinanceProps> = ({
       let sumUrl = '/api/finance/summary';
       if (filterBusinessUnit && filterBusinessUnit !== 'ALL') sumUrl += `?businessUnitId=${filterBusinessUnit}`;
 
-      const resSum = await fetch(sumUrl, { headers, cache: 'no-store' });
-      if (resSum.ok) setSummary(await resSum.json());
-
       // 2. Fetch Transactions (With Status Filter, Global Search, and Account Filter)
       let transUrl = `/api/transactions?startDate=${filterStartDate}&endDate=${filterEndDate}&status=${journalStatus}&page=${journalPage}&limit=50`;
 
@@ -184,7 +191,14 @@ const FinanceModule: React.FC<FinanceProps> = ({
       if (filterAccount && filterAccount !== 'ALL') transUrl += `&accountName=${encodeURIComponent(filterAccount)}`;
       if (filterBusinessUnit && filterBusinessUnit !== 'ALL') transUrl += `&businessUnitId=${filterBusinessUnit}`;
 
-      const resTrans = await fetch(transUrl, { headers, cache: 'no-store' });
+      // Parallel Fetch with Abort Signal
+      const [resSum, resTrans] = await Promise.all([
+        fetch(sumUrl, { headers, cache: 'no-store', signal: controller.signal }),
+        fetch(transUrl, { headers, cache: 'no-store', signal: controller.signal })
+      ]);
+
+      if (resSum.ok) setSummary(await resSum.json());
+
       if (resTrans.ok) {
         const json = await resTrans.json();
         setLocalTransactions(json.data);
@@ -195,13 +209,22 @@ const FinanceModule: React.FC<FinanceProps> = ({
       }
 
       // 3. Refresh COA Balances (Fix for "Saldo COA Tetap")
+      // We don't abort COA refresh rigidly as it's less prone to race condition visual bugs, 
+      // but let's keep it safe.
       await refreshCoa();
 
-    } catch (e) {
+    } catch (e: any) {
+      if (e.name === 'AbortError') {
+        console.log('Fetch aborted (stale)');
+        return;
+      }
       console.error(e);
       toast.error('Gagal memuat data keuangan');
     } finally {
-      setIsLoading(false);
+      // Only turn off loading if THIS was the latest request
+      if (fetchController.current === controller) {
+        setIsLoading(false);
+      }
     }
   };
 
