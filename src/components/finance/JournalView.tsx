@@ -18,12 +18,13 @@ interface JournalViewProps {
     onSearchChange: (s: string) => void;
     currentPage: number;
     totalPages: number;
+    totalRecords: number;
     onPageChange: (p: number) => void;
 }
 
 export const JournalView: React.FC<JournalViewProps> = ({
     transactions, businessUnits, onEdit, onDelete,
-    statusFilter, onStatusChange, searchTerm, onSearchChange, currentPage, totalPages, onPageChange
+    statusFilter, onStatusChange, searchTerm, onSearchChange, currentPage, totalPages, totalRecords, onPageChange
 }) => {
     const [previewImage, setPreviewImage] = useState<string | null>(null);
 
@@ -52,7 +53,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
                                 <option value="UNPAID">BELUM LUNAS (DP)</option>
                             </select>
                             <div className="hidden md:flex items-center bg-blue-50 px-5 py-3 rounded-2xl text-[9px] font-black uppercase text-blue-600 tracking-widest gap-2 border border-blue-100 shadow-sm">
-                                <Receipt size={12} /> {transactions.length} Records
+                                <Receipt size={12} /> {totalRecords} Records
                             </div>
                         </div>
                     </div>

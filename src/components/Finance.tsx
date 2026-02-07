@@ -605,6 +605,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
           onSearchChange={(val) => { setJournalSearch(val); setJournalPage(1); }}
           currentPage={journalPage}
           totalPages={journalPagination.totalPages}
+          totalRecords={journalPagination.total}
           onPageChange={setJournalPage}
         />
       )}
