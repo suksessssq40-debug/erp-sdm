@@ -48,7 +48,16 @@ export async function GET(request: Request) {
       take: 200
     });
 
-    return NextResponse.json(serialize(records));
+    const formatted = records.map(r => ({
+      ...r,
+      location: {
+        lat: r.locationLat || 0,
+        lng: r.locationLng || 0
+      },
+      checkOutSelfieUrl: r.checkoutSelfieUrl // Map Prisma (lowercase o) to Type (Capital O)
+    }));
+
+    return NextResponse.json(serialize(formatted));
   } catch (e) {
     console.error(e);
     return NextResponse.json({ error: 'Failed' }, { status: 500 });

@@ -474,7 +474,7 @@ export default function AttendanceReportPage() {
                                 </div>
 
                                 {/* Late Reason */}
-                                {selectedRecord.isLate && (
+                                {!!selectedRecord.isLate && (
                                     <div className="p-5 bg-rose-50 rounded-[2rem] border border-rose-100">
                                         <div className="flex items-center gap-2 text-rose-600 mb-2">
                                             <AlertTriangle size={16} />
