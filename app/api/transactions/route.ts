@@ -33,7 +33,11 @@ export async function GET(request: Request) {
       whereClause.businessUnitId = businessUnitId;
     }
     if (accountName && accountName !== 'ALL') {
-      whereClause.account = { equals: accountName, mode: 'insensitive' };
+      if (accountName === 'GENERAL_JOURNAL') {
+        whereClause.accountId = null;
+      } else {
+        whereClause.account = { equals: accountName, mode: 'insensitive' };
+      }
     }
     if (search) {
       whereClause.OR = [
