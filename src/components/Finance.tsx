@@ -490,20 +490,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
             {businessUnits.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleSyncBalances}
-              disabled={isSyncing}
-              className="p-3 bg-amber-100 text-amber-600 rounded-xl hover:bg-amber-200 transition shadow-sm"
-              title="Sinkronisasi Saldo Akun"
-            >
-              <RefreshCw size={16} className={isSyncing ? 'animate-spin' : ''} />
-            </button>
 
-            <button onClick={() => { fetchData(); if (activeTab === 'BUKU_BESAR') fetchLedger(); }} className="p-3 bg-blue-100 text-blue-600 rounded-xl hover:bg-blue-200 transition shadow-sm">
-              <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
-            </button>
-          </div>
 
           {/* EXPORT BUTTON */}
           <div className="relative">
@@ -531,62 +518,65 @@ const FinanceModule: React.FC<FinanceProps> = ({
         </div>
       </div>
 
-      {/* --- ACCOUNT HIGHLIGHTS --- */}
-      <div className="flex overflow-x-auto pb-4 gap-4 snap-x custom-scrollbar">
-        {financialAccounts.map(acc => {
-          const bal = summary?.accountBalances[acc.name] || 0;
-          const isSelected = filterAccount === acc.name;
-          return (
-            <div
-              key={acc.id}
-              onClick={() => {
-                setFilterAccount(isSelected ? 'ALL' : acc.name);
-                if (activeTab !== 'BUKU_BESAR') setLedgerAccount(acc.name);
-              }}
-              className={`relative flex-shrink-0 w-64 snap-start p-6 rounded-[2.5rem] border-2 cursor-pointer transition-all duration-300 group ${isSelected ? 'bg-slate-900 border-slate-900 text-white shadow-2xl shadow-slate-200' : 'bg-white border-slate-100 hover:border-blue-200 hover:shadow-lg shadow-sm text-slate-800'}`}
-            >
-              <div className="flex justify-between items-start mb-4">
-                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${isSelected ? 'bg-white/10' : 'bg-blue-50 text-blue-600'}`}>
-                  <Landmark size={20} />
+      {/* --- ACCOUNT HIGHLIGHTS & SYNC --- */}
+      <div className="flex gap-4 mb-8">
+        <div className="flex-1 flex overflow-x-auto pb-4 gap-4 snap-x no-scrollbar">
+          {financialAccounts.map(acc => {
+            const bal = summary?.accountBalances[acc.name] || 0;
+            const isSelected = filterAccount === acc.name;
+            return (
+              <div
+                key={acc.id}
+                onClick={() => {
+                  setFilterAccount(isSelected ? 'ALL' : acc.name);
+                  if (activeTab !== 'BUKU_BESAR') setLedgerAccount(acc.name);
+                }}
+                className={`relative flex-shrink-0 w-64 snap-start p-6 rounded-[2.5rem] border-2 cursor-pointer transition-all duration-300 group ${isSelected ? 'bg-slate-900 border-slate-900 text-white shadow-2xl shadow-slate-200' : 'bg-white border-slate-100 hover:border-blue-200 hover:shadow-lg shadow-sm text-slate-800'}`}
+              >
+                <div className="flex justify-between items-start mb-4">
+                  <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${isSelected ? 'bg-white/10' : 'bg-blue-50 text-blue-600'}`}>
+                    <Landmark size={20} />
+                  </div>
+                  {isSelected && <div className="text-[9px] font-black uppercase tracking-widest bg-blue-600 px-2 py-1 rounded-lg text-white">SELECTED</div>}
                 </div>
-                {isSelected && <div className="text-[9px] font-black uppercase tracking-widest bg-blue-600 px-2 py-1 rounded-lg text-white">SELECTED</div>}
+                <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${isSelected ? 'text-slate-500' : 'text-slate-400'}`}>{acc.bankName} - {acc.name}</p>
+                <h4 className="text-xl font-black tracking-tight leading-none">{formatCurrency(bal)}</h4>
+
+                {onUpdateAccount && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleOpenAccount(true, acc); }}
+                    className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition opacity-0 group-hover:opacity-100"
+                  >
+                    <Edit size={12} className={isSelected ? 'text-white' : 'text-slate-500'} />
+                  </button>
+                )}
               </div>
-              <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${isSelected ? 'text-slate-500' : 'text-slate-400'}`}>{acc.bankName} - {acc.name}</p>
-              <h4 className="text-xl font-black tracking-tight leading-none">{formatCurrency(bal)}</h4>
+            );
+          })}
 
-              {onUpdateAccount && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleOpenAccount(true, acc); }}
-                  className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition opacity-0 group-hover:opacity-100"
-                >
-                  <Edit size={12} className={isSelected ? 'text-white' : 'text-slate-500'} />
-                </button>
-              )}
+          {/* --- GENERAL JOURNAL CARD --- */}
+          <div
+            onClick={() => setFilterAccount(filterAccount === 'GENERAL_JOURNAL' ? 'ALL' : 'GENERAL_JOURNAL')}
+            className={`relative flex-shrink-0 w-64 snap-start p-6 rounded-[2.5rem] border-2 cursor-pointer transition-all duration-300 group ${filterAccount === 'GENERAL_JOURNAL' ? 'bg-blue-900 border-blue-900 text-white shadow-2xl shadow-blue-200' : 'bg-white border-slate-100 hover:border-blue-200 hover:shadow-lg shadow-sm text-slate-800'}`}
+          >
+            <div className="flex justify-between items-start mb-4">
+              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${filterAccount === 'GENERAL_JOURNAL' ? 'bg-white/10' : 'bg-slate-100 text-slate-500'}`}>
+                <RefreshCw size={20} />
+              </div>
+              {filterAccount === 'GENERAL_JOURNAL' && <div className="text-[9px] font-black uppercase tracking-widest bg-emerald-500 px-2 py-1 rounded-lg text-white">FILTER ACTIVE</div>}
             </div>
-          );
-        })}
-
-        {/* --- GENERAL JOURNAL CARD (For Non-Cash Mutations) --- */}
-        <div
-          onClick={() => setFilterAccount(filterAccount === 'GENERAL_JOURNAL' ? 'ALL' : 'GENERAL_JOURNAL')}
-          className={`relative flex-shrink-0 w-64 snap-start p-6 rounded-[2.5rem] border-2 cursor-pointer transition-all duration-300 group ${filterAccount === 'GENERAL_JOURNAL' ? 'bg-blue-900 border-blue-900 text-white shadow-2xl shadow-blue-200' : 'bg-white border-slate-100 hover:border-blue-200 hover:shadow-lg shadow-sm text-slate-800'}`}
-        >
-          <div className="flex justify-between items-start mb-4">
-            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${filterAccount === 'GENERAL_JOURNAL' ? 'bg-white/10' : 'bg-slate-100 text-slate-500'}`}>
-              <RefreshCw size={20} />
-            </div>
-            {filterAccount === 'GENERAL_JOURNAL' && <div className="text-[9px] font-black uppercase tracking-widest bg-emerald-500 px-2 py-1 rounded-lg text-white">FILTER ACTIVE</div>}
+            <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${filterAccount === 'GENERAL_JOURNAL' ? 'text-blue-300' : 'text-slate-400'}`}>PENYESUAIAN</p>
+            <h4 className="text-xl font-black tracking-tight leading-none">JURNAL UMUM</h4>
           </div>
-          <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${filterAccount === 'GENERAL_JOURNAL' ? 'text-blue-300' : 'text-slate-400'}`}>PENYESUAIAN</p>
-          <h4 className="text-xl font-black tracking-tight leading-none">JURNAL UMUM</h4>
-          <p className="mt-2 text-[9px] font-medium opacity-60">Transaksi tanpa Rekening Kas/Bank</p>
+
+          {onAddAccount && (
+            <button onClick={() => handleOpenAccount(false)} className="flex-shrink-0 w-24 snap-start p-6 rounded-[2.5rem] border-2 border-dashed border-slate-200 flex flex-col items-center justify-center gap-2 hover:bg-slate-50 hover:border-blue-300 transition text-slate-300 hover:text-blue-500">
+              <Plus size={24} /><span className="text-[9px] font-black uppercase text-center">Add Akun</span>
+            </button>
+          )}
         </div>
 
-        {onAddAccount && (
-          <button onClick={() => handleOpenAccount(false)} className="flex-shrink-0 w-24 snap-start p-6 rounded-[2.5rem] border-2 border-dashed border-slate-200 flex flex-col items-center justify-center gap-2 hover:bg-slate-50 hover:border-blue-300 transition text-slate-300 hover:text-blue-500">
-            <Plus size={24} /><span className="text-[9px] font-black uppercase text-center">Add Akun</span>
-          </button>
-        )}
+
       </div>
 
       {/* --- TABS --- */}
@@ -603,8 +593,19 @@ const FinanceModule: React.FC<FinanceProps> = ({
           ))}
         </div>
         <div className="flex items-center space-x-3 mb-4 flex-shrink-0">
-          <div className="bg-slate-900 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center shadow-xl shadow-slate-100 italic">
-            <Wallet size={14} className="mr-2 text-blue-400" /> TOTAL: <span className="ml-2">{formatCurrency(summary?.totalAssets || 0)}</span>
+          <div className="bg-slate-900 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center shadow-xl shadow-slate-100 italic group relative overflow-hidden">
+            <Wallet size={14} className="mr-2 text-blue-400" />
+            TOTAL: <span className="ml-2">{formatCurrency(summary?.totalAssets || 0)}</span>
+
+            <button
+              onClick={handleSyncBalances}
+              disabled={isSyncing}
+              title="Sinkronkan Saldo (Hitung Ulang)"
+              className={`ml-4 p-1.5 rounded-lg transition-all ${isSyncing ? 'bg-blue-600 text-white' : 'hover:bg-white/10 text-slate-500 hover:text-blue-400'}`}
+            >
+              <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
+            </button>
+            {isSyncing && <div className="absolute inset-0 bg-blue-500/5 animate-pulse pointer-events-none"></div>}
           </div>
           <button onClick={() => setImportModal(true)} className="bg-emerald-100 text-emerald-600 px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center hover:bg-emerald-200 transition shadow-sm">
             <FileSpreadsheet size={16} className="mr-2" /> IMPORT EXCEL

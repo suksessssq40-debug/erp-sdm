@@ -262,7 +262,7 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
               {selectedReport.activities.map((act, i) => (
                 <div key={i} className="bg-slate-50 p-5 rounded-[1.5rem] border border-slate-100">
                   <div className="flex justify-between items-start mb-2">
-                    <p className="text-sm font-bold text-slate-800 w-2/3">{act.task}</p>
+                    <p className="text-sm font-bold text-slate-800 w-2/3 whitespace-pre-wrap">{act.task}</p>
                     <span className="bg-white px-3 py-1 rounded-lg text-[10px] font-black text-blue-600 shadow-sm border border-slate-100">
                       {act.quantity} {act.unit || 'unit'}
                     </span>

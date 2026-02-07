@@ -258,47 +258,44 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4 animate-in fade-in duration-200">
             <div className="bg-white rounded-[3.5rem] w-full max-w-3xl p-10 shadow-2xl border border-white/20 animate-in zoom-in duration-300 overflow-y-auto max-h-[90vh] custom-scrollbar">
                 {/* Header */}
-                <div className="flex justify-between items-center mb-8">
+                <div className="flex justify-between items-center mb-6">
                     <div>
                         <h3 className="text-2xl font-black text-slate-800 leading-tight italic uppercase tracking-tighter">
                             {isEditing ? 'Edit Transaksi' : 'Input Jurnal'}
                             {isSplit && <span className="text-blue-600 ml-2 not-italic bg-blue-50 px-3 py-1 rounded-full text-xs">/ MODE SPLIT</span>}
                         </h3>
-                        <div className="mt-4">
-                            {!isGeneralMode && (
-                                <>
-                                    <div className="flex gap-2 mb-2">
-                                        <button
-                                            onClick={() => setFormData({ ...formData, type: TransactionType.IN })}
-                                            className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border-2 ${formData.type === TransactionType.IN ? 'bg-emerald-50 border-emerald-500 text-emerald-600 shadow-emerald-100 shadow-lg scale-105' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-300'}`}
-                                        >
-                                            DANA MASUK (IN)
-                                        </button>
-                                        <button
-                                            onClick={() => setFormData({ ...formData, type: TransactionType.OUT })}
-                                            className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border-2 ${formData.type === TransactionType.OUT ? 'bg-rose-50 border-rose-500 text-rose-600 shadow-rose-100 shadow-lg scale-105' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-300'}`}
-                                        >
-                                            DANA KELUAR (OUT)
-                                        </button>
-                                    </div>
-                                    <p className="text-[9px] font-bold text-slate-400 font-mono pl-1">
-                                        {formData.type === TransactionType.IN
-                                            ? 'JURNAL: BANK (DEBIT)  <--  LAWAN (KREDIT)'
-                                            : 'JURNAL: BANK (KREDIT) -->  LAWAN (DEBIT)'}
-                                    </p>
-                                </>
-                            )}
-                            {isGeneralMode && (
-                                <p className="text-[9px] font-bold text-blue-500 font-mono pl-1">
-                                    JURNAL: AKUN KIRI (DEBIT)  &lt;--  AKUN KANAN (KREDIT)
-                                </p>
-                            )}
-                        </div>
                     </div>
                     <button onClick={onClose} className="p-4 bg-slate-100 rounded-2xl text-slate-400 hover:text-rose-500 transition">✕</button>
                 </div>
 
-                <div className="space-y-6">
+                {/* TYPE SELECTION (PEMASUKAN vs PENGELUARAN) */}
+                {!isGeneralMode && (
+                    <div className="flex gap-4 mb-8">
+                        <button
+                            onClick={() => setFormData({ ...formData, type: TransactionType.IN })}
+                            className={`flex-1 flex flex-col items-center gap-2 p-6 rounded-[2rem] border-4 transition-all duration-300 ${formData.type === TransactionType.IN
+                                ? 'bg-emerald-500 border-emerald-500 text-white shadow-xl shadow-emerald-100'
+                                : 'bg-white border-slate-50 text-slate-400 hover:border-emerald-100 hover:bg-emerald-50/30'}`}
+                        >
+                            <Plus size={24} className={formData.type === TransactionType.IN ? 'text-white' : 'text-emerald-500'} />
+                            <span className="text-xs font-black uppercase tracking-[0.2em]">PEMASUKAN (IN)</span>
+                        </button>
+                        <button
+                            onClick={() => setFormData({ ...formData, type: TransactionType.OUT })}
+                            className={`flex-1 flex flex-col items-center gap-2 p-6 rounded-[2rem] border-4 transition-all duration-300 ${formData.type === TransactionType.OUT
+                                ? 'bg-rose-500 border-rose-500 text-white shadow-xl shadow-rose-100'
+                                : 'bg-white border-slate-100 text-slate-400 hover:border-rose-100 hover:bg-rose-50/30'}`}
+                        >
+                            <Trash2 size={24} className={formData.type === TransactionType.OUT ? 'text-white' : 'text-rose-500'} />
+                            <span className="text-xs font-black uppercase tracking-[0.2em]">PENGELUARAN (OUT)</span>
+                        </button>
+                    </div>
+                )}
+
+                {/* MAIN FORM CONTAINER with Dynamic Background */}
+                <div className={`space-y-6 p-8 rounded-[2.5rem] border transition-colors duration-500 ${isGeneralMode ? 'bg-blue-50/30 border-blue-100' :
+                        formData.type === TransactionType.IN ? 'bg-emerald-50/20 border-emerald-100' : 'bg-rose-50/20 border-rose-100'
+                    }`}>
 
                     {/* 1. STATUS & REKENING / JOURNAL MODE */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -307,7 +304,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                         <div className="space-y-4">
                             <div className="flex justify-between items-center">
                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">MODE INPUT</label>
-                                <div className="flex bg-slate-100 rounded-lg p-1">
+                                <div className="flex bg-slate-200/50 rounded-lg p-1">
                                     <button
                                         onClick={() => { setFormData({ ...formData, account: '' }); setIsGeneralMode(false); }}
                                         className={`px-3 py-1 text-[9px] font-bold rounded-md transition ${!isGeneralMode ? 'bg-white shadow text-slate-800' : 'text-slate-400'}`}
@@ -322,10 +319,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                             {!isGeneralMode ? (
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">STATUS PEMBAYARAN</label>
-                                    <div className="flex bg-slate-50 p-1.5 rounded-[1.2rem] border border-slate-100">
+                                    <div className="flex bg-white/50 p-1.5 rounded-[1.2rem] border border-slate-200">
                                         <button
                                             onClick={() => setFormData({ ...formData, status: 'PAID' })}
-                                            className={`flex-1 py-3 text-[9px] font-black uppercase tracking-widest rounded-2xl transition-all ${formData.status !== 'PENDING' ? 'bg-emerald-500 shadow-md text-white' : 'text-slate-400 hover:text-slate-600'}`}
+                                            className={`flex-1 py-3 text-[9px] font-black uppercase tracking-widest rounded-2xl transition-all ${formData.status !== 'PENDING' ? 'bg-slate-900 shadow-md text-white' : 'text-slate-400 hover:text-slate-600'}`}
                                         >LUNAS (CASH)</button>
                                         <button
                                             onClick={() => setFormData({ ...formData, status: 'PENDING' })}
@@ -334,9 +331,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                                     </div>
                                 </div>
                             ) : (
-                                <div className="p-3 bg-blue-50 text-blue-700 rounded-xl text-[10px] font-bold border border-blue-100 leading-relaxed">
-                                    <span className="font-black block mb-1">INFO JURNAL UMUM:</span>
-                                    Transaksi ini tidak melibatkan Kas/Bank. Digunakan untuk penyusutan, pengakuan piutang/hutang awal, atau koreksi pembukuan.
+                                <div className="p-4 bg-blue-600 text-white rounded-[1.5rem] text-[10px] font-bold shadow-lg shadow-blue-100 leading-relaxed border-none">
+                                    <span className="font-black block mb-1 uppercase tracking-widest opacity-80">💡 INFO JURNAL UMUM:</span>
+                                    Transaksi ini <span className="underline italic">tidak melibatkan Kas/Bank</span>. Digunakan untuk penyusutan, pengakuan piutang/hutang, atau koreksi saldo.
                                 </div>
                             )}
                         </div>

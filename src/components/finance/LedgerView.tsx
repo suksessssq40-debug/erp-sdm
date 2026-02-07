@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Transaction, FinancialAccountDef, TransactionType, ChartOfAccount } from '../../types';
 import { formatCurrency } from '../../utils';
-import { BookOpen, ChevronRight, Receipt } from 'lucide-react';
+import { BookOpen, ChevronRight, Receipt, AlertCircle } from 'lucide-react';
 import { EmptyState } from '../EmptyState';
 
 interface LedgerViewProps {
@@ -21,28 +21,51 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
     const [searchTerm, setSearchTerm] = React.useState('');
 
     // Combine Bank Accounts and Manual COA for the sidebar
-    const allAvailableAccounts = useMemo(() => {
-        // 1. Bank Accounts (Already have virtual COA metadata in backend but let's be safe)
-        const banks = financialAccounts.map(acc => ({
-            id: acc.id,
-            name: acc.name,
-            code: '1000', // Group at top
-            type: 'BANK / KAS'
-        }));
+    const categorizedAccounts = useMemo(() => {
+        const groups: Record<string, any[]> = {
+            'KAS & REKENING BANK': [],
+            'HARTA / ASSET': [],
+            'PENDAPATAN': [],
+            'BEBAN & BIAYA': [],
+            'MODAL & KEWAJIBAN': []
+        };
 
-        // 2. All other COAs
-        const others = coaList.map(coa => ({
-            id: coa.id,
-            name: `${coa.code} - ${coa.name}`,
-            code: coa.code,
-            type: coa.type
-        }));
+        // 1. Bank Accounts
+        financialAccounts.forEach(acc => {
+            groups['KAS & REKENING BANK'].push({
+                id: acc.id,
+                name: acc.name,
+                code: '1000',
+                type: 'BANK / KAS'
+            });
+        });
 
-        return [...banks, ...others].filter(a =>
-            !searchTerm ||
-            a.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            a.code.includes(searchTerm)
-        );
+        // 2. COAs
+        coaList.forEach(coa => {
+            const item = {
+                id: coa.id,
+                name: `${coa.code} - ${coa.name}`,
+                code: coa.code,
+                type: coa.type
+            };
+            if (coa.type === 'ASSET') groups['HARTA / ASSET'].push(item);
+            else if (coa.type === 'REVENUE' || coa.type === 'INCOME') groups['PENDAPATAN'].push(item);
+            else if (coa.type === 'EXPENSE') groups['BEBAN & BIAYA'].push(item);
+            else groups['MODAL & KEWAJIBAN'].push(item);
+        });
+
+        // Apply Search Filter and Remove Empty Groups
+        const result: Record<string, any[]> = {};
+        Object.keys(groups).forEach(key => {
+            const filtered = groups[key].filter(a =>
+                !searchTerm ||
+                a.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                a.code.includes(searchTerm)
+            );
+            if (filtered.length > 0) result[key] = filtered;
+        });
+
+        return result;
     }, [financialAccounts, coaList, searchTerm]);
 
     // Calculate Running Balance on the fly
@@ -62,38 +85,49 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
         <div className="space-y-6 animate-in slide-in-from-bottom-6 duration-500">
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
                 <div className="lg:col-span-1 space-y-4">
-                    <div className="bg-slate-900 p-8 rounded-[3rem] text-white shadow-2xl relative overflow-hidden flex flex-col h-[700px]">
-                        <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/20 blur-3xl rounded-full"></div>
+                    <div className="bg-slate-900 p-8 rounded-[3.5rem] text-white shadow-2xl relative overflow-hidden flex flex-col h-[750px] border border-white/5">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 blur-3xl rounded-full"></div>
+                        <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-indigo-500/10 blur-3xl rounded-full"></div>
+
                         <BookOpen size={32} className="text-blue-400 mb-6 shrink-0" />
                         <h4 className="text-2xl font-black italic uppercase tracking-tighter mb-2 leading-none shrink-0">Buku Besar</h4>
-                        <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-4 shrink-0">PILIH AKUN / COA</p>
+                        <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-4 shrink-0">NAVIGASI AKUN</p>
 
                         {/* SEARCH BOX */}
-                        <div className="relative mb-4 shrink-0">
+                        <div className="relative mb-6 shrink-0">
                             <input
                                 type="text"
-                                placeholder="Cari akun..."
-                                className="w-full bg-white/10 border border-white/10 rounded-xl px-4 py-2 text-xs font-bold outline-none focus:border-blue-500 transition"
+                                placeholder="Cari nama atau kode..."
+                                className="w-full bg-white/10 border border-white/10 rounded-2xl px-5 py-3 text-xs font-bold outline-none focus:border-blue-500 focus:bg-white/20 transition placeholder:text-slate-600"
                                 value={searchTerm}
                                 onChange={e => setSearchTerm(e.target.value)}
                             />
                         </div>
 
-                        <div className="space-y-2 flex-1 overflow-y-auto custom-scrollbar pr-2">
-                            {allAvailableAccounts.map(acc => (
-                                <button
-                                    key={acc.id}
-                                    onClick={() => onAccountChange(acc.name)}
-                                    className={`w-full p-4 rounded-2xl text-[10px] font-black text-left uppercase transition-all flex justify-between items-center ${selectedAccount === acc.name ? 'bg-blue-600 text-white shadow-xl' : 'bg-white/5 text-slate-400 hover:bg-white/10'}`}
-                                >
-                                    <div className="flex flex-col">
-                                        <span>{acc.name}</span>
-                                        <span className={`text-[8px] opacity-50 font-medium ${selectedAccount === acc.name ? 'text-white' : 'text-blue-400'}`}>{acc.type}</span>
-                                    </div>
-                                    {selectedAccount === acc.name && <ChevronRight size={14} className="shrink-0 ml-2" />}
-                                </button>
+                        <div className="space-y-6 flex-1 overflow-y-auto custom-scrollbar pr-2 pb-6">
+                            {Object.keys(categorizedAccounts).map(groupName => (
+                                <div key={groupName} className="space-y-2">
+                                    <h5 className="text-[8px] font-black text-slate-500 uppercase tracking-[0.2em] ml-2 mb-3">{groupName}</h5>
+                                    {categorizedAccounts[groupName].map(acc => (
+                                        <button
+                                            key={acc.id}
+                                            onClick={() => onAccountChange(acc.name)}
+                                            className={`w-full p-4 rounded-2xl text-[10px] font-black text-left uppercase transition-all flex justify-between items-center group ${selectedAccount === acc.name ? 'bg-blue-600 text-white shadow-xl shadow-blue-900/40 translate-x-1' : 'bg-white/5 text-slate-400 hover:bg-white/10'}`}
+                                        >
+                                            <div className="flex flex-col">
+                                                <span className={`${selectedAccount === acc.name ? 'text-white' : 'group-hover:text-blue-400'} transition-colors`}>{acc.name}</span>
+                                                <span className={`text-[7px] opacity-40 font-medium ${selectedAccount === acc.name ? 'text-white' : 'text-slate-500'}`}>{acc.type}</span>
+                                            </div>
+                                            {selectedAccount === acc.name && <ChevronRight size={14} className="shrink-0 ml-2" />}
+                                        </button>
+                                    ))}
+                                </div>
                             ))}
-                            {allAvailableAccounts.length === 0 && <p className="text-[10px] text-slate-600 italic text-center py-10">Tidak ada akun ditemukan</p>}
+                            {Object.keys(categorizedAccounts).length === 0 && (
+                                <div className="text-center py-20 animate-pulse">
+                                    <p className="text-[10px] text-slate-600 italic">Akun tidak ditemukan</p>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -107,8 +141,14 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
                             </p>
                         </div>
                         <div className="flex gap-8 text-right">
-                            <div>
-                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">SALDO AWAL</p>
+                            <div className="relative group">
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center justify-end gap-1">
+                                    SALDO AWAL
+                                    <AlertCircle size={10} className="text-slate-300 cursor-help" />
+                                </p>
+                                <div className="absolute right-0 bottom-full mb-2 w-48 bg-slate-800 text-white text-[9px] p-3 rounded-xl opacity-0 group-hover:opacity-100 transition pointer-events-none z-30 shadow-xl font-medium leading-relaxed">
+                                    Dihitung dari total masuk (IN) dikurangi keluar (OUT) dari seluruh transaksi <span className="text-blue-400 font-bold">sebelum tanggal {new Date(startDate).toLocaleDateString('id-ID')}</span>.
+                                </div>
                                 <h2 className="text-2xl font-black text-slate-600 tracking-tighter">
                                     {formatCurrency(openingBalance)}
                                 </h2>
