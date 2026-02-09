@@ -19,7 +19,7 @@ export async function GET() {
     try {
       const [tenantAccessList, settingsRes, accountsRes, tenantRes, logsRes] = await Promise.all([
         prisma.tenantAccess.findMany({
-          where: { tenantId, isActive: true },
+          where: { tenantId },
           include: { user: true }
         }),
         prisma.settings.findFirst({ where: { tenantId } as any }),
@@ -35,13 +35,11 @@ export async function GET() {
       ]);
 
       // Flatten and transform to match previous structure
-      users = tenantAccessList
-        .map(ta => ({
-          ...ta.user,
-          role: ta.role, // Use the role defined for THIS tenant
-          tenantId: ta.tenantId
-        }))
-        .filter(u => u.isActive !== false && u.role !== 'SUPERADMIN'); // Filter out archived and superadmin
+      users = tenantAccessList.map(ta => ({
+        ...ta.user,
+        role: ta.role, // Use the role defined for THIS tenant
+        tenantId: ta.tenantId
+      }));
 
       settingsData = settingsRes;
       financialAccounts = accountsRes;
