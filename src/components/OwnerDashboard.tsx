@@ -109,9 +109,9 @@ export const OwnerDashboard = () => {
     const activeStaff = users ? users.filter(u => u.role !== 'OWNER' && u.isActive !== false) : [];
 
     const getHealthScore = () => {
-        if (overdueProjectsCount > 5 || netCashFlow < 0) return { label: 'CRITICAL', color: 'text-rose-500', bg: 'bg-rose-500/10' };
-        if (overdueProjectsCount > 0 || lateCount > (activeStaff.length * 0.2)) return { label: 'ATTENTION NEEDED', color: 'text-amber-500', bg: 'bg-amber-500/10' };
-        return { label: 'EXCELLENT', color: 'text-emerald-500', bg: 'bg-emerald-500/10' };
+        if (overdueProjectsCount > 5 || netCashFlow < 0) return { label: 'KRITIS', color: 'text-rose-500', bg: 'bg-rose-500/10' };
+        if (overdueProjectsCount > 0 || lateCount > (activeStaff.length * 0.2)) return { label: 'BUTUH PERHATIAN', color: 'text-amber-500', bg: 'bg-amber-500/10' };
+        return { label: 'SANGAT BAIK', color: 'text-emerald-500', bg: 'bg-emerald-500/10' };
     };
 
     const health = getHealthScore();
@@ -131,38 +131,38 @@ export const OwnerDashboard = () => {
                         <div className="space-y-8 flex-1">
                             <div className="flex items-center gap-4">
                                 <div className={`px-5 py-2 rounded-full text-[10px] font-black tracking-[0.2em] ${health.bg} ${health.color} border border-white/5 uppercase`}>
-                                    OPERATIONAL HEALTH: {health.label}
+                                    KESEHATAN OPERASIONAL: {health.label}
                                 </div>
                                 <div className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse border-2 border-emerald-500/30"></div>
                             </div>
 
                             <div className="max-w-full">
-                                <p className="text-slate-400 text-[10px] lg:text-xs font-black uppercase tracking-[0.3em] mb-3">Net Profitability (Current Month)</p>
+                                <p className="text-slate-400 text-[10px] lg:text-xs font-black uppercase tracking-[0.3em] mb-3">Profitabilitas Bersih (Bulan Ini)</p>
                                 <div className={`text-4xl lg:text-5xl xl:text-7xl font-black tracking-tighter truncate ${netCashFlow >= 0 ? 'text-white' : 'text-rose-400'}`}>
                                     {finStats.isLoading ? (
                                         <div className="flex gap-2 items-center">
                                             <div className="w-8 h-8 bg-white/10 rounded-lg animate-pulse"></div>
-                                            <span className="opacity-20">STABILIZING...</span>
+                                            <span className="opacity-20">MENGHITUNG...</span>
                                         </div>
                                     ) : (netCashFlow >= 0 ? '+' : '') + formatIDR(netCashFlow)}
                                 </div>
                                 <div className={`mt-4 inline-flex items-center gap-3 px-4 py-2 rounded-2xl text-xs font-black ${netCashFlow >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
                                     {netCashFlow >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-                                    {netCashFlow >= 0 ? 'SURPLUS DETECTED' : 'DEFICIT ALERT'}
+                                    {netCashFlow >= 0 ? 'SURPLUS TERDETEKSI' : 'WASPADA DEFISIT'}
                                 </div>
                             </div>
 
                             <div className="grid grid-cols-3 gap-8 pt-8 border-t border-white/10">
                                 <div className="space-y-1">
-                                    <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Active Projects</div>
+                                    <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Proyek Aktif</div>
                                     <div className="text-2xl font-black">{stats.projects}</div>
                                 </div>
                                 <div className="space-y-1">
-                                    <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Late Today</div>
+                                    <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Terlambat Hari Ini</div>
                                     <div className={`text-2xl font-black ${lateCount > 0 ? 'text-amber-400' : 'text-slate-200'}`}>{lateCount}</div>
                                 </div>
                                 <div className="space-y-1">
-                                    <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Growth Assets</div>
+                                    <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Aset Pertumbuhan</div>
                                     <div className="text-2xl font-black">+{stats.projectDistribution.find(p => p.status === 'DONE')?._count?.id || 0}</div>
                                 </div>
                             </div>
@@ -172,13 +172,13 @@ export const OwnerDashboard = () => {
                             <div className="bg-white/5 backdrop-blur-2xl rounded-[2.5rem] p-8 border border-white/10 w-full space-y-6 shadow-2xl">
                                 <div className="flex items-center justify-between">
                                     <div className="p-3 bg-blue-500/20 rounded-2xl text-blue-400"><Activity size={24} /></div>
-                                    <div className="text-[10px] font-black text-blue-400 tracking-[0.2em]">TEAM PULSE</div>
+                                    <div className="text-[10px] font-black text-blue-400 tracking-[0.2em]">NADI TIM</div>
                                 </div>
                                 <div>
                                     <div className="text-4xl xl:text-5xl font-black tracking-tighter">
                                         {stats.employees > 0 ? Math.round((stats.attendance / stats.employees) * 100) : 0}%
                                     </div>
-                                    <div className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-2">Daily Attendance</div>
+                                    <div className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-2">Absensi Harian</div>
                                 </div>
                                 <div className="w-full bg-white/10 h-2 rounded-full overflow-hidden">
                                     <div
@@ -186,7 +186,7 @@ export const OwnerDashboard = () => {
                                         style={{ width: `${stats.employees > 0 ? (stats.attendance / stats.employees) * 100 : 0}%` }}
                                     ></div>
                                 </div>
-                                <p className="text-[9px] text-slate-500 font-bold italic">Based on {stats.employees} active verified staff</p>
+                                <p className="text-[9px] text-slate-500 font-bold italic">Berdasarkan {stats.employees} staf aktif terverifikasi</p>
                             </div>
                         </div>
                     </div>
@@ -200,21 +200,21 @@ export const OwnerDashboard = () => {
                                 <Wallet size={28} />
                             </div>
                             <div className="space-y-2">
-                                <h3 className="text-2xl font-black text-slate-800 tracking-tight">Finance Ops</h3>
-                                <p className="text-slate-500 text-sm leading-relaxed">Full control over verified cash flows, bank accounts, and asset mutations.</p>
+                                <h3 className="text-2xl font-black text-slate-800 tracking-tight">Operasional Keuangan</h3>
+                                <p className="text-slate-500 text-sm leading-relaxed">Kontrol penuh atas arus kas terverifikasi, rekening bank, dan mutasi aset.</p>
                             </div>
                         </div>
                         <button
                             onClick={() => router.push(`/${currentUser?.tenantId || 'sdm'}/owner/finance`)}
                             className="bg-slate-900 text-white w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-blue-600 transition-all duration-300 shadow-xl active:scale-95"
                         >
-                            Executive Finance <ArrowRight size={20} />
+                            Buka Laporan Keuangan <ArrowRight size={20} />
                         </button>
                     </div>
 
                     <div className="bg-emerald-600 rounded-[2.5rem] p-8 text-white shadow-xl relative overflow-hidden group">
                         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl translate-x-10 -translate-y-10 group-hover:scale-150 transition-transform duration-1000"></div>
-                        <h4 className="text-[10px] font-black uppercase tracking-[0.4em] text-emerald-200 mb-2">System Asset Value</h4>
+                        <h4 className="text-[10px] font-black uppercase tracking-[0.4em] text-emerald-200 mb-2">Nilai Aset Sistem</h4>
                         <div className="text-2xl xl:text-3xl font-black tracking-tighter truncate">{finStats.isLoading ? '...' : formatIDR(finStats.totalBalance)}</div>
                     </div>
                 </div>
@@ -232,15 +232,15 @@ export const OwnerDashboard = () => {
                         <div>
                             <h3 className="text-2xl font-black text-slate-800 tracking-tight italic uppercase flex items-center gap-3">
                                 <Zap className="text-blue-500" size={24} />
-                                The Pulse
+                                Nadi Perusahaan
                             </h3>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">LATEST FIELD ACTIVITY REPORTS</p>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">LAPORAN AKTIVITAS TERBARU</p>
                         </div>
                         <button
                             onClick={() => router.push('/sdm/owner/reports')}
                             className="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:underline"
                         >
-                            View Archives
+                            Lihat Arsip
                         </button>
                     </div>
 
@@ -266,7 +266,7 @@ export const OwnerDashboard = () => {
                                                 const activities = JSON.parse(report.activitiesJson || '[]');
                                                 return activities.map((a: any) => a.activity).join(' • ');
                                             } catch (e) {
-                                                return "Report data synchronized.";
+                                                return "Data laporan tersinkronisasi.";
                                             }
                                         })()}
                                     </div>
@@ -279,7 +279,7 @@ export const OwnerDashboard = () => {
                         )) : (
                             <div className="py-20 text-center space-y-4">
                                 <Activity className="mx-auto text-slate-200 animate-pulse" size={48} />
-                                <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Waiting for incoming reports...</p>
+                                <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Menunggu laporan masuk...</p>
                             </div>
                         )}
                     </div>
@@ -288,7 +288,7 @@ export const OwnerDashboard = () => {
                 {/* 2. PROJECT DISTRIBUTION PIE/BAR (simplified) */}
                 <div className="bg-slate-900 rounded-[3rem] p-10 text-white shadow-2xl flex flex-col justify-between">
                     <div>
-                        <h3 className="text-xl font-black italic uppercase tracking-tight mb-8">Workload Matrix</h3>
+                        <h3 className="text-xl font-black italic uppercase tracking-tight mb-8">Matriks Beban Kerja</h3>
                         <div className="space-y-8">
                             {['ON_GOING', 'DONE', 'CANCELLED'].map((status) => {
                                 const dist = stats.projectDistribution.find(p => p.status === status);
@@ -296,10 +296,16 @@ export const OwnerDashboard = () => {
                                 const total = stats.projectDistribution.reduce((acc, curr) => acc + curr._count.id, 0);
                                 const pct = total > 0 ? (count / total) * 100 : 0;
 
+                                const statusMapi: any = {
+                                    'ON_GOING': 'SEDANG BERJALAN',
+                                    'DONE': 'SELESAI',
+                                    'CANCELLED': 'DIBATALKAN'
+                                };
+
                                 return (
                                     <div key={status} className="space-y-3">
                                         <div className="flex justify-between items-end">
-                                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{status.replace('_', ' ')}</span>
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{statusMapi[status] || status}</span>
                                             <span className="text-lg font-black">{count}</span>
                                         </div>
                                         <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
@@ -318,15 +324,15 @@ export const OwnerDashboard = () => {
                         <div className="flex items-center gap-4">
                             <div className="p-2 bg-rose-500/20 text-rose-400 rounded-xl"><AlertTriangle size={20} /></div>
                             <div>
-                                <p className="text-[10px] font-black text-slate-500 uppercase">Critical Blockers</p>
-                                <p className="text-xl font-black text-rose-400">{overdueProjectsCount} OVERDUE</p>
+                                <p className="text-[10px] font-black text-slate-500 uppercase">Kendala Kritis</p>
+                                <p className="text-xl font-black text-rose-400">{overdueProjectsCount} TERLAMBAT</p>
                             </div>
                         </div>
                         <button
                             onClick={() => router.push('/sdm/owner/projects')}
                             className="w-full py-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] transition-all"
                         >
-                            Open Roadmap
+                            Buka Peta Jalan
                         </button>
                     </div>
                 </div>
@@ -339,17 +345,17 @@ export const OwnerDashboard = () => {
                 <div className="lg:col-span-8 bg-white rounded-[3rem] p-10 shadow-sm border border-slate-100 overflow-hidden relative">
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
                         <div>
-                            <h3 className="text-2xl font-black text-slate-800 tracking-tight italic uppercase">Cash Flow Trends</h3>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">30 DAY LIQUIDITY RADAR</p>
+                            <h3 className="text-2xl font-black text-slate-800 tracking-tight italic uppercase">Tren Arus Kas</h3>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">RADAR LIKUIDITAS 30 HARI</p>
                         </div>
                         <div className="flex items-center gap-6 bg-slate-50 px-6 py-3 rounded-[2rem] border border-slate-100">
                             <div className="flex items-center gap-2">
                                 <div className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]"></div>
-                                <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest">Inflow</span>
+                                <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest">Masuk</span>
                             </div>
                             <div className="flex items-center gap-2">
                                 <div className="w-2.5 h-2.5 rounded-full bg-rose-400 shadow-[0_0_10px_rgba(251,113,133,0.5)]"></div>
-                                <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest">Outflow</span>
+                                <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest">Keluar</span>
                             </div>
                         </div>
                     </div>
@@ -401,7 +407,7 @@ export const OwnerDashboard = () => {
                     <div>
                         <div className="flex items-center gap-3 mb-10">
                             <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl shadow-inner"><CheckCircle2 size={24} /></div>
-                            <h3 className="text-xl font-black text-slate-800 tracking-tight italic uppercase">Approval Queue</h3>
+                            <h3 className="text-xl font-black text-slate-800 tracking-tight italic uppercase">Antrian Persetujuan</h3>
                         </div>
 
                         <div className="space-y-6">
@@ -414,7 +420,7 @@ export const OwnerDashboard = () => {
                                             </div>
                                             <p className="text-xs font-black text-slate-800">{leave.user?.name}</p>
                                         </div>
-                                        <span className="text-[8px] font-black text-slate-400 bg-white px-2 py-0.5 rounded-md border border-slate-100">PENDING</span>
+                                        <span className="text-[8px] font-black text-slate-400 bg-white px-2 py-0.5 rounded-md border border-slate-100">MENUNGGU</span>
                                     </div>
                                     <p className="text-[10px] text-slate-500 font-bold line-clamp-1 italic mb-2">"{leave.reason}"</p>
                                     <div className="flex justify-between items-center text-[10px] font-black text-blue-600">
@@ -425,7 +431,7 @@ export const OwnerDashboard = () => {
                             )) : (
                                 <div className="py-20 text-center space-y-4 opacity-50">
                                     <div className="w-12 h-12 bg-slate-100 rounded-full mx-auto flex items-center justify-center"><CheckCircle2 size={24} className="text-slate-300" /></div>
-                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Everything Signed</p>
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Semua Sudah Disetujui</p>
                                 </div>
                             )}
                         </div>
@@ -435,7 +441,7 @@ export const OwnerDashboard = () => {
                         onClick={() => router.push(`/${currentUser?.tenantId || 'sdm'}/owner/requests`)}
                         className="mt-10 w-full py-5 bg-slate-100 text-slate-500 rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] hover:bg-slate-900 hover:text-white transition-all shadow-sm active:scale-95"
                     >
-                        Process All ({pendingApprovals})
+                        Proses Semua ({pendingApprovals})
                     </button>
                 </div>
             </div>
