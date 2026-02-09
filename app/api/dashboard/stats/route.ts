@@ -23,7 +23,10 @@ export async function GET(request: NextRequest) {
       activeProjects,
       pendingRequests,
       lateCount,
-      overdueProjects
+      overdueProjects,
+      latestReports,
+      projectDistribution,
+      recentLeaves
     ] = await Promise.all([
       // Only count active staff/managers/finance for percentage. Exclude Owner & Superadmin
       prisma.user.count({
@@ -43,6 +46,23 @@ export async function GET(request: NextRequest) {
           status: { not: 'DONE' },
           deadline: { lt: now }
         }
+      }),
+      prisma.dailyReport.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        include: { user: { select: { name: true, avatarUrl: true, role: true } } }
+      }),
+      prisma.project.groupBy({
+        by: ['status'],
+        where: { tenantId },
+        _count: { id: true }
+      }),
+      prisma.leaveRequest.findMany({
+        where: { tenantId, status: 'PENDING' },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        include: { user: { select: { name: true, avatarUrl: true } } }
       })
     ]);
 
@@ -53,7 +73,10 @@ export async function GET(request: NextRequest) {
       requests: pendingRequests,
       lateCount: lateCount,
       overdueProjects: overdueProjects,
-      serverTime: todayISO
+      serverTime: todayISO,
+      latestReports,
+      projectDistribution,
+      recentLeaves
     }));
 
   } catch (error: any) {
