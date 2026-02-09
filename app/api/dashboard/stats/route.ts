@@ -25,7 +25,14 @@ export async function GET(request: NextRequest) {
       lateCount,
       overdueProjects
     ] = await Promise.all([
-      prisma.user.count({ where: { tenantId, role: { not: 'OWNER' } } }),
+      // Only count active staff/managers/finance for percentage. Exclude Owner & Superadmin
+      prisma.user.count({
+        where: {
+          tenantId,
+          isActive: true,
+          role: { notIn: ['OWNER', 'SUPERADMIN'] }
+        }
+      }),
       prisma.attendance.count({ where: { tenantId, date: todayISO } }),
       prisma.project.count({ where: { tenantId, status: 'ON_GOING' } }),
       prisma.leaveRequest.count({ where: { tenantId, status: 'PENDING' } }),
