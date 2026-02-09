@@ -51,7 +51,7 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
   // Filter visible projects first (Role based)
   const baseProjects = projects.filter(p => {
     if (p.isManagementOnly) {
-      return [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(currentUser.role);
+      return [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(currentUser.role) || p.createdBy === currentUser.id;
     }
     return true;
   });
@@ -111,7 +111,7 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
       `\n👤 OLEH: <b>${escapeHTML(currentUser.name)}</b>\n` +
       `👥 TEAM: ${escapeHTML(tagString)}`;
 
-    let targetChatId = project.isManagementOnly ? settings.telegramOwnerChatId : settings.telegramGroupId;
+    let targetChatId = settings.telegramGroupId || settings.telegramOwnerChatId;
 
     if (targetChatId) {
       if (targetChatId.includes('_')) {
@@ -725,7 +725,7 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, curre
       toast.success("Komentar terkirim");
 
       // Telegram (Fire and forget, don't await blocking UI)
-      const targetChatId = project.isManagementOnly ? settings.telegramOwnerChatId : settings.telegramGroupId;
+      const targetChatId = settings.telegramGroupId || settings.telegramOwnerChatId;
       let finalChatId = targetChatId;
       if (finalChatId) {
         if (finalChatId.includes('_')) {
@@ -786,7 +786,7 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, curre
         `\n👤 OLEH: <b>${escapeHTML(currentUser.name)}</b>\n` +
         `👥 TEAM PIC: ${escapeHTML(tagString)}`;
 
-      const targetChatId = project.isManagementOnly ? settings.telegramOwnerChatId : settings.telegramGroupId;
+      const targetChatId = settings.telegramGroupId || settings.telegramOwnerChatId;
       sendTelegramNotification(settings.telegramBotToken, targetChatId, msg);
 
       setActiveTaskIndex(null);
@@ -820,7 +820,7 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, curre
       toast.success('Status tugas dikembalikan ke proses.');
 
       // Telegram
-      const targetChatId = project.isManagementOnly ? settings.telegramOwnerChatId : settings.telegramGroupId;
+      const targetChatId = settings.telegramGroupId || settings.telegramOwnerChatId;
       let finalChatId = targetChatId;
       if (finalChatId) {
         if (finalChatId.includes('_')) {
@@ -864,7 +864,7 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, curre
           setShowEditTask(null);
 
           // Telegram
-          const targetChatId = project.isManagementOnly ? settings.telegramOwnerChatId : settings.telegramGroupId;
+          const targetChatId = settings.telegramGroupId || settings.telegramOwnerChatId;
           let finalChatId = targetChatId;
           if (finalChatId) {
             if (finalChatId.includes('_')) {
@@ -918,7 +918,7 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, curre
       if (onUpdate) onUpdate(updatedProject);
 
       // Notify Telegram
-      const targetChatId = project.isManagementOnly ? settings.telegramOwnerChatId : settings.telegramGroupId;
+      const targetChatId = settings.telegramGroupId || settings.telegramOwnerChatId;
       let finalChatId = targetChatId;
       if (finalChatId) {
         if (finalChatId.includes('_')) {
