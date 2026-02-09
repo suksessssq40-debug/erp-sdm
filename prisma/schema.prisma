@@ -87,6 +87,7 @@ model User {
   createdAt        DateTime?       @default(now()) @map("created_at") @db.Timestamptz(6)
   deviceId         String?         @map("device_id")
   tenantId         String?         @default("sdm") @map("tenant_id")
+  isActive         Boolean         @default(true) @map("is_active")
   
   tenantAccess     TenantAccess[]  // New Relation
   attendance       Attendance[]

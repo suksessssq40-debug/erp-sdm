@@ -94,9 +94,16 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     if (!target) return NextResponse.json({ error: 'Not found or unauthorized' }, { status: 404 });
     if (target.role === 'OWNER') return NextResponse.json({ error: 'Cannot delete owner' }, { status: 400 });
 
-    await prisma.user.delete({ where: { id } });
+    await prisma.user.update({
+      where: { id },
+      data: {
+        isActive: false,
+        passwordHash: null, // Wipe password to be sure
+        username: `_resigned_${target.username}_${Date.now()}` // Prefix username to free up the original one
+      }
+    });
 
-    return NextResponse.json({ message: 'User deleted' });
+    return NextResponse.json({ message: 'User archived successfully (soft deleted)' });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: 'Failed' }, { status: 500 });

@@ -53,6 +53,7 @@ export interface User {
   bio?: string;
   isFreelance?: boolean;
   features?: string; // JSON String of enabled modules (e.g. "['finance','attendance']")
+  isActive?: boolean;
 }
 
 export enum KanbanStatus {

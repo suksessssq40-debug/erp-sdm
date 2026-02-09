@@ -63,8 +63,8 @@ export const AttendancePortal: React.FC<AttendancePortalProps> = ({
 
                 <div className="flex justify-center gap-3">
                     <span className={`px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest border shadow-sm ${strategy === 'FIXED' ? 'bg-blue-50 border-blue-200 text-blue-600' :
-                            strategy === 'SHIFT' ? 'bg-purple-50 border-purple-200 text-purple-600' :
-                                'bg-amber-50 border-amber-200 text-amber-600'
+                        strategy === 'SHIFT' ? 'bg-purple-50 border-purple-200 text-purple-600' :
+                            'bg-amber-50 border-amber-200 text-amber-600'
                         }`}>
                         <Shield size={10} className="inline mr-1.5" /> STRATEGY: {strategy}
                     </span>
@@ -124,11 +124,17 @@ export const AttendancePortal: React.FC<AttendancePortalProps> = ({
             </button>
 
 
-            {!myAttendanceToday ? (
+            {currentUser.role === 'OWNER' ? (
+                <div className="bg-slate-50 p-8 rounded-[2rem] border border-slate-200 text-center">
+                    <p className="text-sm font-black text-slate-400 uppercase tracking-widest leading-relaxed">
+                        Anda masuk sebagai <span className="text-blue-600">OWNER</span>.<br />Akun Owner tidak memerlukan absensi mandiri.
+                    </p>
+                </div>
+            ) : !myAttendanceToday ? (
                 <button
                     onClick={handleStartCheckIn}
                     disabled={gpsLoading || (!currentUser.isFreelance && !isWithinRadius)}
-                    className={`px-16 py-6 rounded-[2.5rem] font-black text-xs uppercase tracking-[0.2em] shadow-2xl transition-all transform active:scale-95 flex items-center gap-4
+                    className={`px-16 py-6 rounded-[2.5rem] font-black text-xs uppercase tracking-[0.2em] shadow-2xl transition-all transform active:scale-95 flex items-center gap-4 group
             ${gpsLoading || (!currentUser.isFreelance && !isWithinRadius)
                             ? 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none border border-slate-200'
                             : 'bg-slate-900 text-white hover:bg-blue-600 hover:shadow-blue-500/30'}

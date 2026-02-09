@@ -27,6 +27,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 
+    if (u.isActive === false) {
+      return NextResponse.json({ error: 'Akses Ditolak: Akun ini sudah tidak aktif atau sudah resign.' }, { status: 401 });
+    }
+
     if (u.passwordHash) {
       const ok = await bcrypt.compare(password, u.passwordHash);
       if (!ok) {

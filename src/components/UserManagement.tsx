@@ -57,12 +57,12 @@ export const UserManagement: React.FC<UserManagementProps> = ({ users, currentUs
   };
 
   const handleDelete = async (user: User) => {
-    if (window.confirm(`Yakin ingin menghapus user ${user.name}? Tindakan ini permanen.`)) {
+    if (window.confirm(`Yakin ingin menonaktifkan akun ${user.name}? User tidak akan bisa login lagi, namun riwayat data (Absensi dll) tetap tersimpan.`)) {
       try {
         await onDeleteUser(user.id);
-        toast.success(`User ${user.name} berhasil dihapus.`);
+        toast.success(`User ${user.name} berhasil dinonaktifkan.`);
       } catch (e: any) {
-        toast.error(e.message || "Gagal menghapus user.");
+        toast.error(e.message || "Gagal menonaktifkan user.");
       }
     }
   };
