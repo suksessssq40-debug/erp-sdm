@@ -19,6 +19,7 @@ const ProfileModule: React.FC<ProfileModuleProps> = ({ currentUser, onUpdateUser
         password: '', // Only sent if changed
     });
     const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+    const [isUploading, setIsUploading] = useState(false);
 
     useEffect(() => {
         if (currentUser) {
@@ -32,6 +33,15 @@ const ProfileModule: React.FC<ProfileModuleProps> = ({ currentUser, onUpdateUser
         }
     }, [currentUser]);
 
+    // Cleanup blob URLs to prevent memory leaks
+    useEffect(() => {
+        return () => {
+            if (avatarPreview?.startsWith('blob:')) {
+                URL.revokeObjectURL(avatarPreview);
+            }
+        };
+    }, [avatarPreview]);
+
     const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -42,13 +52,23 @@ const ProfileModule: React.FC<ProfileModuleProps> = ({ currentUser, onUpdateUser
         }
 
         if (uploadFile) {
+            // Instant Local Preview
+            const localUrl = URL.createObjectURL(file);
+            setAvatarPreview(localUrl);
+
+            setIsUploading(true);
             try {
-                toast.info("Mengunggah foto...");
+                toast.info("Mengunggah foto ke server...");
                 const url = await uploadFile(file);
+                // Replace local URL with permanent server URL
                 setAvatarPreview(url);
                 toast.success("Foto berhasil diunggah! Jangan lupa simpan profil.");
             } catch (err) {
-                toast.error("Gagal mengunggah foto.");
+                toast.error("Gagal mengunggah foto. Periksa koneksi atau ukuran file.");
+                // Revert to current user avatar if upload fails
+                setAvatarPreview(currentUser.avatarUrl || null);
+            } finally {
+                setIsUploading(false);
             }
         }
     };
@@ -62,7 +82,7 @@ const ProfileModule: React.FC<ProfileModuleProps> = ({ currentUser, onUpdateUser
                 ...currentUser,
                 name: formData.name,
                 telegramUsername: formData.telegramUsername,
-                avatarUrl: avatarPreview || undefined
+                avatarUrl: avatarPreview === null ? null : (avatarPreview || undefined)
             };
 
             // If password provided
@@ -200,11 +220,11 @@ const ProfileModule: React.FC<ProfileModuleProps> = ({ currentUser, onUpdateUser
                         <div className="pt-6">
                             <button
                                 type="submit"
-                                disabled={loading}
+                                disabled={loading || isUploading}
                                 className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-[0.2em] shadow-xl hover:bg-blue-600 transition disabled:opacity-50 flex items-center justify-center gap-3"
                             >
-                                {loading ? <span className="animate-spin">⏳</span> : <Save size={20} />}
-                                {loading ? 'Menyimpan...' : 'SIMPAN PERUBAHAN'}
+                                {loading || isUploading ? <span className="animate-spin text-xl">⏳</span> : <Save size={20} />}
+                                {loading ? 'Menyimpan...' : isUploading ? 'MENGUNGGAH FOTO...' : 'SIMPAN PERUBAHAN'}
                             </button>
                         </div>
                     </div>

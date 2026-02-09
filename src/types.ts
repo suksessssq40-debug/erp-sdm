@@ -48,7 +48,7 @@ export interface User {
   password?: string;
   deviceId?: string;
   deviceIds?: string[];
-  avatarUrl?: string;
+  avatarUrl?: string | null;
   jobTitle?: string;
   bio?: string;
   isFreelance?: boolean;
