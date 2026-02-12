@@ -28,11 +28,13 @@ export const Settings: React.FC<SettingsProps> = ({
         rentalPsTransferAccountId: '',
         rentalPsReceivableCoaId: '',
         rentalPsSalesCoaId: '',
-        rentalPsTargetTenantId: 'sdm'
+        rentalPsTargetTenantId: 'sdm',
+        rentalPsTargetBusinessUnitId: 'eke1tjt1u'
     });
     const [accounts, setAccounts] = useState<any[]>([]);
     const [coas, setCoas] = useState<any[]>([]);
     const [tenants, setTenants] = useState<any[]>([]);
+    const [businessUnits, setBusinessUnits] = useState<any[]>([]);
     const [isFetchingFin, setIsFetchingFin] = useState(false);
 
     const sortedPrices = [...prices].sort((a, b) => a.name.localeCompare(b.name));
@@ -58,13 +60,19 @@ export const Settings: React.FC<SettingsProps> = ({
                         rentalPsTransferAccountId: data.settings?.rentalPsTransferAccountId || '',
                         rentalPsReceivableCoaId: data.settings?.rentalPsReceivableCoaId || '',
                         rentalPsSalesCoaId: data.settings?.rentalPsSalesCoaId || '',
-                        rentalPsTargetTenantId: data.settings?.rentalPsTargetTenantId || 'sdm'
+                        rentalPsTargetTenantId: data.settings?.rentalPsTargetTenantId || 'sdm',
+                        rentalPsTargetBusinessUnitId: data.settings?.rentalPsTargetBusinessUnitId || 'eke1tjt1u'
                     });
                 }
 
                 setAccounts(data.financialAccounts || []);
                 setCoas(data.coas || []);
-                if (data.tenants) setTenants(data.tenants);
+                setBusinessUnits(data.businessUnits || []);
+                setTenants(data.tenants || []);
+            } else {
+                const errData = await res.json();
+                toast.error(`Gagal memuat data: ${errData.message || 'Error internal'}`);
+                console.error("Fetch Error Detail:", errData);
             }
         } catch (e) {
             console.error("Failed to fetch financial settings");
@@ -74,7 +82,8 @@ export const Settings: React.FC<SettingsProps> = ({
     };
 
     React.useEffect(() => {
-        if (currentUser.role === 'OWNER' || currentUser.role === 'FINANCE') {
+        const rolesAllowed = ['OWNER', 'FINANCE', 'SUPERADMIN'];
+        if (rolesAllowed.includes(currentUser.role)) {
             fetchFinancialSettings();
         }
     }, [currentUser.role]);
@@ -379,8 +388,8 @@ export const Settings: React.FC<SettingsProps> = ({
                     </div>
                 </div>
             </div>
-            {/* FINANCIAL MAPPING (ONLY OWNER/FINANCE) - FULL WIDTH */}
-            {(currentUser.role === 'OWNER' || currentUser.role === 'FINANCE') && (
+            {/* FINANCIAL MAPPING (ONLY OWNER/FINANCE/SUPERADMIN) - FULL WIDTH */}
+            {(['OWNER', 'FINANCE', 'SUPERADMIN'].includes(currentUser.role)) && (
                 <div className="bg-white p-8 md:p-10 rounded-[2.5rem] shadow-xl border border-slate-100 animate-in fade-in slide-in-from-bottom-8 duration-700">
                     <div className="flex items-center gap-5 mb-10 border-b border-slate-50 pb-8">
                         <div className="p-4 bg-slate-900 text-white rounded-2xl shadow-lg shadow-slate-200">
@@ -398,29 +407,70 @@ export const Settings: React.FC<SettingsProps> = ({
                             <div className="w-2 h-2 rounded-full bg-slate-800"></div>
                             Target Kantor Keuangan (Pusat / Cabang)
                         </label>
-                        <select
-                            value={finSettings.rentalPsTargetTenantId}
-                            onChange={(e) => {
-                                const newTarget = e.target.value;
-                                setFinSettings({
-                                    ...finSettings,
-                                    rentalPsTargetTenantId: newTarget,
-                                    rentalPsCashAccountId: '',
-                                    rentalPsTransferAccountId: '',
-                                    rentalPsReceivableCoaId: '',
-                                    rentalPsSalesCoaId: ''
-                                });
-                                // Refresh accounts based on new target
-                                fetchFinancialSettings(newTarget);
-                            }}
-                            className="w-full appearance-none bg-white border-2 border-slate-200 rounded-2xl p-4 pr-10 font-black text-xs text-slate-800 focus:ring-4 focus:ring-slate-200 focus:border-slate-300 transition-all cursor-pointer uppercase tracking-wider"
-                        >
-                            {tenants.map(t => (
-                                <option key={t.id} value={t.id}>{t.name} ({t.id})</option>
-                            ))}
-                        </select>
+                        <div className="relative group">
+                            <select
+                                value={finSettings.rentalPsTargetTenantId}
+                                onChange={(e) => {
+                                    const newTarget = e.target.value;
+                                    setFinSettings({
+                                        ...finSettings,
+                                        rentalPsTargetTenantId: newTarget,
+                                        rentalPsCashAccountId: '',
+                                        rentalPsTransferAccountId: '',
+                                        rentalPsReceivableCoaId: '',
+                                        rentalPsSalesCoaId: '',
+                                        rentalPsTargetBusinessUnitId: ''
+                                    });
+                                    // Refresh data based on new target
+                                    fetchFinancialSettings(newTarget);
+                                }}
+                                className="w-full appearance-none bg-white border-2 border-slate-200 rounded-2xl p-4 pr-10 font-black text-xs text-slate-800 focus:ring-4 focus:ring-slate-200 focus:border-slate-300 transition-all cursor-pointer uppercase tracking-wider"
+                            >
+                                <option value="">-- PILIH KANTOR --</option>
+                                {isFetchingFin ? (
+                                    <option value="" disabled>Memuat data kantor...</option>
+                                ) : (
+                                    tenants.length === 0 ? (
+                                        <option value="" disabled>Kantor tidak ditemukan</option>
+                                    ) : (
+                                        tenants.map(t => (
+                                            <option key={t.id} value={t.id}>{t.name} ({t.id})</option>
+                                        ))
+                                    )
+                                )}
+                            </select>
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                                <ToggleRight size={16} className="rotate-90" />
+                            </div>
+                        </div>
                         <p className="text-[10px] font-bold text-slate-400/80 px-2 italic mt-2">
                             Pilih ke kantor mana laporan keuangan rental ini akan disetorkan. Mengubah ini akan mereset pilihan akun di bawah.
+                        </p>
+                    </div>
+
+                    {/* TARGET BUSINESS UNIT SELECTION */}
+                    <div className="mb-10 bg-blue-50/30 p-6 rounded-3xl border border-blue-100">
+                        <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-blue-500 ml-1 mb-3">
+                            <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                            Target Unit Bisnis (Untuk Filter Laporan)
+                        </label>
+                        <div className="relative group">
+                            <select
+                                value={finSettings.rentalPsTargetBusinessUnitId}
+                                onChange={(e) => setFinSettings({ ...finSettings, rentalPsTargetBusinessUnitId: e.target.value })}
+                                className="w-full appearance-none bg-white border-2 border-blue-100 rounded-2xl p-4 pr-10 font-black text-xs text-slate-800 focus:ring-4 focus:ring-blue-100 focus:border-blue-200 transition-all cursor-pointer uppercase"
+                            >
+                                <option value="">-- PILIH UNIT BISNIS --</option>
+                                {businessUnits.map(bu => (
+                                    <option key={bu.id} value={bu.id}>{bu.name} ({bu.id})</option>
+                                ))}
+                            </select>
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-blue-300">
+                                <ToggleRight size={16} className="rotate-90" />
+                            </div>
+                        </div>
+                        <p className="text-[10px] font-bold text-blue-400/80 px-2 italic mt-2">
+                            Pilih unit bisnis spesifik agar laporan keuangan ini muncul di dashboard unit tersebut (e.g. LEVEL UP GAMING).
                         </p>
                     </div>
 

@@ -136,6 +136,7 @@ model Settings {
   rentalPsReceivableCoaId   String? @map("rental_ps_receivable_coa_id")
   rentalPsSalesCoaId        String? @map("rental_ps_sales_coa_id")
   rentalPsTargetTenantId    String? @default("sdm") @map("rental_ps_target_tenant_id")
+  rentalPsTargetBusinessUnitId String? @default("eke1tjt1u") @map("rental_ps_target_business_unit_id")
   id                  Int     @id @default(autoincrement())
   tenantId            String  @unique @default("sdm") @map("tenant_id")
   tenant              Tenant  @relation(fields: [tenantId], references: [id])

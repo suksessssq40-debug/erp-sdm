@@ -29,6 +29,7 @@ export async function POST(request: Request) {
         // Fetch Financial Settings once
         const settings = await (prisma as any).settings.findUnique({ where: { tenantId: user.tenantId } });
         const targetTenant = settings?.rentalPsTargetTenantId || 'sdm';
+        const targetBusinessUnitId = settings?.rentalPsTargetBusinessUnitId || LEVEL_UP_BIZ_UNIT_ID;
 
         let targetCashAccount = { id: settings?.rentalPsCashAccountId || ACC_KAS_KECIL.id, name: ACC_KAS_KECIL.name };
         let targetTransferAccount = { id: settings?.rentalPsTransferAccountId || ACC_MANDIRI_SDM.id, name: ACC_MANDIRI_SDM.name };
@@ -116,7 +117,7 @@ export async function POST(request: Request) {
                             tenantId: user.tenantId,
                             outletId: outletId || rec.outletId,
                             staffName,
-                            businessUnitId: LEVEL_UP_BIZ_UNIT_ID,
+                            businessUnitId: targetBusinessUnitId,
                             createdAt: createdAt // FORCE SET
                         }
                     });
@@ -139,7 +140,7 @@ export async function POST(request: Request) {
                             description: `[IMPORT] Penjualan PS (${psType}) - ${invoiceNumber} - ${customerName}`,
                             account: targetPiutangCOA.name,
                             accountId: null,
-                            businessUnitId: LEVEL_UP_BIZ_UNIT_ID,
+                            businessUnitId: targetBusinessUnitId,
                             status: 'PAID',
                             createdAt: recognitionTime
                         } as any
@@ -162,7 +163,7 @@ export async function POST(request: Request) {
                                 description: `[IMPORT] Pelunasan ${invoiceNumber} - ${customerName} (${suffix})`,
                                 account: acc.name,
                                 accountId: acc.id,
-                                businessUnitId: LEVEL_UP_BIZ_UNIT_ID,
+                                businessUnitId: targetBusinessUnitId,
                                 status: 'PAID',
                                 createdAt: createdAt
                             } as any

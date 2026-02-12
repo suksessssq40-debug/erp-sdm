@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
-import { serialize } from '@/lib/serverUtils';
+import { serialize, recordSystemLog } from '@/lib/serverUtils';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,46 +18,61 @@ export async function GET(request: Request) {
                 rentalPsTransferAccountId: true,
                 rentalPsReceivableCoaId: true,
                 rentalPsSalesCoaId: true,
-                rentalPsTargetTenantId: true
+                rentalPsTargetTenantId: true,
+                rentalPsTargetBusinessUnitId: true
             }
         });
 
         const { searchParams } = new URL(request.url);
         const targetTenant = searchParams.get('target') || settings?.rentalPsTargetTenantId || 'sdm';
 
-        // 2. Fetch all available Tenants (for target selection)
-        const tenants = await prisma.tenant.findMany({
-            select: { id: true, name: true }
+        // 2. Fetch all available Tenants
+        // Using prisma.tenant directly since generate was successful
+        const tenants = await (prisma as any).tenant.findMany({
+            where: { isActive: true },
+            select: { id: true, name: true },
+            orderBy: { name: 'asc' }
         });
 
-        // 3. Fetch all available financial accounts (Bank/Cash) from TARGET tenant
-        const financialAccounts = await prisma.financialAccount.findMany({
+        console.log(`[RentalSettings] User: ${user.username}, Role: ${user.role}, UserTenant: ${user.tenantId}`);
+        console.log(`[RentalSettings] Fetched ${tenants.length} tenants. Target: ${targetTenant}`);
+
+        // 3. Fetch financial accounts
+        const financialAccounts = await (prisma as any).financialAccount.findMany({
             where: { tenantId: targetTenant, isActive: true },
             select: { id: true, name: true, bankName: true, accountNumber: true }
         });
 
-        // 4. Fetch all available COAs from TARGET tenant
-        const coas = await prisma.chartOfAccount.findMany({
+        // 4. Fetch COAs
+        const coas = await (prisma as any).chartOfAccount.findMany({
             where: { tenantId: targetTenant, isActive: true },
             orderBy: { code: 'asc' },
             select: { id: true, code: true, name: true }
         });
 
+        // 5. Fetch Business Units
+        const businessUnits = await (prisma as any).businessUnit.findMany({
+            where: { tenantId: targetTenant, isActive: true },
+            select: { id: true, name: true }
+        });
+
         return NextResponse.json(serialize({
             settings: settings || {
-                rentalPsCashAccountId: null,
-                rentalPsTransferAccountId: null,
-                rentalPsReceivableCoaId: null,
-                rentalPsSalesCoaId: null,
-                rentalPsTargetTenantId: 'sdm'
+                rentalPsCashAccountId: '',
+                rentalPsTransferAccountId: '',
+                rentalPsReceivableCoaId: '',
+                rentalPsSalesCoaId: '',
+                rentalPsTargetTenantId: 'sdm',
+                rentalPsTargetBusinessUnitId: 'eke1tjt1u'
             },
             financialAccounts,
             coas,
-            tenants
+            tenants,
+            businessUnits
         }));
     } catch (e: any) {
         console.error('Fetch Rental Settings Error:', e);
-        return NextResponse.json({ error: 'Failed' }, { status: 500 });
+        return NextResponse.json({ error: 'Failed', message: e.message }, { status: 500 });
     }
 }
 
@@ -70,7 +85,8 @@ export async function PUT(request: Request) {
             rentalPsTransferAccountId,
             rentalPsReceivableCoaId,
             rentalPsSalesCoaId,
-            rentalPsTargetTenantId
+            rentalPsTargetTenantId,
+            rentalPsTargetBusinessUnitId
         } = body;
 
         const existing = await (prisma as any).settings.findFirst({ where: { tenantId: user.tenantId } });
@@ -80,7 +96,8 @@ export async function PUT(request: Request) {
             rentalPsTransferAccountId,
             rentalPsReceivableCoaId,
             rentalPsSalesCoaId,
-            rentalPsTargetTenantId
+            rentalPsTargetTenantId,
+            rentalPsTargetBusinessUnitId
         };
 
         if (!existing) {

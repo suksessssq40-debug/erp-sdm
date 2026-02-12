@@ -166,6 +166,7 @@ export async function POST(request: Request) {
         // 1.5 Fetch Central Finance Mappings from Settings
         const settings: any = await (prisma as any).settings.findUnique({ where: { tenantId: user.tenantId } });
         const targetTenantId = settings?.rentalPsTargetTenantId || 'sdm';
+        const targetBusinessUnitId = settings?.rentalPsTargetBusinessUnitId || LEVEL_UP_BIZ_UNIT_ID;
 
         // Define Target Accounts (Dynamic with hardcoded fallbacks for safety)
         let targetCashAccount = { id: settings?.rentalPsCashAccountId || ACC_KAS_KECIL.id, name: ACC_KAS_KECIL.name };
@@ -212,7 +213,8 @@ export async function POST(request: Request) {
                     tenantId: user.tenantId,
                     outletId,
                     staffName: user.name || user.username,
-                    businessUnitId: LEVEL_UP_BIZ_UNIT_ID,
+                    businessUnitId: targetBusinessUnitId,
+                    transactionIds: [], // updated below
                     createdAt: now
                 }
             });
@@ -237,7 +239,7 @@ export async function POST(request: Request) {
                     description: `Penjualan PS (${psType}) - ${invoiceNumber} - ${customerName}`,
                     account: targetPiutangCOA.name, // This will be the DEBIT side match for Piutang
                     accountId: null,
-                    businessUnitId: LEVEL_UP_BIZ_UNIT_ID,
+                    businessUnitId: targetBusinessUnitId,
                     status: 'PAID',
                     createdAt: recognitionTime
                 } as any
@@ -262,7 +264,7 @@ export async function POST(request: Request) {
                         description: `Pelunasan ${invoiceNumber} - ${customerName} (${descSuffix})`,
                         account: acc.name,
                         accountId: acc.id,
-                        businessUnitId: LEVEL_UP_BIZ_UNIT_ID,
+                        businessUnitId: targetBusinessUnitId,
                         status: 'PAID',
                         createdAt: now
                     } as any
@@ -430,6 +432,7 @@ export async function PUT(request: Request) {
         // Fetch settings again for PUT (target tenant might have changed but we use current settings for new journals)
         const settings: any = await (prisma as any).settings.findUnique({ where: { tenantId: user.tenantId } });
         const targetTenantId = settings?.rentalPsTargetTenantId || 'sdm';
+        const targetBusinessUnitId = settings?.rentalPsTargetBusinessUnitId || LEVEL_UP_BIZ_UNIT_ID;
 
         // Re-resolve accounts based on potentially new settings
         let targetCashAccount = { id: settings?.rentalPsCashAccountId || ACC_KAS_KECIL.id, name: ACC_KAS_KECIL.name };
@@ -512,7 +515,7 @@ export async function PUT(request: Request) {
                         description: `[EDIT] Pelunasan ${oldRecord.invoiceNumber} - ${customerName} (${descSuffix})`,
                         account: acc.name,
                         accountId: acc.id,
-                        businessUnitId: LEVEL_UP_BIZ_UNIT_ID,
+                        businessUnitId: targetBusinessUnitId,
                         status: 'PAID',
                         createdAt: now
                     } as any
@@ -546,7 +549,8 @@ export async function PUT(request: Request) {
                     transferAmount: paymentMethod === 'SPLIT' ? Number(transferAmount) : (paymentMethod === 'TRANSFER' ? finalTotal : 0),
                     transactionIds,
                     outletId,
-                    staffName: user.name || user.username
+                    staffName: user.name || user.username,
+                    businessUnitId: targetBusinessUnitId
                 }
             });
             return updatedRecord;
