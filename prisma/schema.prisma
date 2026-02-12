@@ -30,9 +30,12 @@ model Tenant {
   projects              Project[]
   settings              Settings?
   transactionCategories TransactionCategory[]
+
   transactions          Transaction[]
   users                 User[]
   shifts                Shift[]               // Relation to Shifts
+  rentalPsPrices        RentalPsPrice[]
+  rentalPsOutlets       RentalPsOutlet[]
 
   @@map("tenants")
 }
@@ -128,6 +131,11 @@ model Settings {
   companyProfileJson  String? @map("company_profile_json")
   dailyRecapTime      String? @default("18:00") @map("daily_recap_time") @db.VarChar(10)
   dailyRecapContent   String? @default("[]") @map("daily_recap_content")
+  rentalPsCashAccountId     String? @map("rental_ps_cash_account_id")
+  rentalPsTransferAccountId String? @map("rental_ps_transfer_account_id")
+  rentalPsReceivableCoaId   String? @map("rental_ps_receivable_coa_id")
+  rentalPsSalesCoaId        String? @map("rental_ps_sales_coa_id")
+  rentalPsTargetTenantId    String? @default("sdm") @map("rental_ps_target_tenant_id")
   id                  Int     @id @default(autoincrement())
   tenantId            String  @unique @default("sdm") @map("tenant_id")
   tenant              Tenant  @relation(fields: [tenantId], references: [id])
@@ -394,4 +402,60 @@ model ChatMessage {
   replies       ChatMessage[] @relation("ReplyTo")
 
   @@map("chat_messages")
+}
+
+
+model RentalPsOutlet {
+  id        String   @id @default(cuid())
+  name      String
+  tenantId  String   @map("tenant_id")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  prices    RentalPsPrice[]
+  records   RentalRecord[]
+
+  @@map("rental_ps_outlets")
+}
+
+model RentalRecord {
+  id               String   @id @default(cuid())
+  invoiceNumber    String   @unique @map("invoice_number")
+  customerName     String   @map("customer_name")
+  psType           String   @map("ps_type") // PS 3, PS 4
+  duration         Float    @map("duration") // Hours
+  totalAmount      Decimal  @map("total_amount")
+  paymentMethod    String   @map("payment_method") // CASH, TRANSFER, SPLIT
+  cashAmount       Decimal? @default(0) @map("cash_amount")
+  transferAmount   Decimal? @default(0) @map("transfer_amount")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  tenantId         String   @map("tenant_id")
+  staffName        String?  @map("staff_name")
+  businessUnitId   String?  @map("business_unit_id")
+  outletId         String?  @map("outlet_id")
+
+  outlet           RentalPsOutlet? @relation(fields: [outletId], references: [id])
+  
+  // Link to the generated transactions in Finance for audit
+  transactionIds   String[] @default([]) @map("transaction_ids")
+
+  @@map("rental_records")
+}
+
+model RentalPsPrice {
+  id           String   @id @default(cuid())
+  name         String   @map("name") // e.g., 'PS 3', 'PS 4'
+  pricePerHour Decimal  @map("price_per_hour")
+  isActive     Boolean  @default(true) @map("is_active")
+  tenantId     String   @map("tenant_id")
+  outletId     String?  @map("outlet_id")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  outlet       RentalPsOutlet? @relation(fields: [outletId], references: [id])
+
+  @@unique([tenantId, outletId, name])
+  @@map("rental_ps_prices")
 }

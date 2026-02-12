@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 import { Transaction, FinancialAccountDef, TransactionType, ChartOfAccount } from '../../types';
 import { formatCurrency } from '../../utils';
@@ -7,8 +8,9 @@ import { EmptyState } from '../EmptyState';
 interface LedgerViewProps {
     transactions: Transaction[]; // Should be Chronological ASC
     openingBalance: number;
+    normalPos: 'DEBIT' | 'CREDIT';
     financialAccounts: FinancialAccountDef[];
-    coaList?: ChartOfAccount[]; // New
+    coaList?: ChartOfAccount[];
     selectedAccount: string;
     onAccountChange: (accName: string) => void;
     startDate: string;
@@ -16,7 +18,7 @@ interface LedgerViewProps {
 }
 
 export const LedgerView: React.FC<LedgerViewProps> = ({
-    transactions, openingBalance, financialAccounts, coaList = [], selectedAccount, onAccountChange, startDate, endDate
+    transactions, openingBalance, normalPos, financialAccounts, coaList = [], selectedAccount, onAccountChange, startDate, endDate
 }) => {
     const [searchTerm, setSearchTerm] = React.useState('');
 
@@ -68,16 +70,28 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
         return result;
     }, [financialAccounts, coaList, searchTerm]);
 
-    // Calculate Running Balance on the fly
+    // Calculate Running Balance on the fly using explicit DEBIT/CREDIT from API
     const ledgerEntries = useMemo(() => {
         let balance = openingBalance;
         return transactions.map(t => {
-            if (t.type === TransactionType.IN) balance += t.amount;
-            else balance -= t.amount;
-            return { ...t, runningBalance: balance };
+            const dr = t.debit || 0;
+            const cr = t.credit || 0;
+
+            // Adjust balance based on Normal Position
+            if (normalPos === 'DEBIT') {
+                balance += (dr - cr);
+            } else {
+                balance += (cr - dr);
+            }
+
+            return {
+                ...t,
+                debit: dr,
+                credit: cr,
+                runningBalance: balance
+            };
         });
-        // We keep it Chronological (ASC) for Ledger Flow
-    }, [transactions, openingBalance]);
+    }, [transactions, openingBalance, normalPos]);
 
     const closingBalance = ledgerEntries.length > 0 ? ledgerEntries[ledgerEntries.length - 1].runningBalance : openingBalance;
 
@@ -93,7 +107,6 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
                         <h4 className="text-2xl font-black italic uppercase tracking-tighter mb-2 leading-none shrink-0">Buku Besar</h4>
                         <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-4 shrink-0">NAVIGASI AKUN</p>
 
-                        {/* SEARCH BOX */}
                         <div className="relative mb-6 shrink-0">
                             <input
                                 type="text"
@@ -123,11 +136,6 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
                                     ))}
                                 </div>
                             ))}
-                            {Object.keys(categorizedAccounts).length === 0 && (
-                                <div className="text-center py-20 animate-pulse">
-                                    <p className="text-[10px] text-slate-600 italic">Akun tidak ditemukan</p>
-                                </div>
-                            )}
                         </div>
                     </div>
                 </div>
@@ -136,9 +144,14 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
                     <div className="p-10 border-b flex justify-between items-center bg-slate-50/30">
                         <div>
                             <h4 className="text-xl font-black text-slate-800 uppercase italic leading-none">{selectedAccount} <span className="text-slate-400">LEDGER</span></h4>
-                            <p className="text-[10px] font-black text-slate-400 mt-2 uppercase tracking-widest">
-                                {new Date(startDate).toLocaleDateString('id-ID')} - {new Date(endDate).toLocaleDateString('id-ID')}
-                            </p>
+                            <div className="flex items-center gap-2 mt-2">
+                                <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${normalPos === 'DEBIT' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}`}>
+                                    NORMAL: {normalPos}
+                                </span>
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                    {new Date(startDate).toLocaleDateString('id-ID')} - {new Date(endDate).toLocaleDateString('id-ID')}
+                                </p>
+                            </div>
                         </div>
                         <div className="flex gap-8 text-right">
                             <div className="relative group">
@@ -169,8 +182,8 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
                                     <th className="px-8 py-4">Ref ID</th>
                                     <th className="px-8 py-4">TANGGAL</th>
                                     <th className="px-8 py-4">KETERANGAN</th>
-                                    <th className="px-8 py-4 text-right">DEBIT (IN)</th>
-                                    <th className="px-8 py-4 text-right">KREDIT (OUT)</th>
+                                    <th className="px-8 py-4 text-right">DEBET (+)</th>
+                                    <th className="px-8 py-4 text-right">KREDIT (-)</th>
                                     <th className="px-8 py-4 text-right">SALDO</th>
                                 </tr>
                             </thead>
@@ -194,17 +207,20 @@ export const LedgerView: React.FC<LedgerViewProps> = ({
                                         <td className="px-8 py-6 text-[10px] font-black text-slate-500 uppercase tracking-widest">{new Date(t.date).toLocaleDateString('id-ID')}</td>
                                         <td className="px-8 py-6">
                                             <span className="text-xs font-bold text-slate-700 block max-w-xs">{t.description}</span>
-                                            <span className="text-[9px] font-bold text-slate-300 uppercase tracking-wide">{t.category}</span>
+                                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">{t.category}</span>
+                                            {t.account && t.account !== selectedAccount && (
+                                                <span className="text-[8px] text-slate-300 block italic mt-1">Lawan: {t.account}</span>
+                                            )}
                                         </td>
                                         <td className="px-8 py-6 text-right">
-                                            {t.type === TransactionType.IN ? (
-                                                <span className="text-emerald-500 font-bold bg-emerald-50 px-3 py-1 rounded-lg text-xs">+{formatCurrency(t.amount)}</span>
-                                            ) : <span className="text-slate-200">-</span>}
+                                            {t.debit! > 0 ? (
+                                                <span className="text-emerald-600 font-bold bg-emerald-50 px-2.5 py-1 rounded-lg text-[11px] block">{formatCurrency(t.debit!)}</span>
+                                            ) : <span className="text-slate-200">0</span>}
                                         </td>
                                         <td className="px-8 py-6 text-right">
-                                            {t.type === TransactionType.OUT ? (
-                                                <span className="text-rose-500 font-bold bg-rose-50 px-3 py-1 rounded-lg text-xs">-{formatCurrency(t.amount)}</span>
-                                            ) : <span className="text-slate-200">-</span>}
+                                            {t.credit! > 0 ? (
+                                                <span className="text-rose-600 font-bold bg-rose-50 px-2.5 py-1 rounded-lg text-[11px] block">{formatCurrency(t.credit!)}</span>
+                                            ) : <span className="text-slate-200">0</span>}
                                         </td>
                                         <td className="px-8 py-6 text-right font-black text-slate-700 text-sm">
                                             {formatCurrency(t.runningBalance)}

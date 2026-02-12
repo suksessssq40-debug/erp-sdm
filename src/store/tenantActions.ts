@@ -28,11 +28,11 @@ export const createTenantActions = (
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to create tenant');
-    
+
     const updatedTenantsRes = await fetch(`${API_BASE}/api/tenants`, { headers: authHeaders });
     if (updatedTenantsRes.ok) {
-        const updatedData = await updatedTenantsRes.json();
-        setState(prev => ({ ...prev, tenants: updatedData }));
+      const updatedData = await updatedTenantsRes.json();
+      setState(prev => ({ ...prev, tenants: updatedData }));
     }
     return data;
   };
@@ -41,15 +41,44 @@ export const createTenantActions = (
     const res = await fetch(`${API_BASE}/api/tenants/${id}`, {
       method: 'PUT',
       headers: { ...authHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, description, features, isActive, workStrategy, radiusTolerance, lateGracePeriod })
+      body: JSON.stringify({
+        name,
+        description,
+        featuresJson: JSON.stringify(features), // FIX 1: Send as stringified JSON field
+        isActive,
+        workStrategy,
+        radiusTolerance,
+        lateGracePeriod
+      })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to update tenant');
-    
-    setState(prev => ({
-      ...prev,
-      tenants: prev.tenants.map(t => t.id === id ? { ...t, ...data } : t)
-    }));
+
+    setState(prev => {
+      const updatedTenants = prev.tenants.map(t => t.id === id ? { ...t, ...data } : t);
+
+      // FIX 2: Also update currentTenant if the edited one is the one currently active
+      const updatedCurrentTenant = prev.currentTenant?.id === id ? { ...prev.currentTenant, ...data } : prev.currentTenant;
+
+      // FIX 3: Crucial - Update currentUser.features so Sidebar/Navbar reflects changes immediately
+      let updatedCurrentUser = prev.currentUser;
+      if (prev.currentUser && prev.currentUser.tenantId === id) {
+        updatedCurrentUser = {
+          ...prev.currentUser,
+          features: data.featuresJson // Update the features list for the current session
+        };
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(updatedCurrentUser));
+        }
+      }
+
+      return {
+        ...prev,
+        tenants: updatedTenants,
+        currentTenant: updatedCurrentTenant,
+        currentUser: updatedCurrentUser
+      };
+    });
     return data;
   };
 
@@ -60,7 +89,7 @@ export const createTenantActions = (
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to delete tenant');
-    
+
     setState(prev => ({
       ...prev,
       tenants: prev.tenants.filter(t => t.id !== id)
@@ -75,15 +104,15 @@ export const createTenantActions = (
         headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ targetTenantId })
       });
-      
+
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error || 'Failed to switch unit');
       }
-      
+
       const { user, token } = await res.json();
       const normalizedUser = { ...user, roleSlug: (user.role || '').toLowerCase() };
-      
+
       if (typeof window !== 'undefined') {
         window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(normalizedUser));
         window.localStorage.setItem(CURRENT_TOKEN_KEY, token);

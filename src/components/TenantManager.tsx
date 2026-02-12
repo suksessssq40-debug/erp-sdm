@@ -33,6 +33,7 @@ export const TenantManager: React.FC<{ store: ReturnType<typeof useStore> }> = (
         { id: 'payroll', label: 'Gaji & Slip', icon: Shield },
         { id: 'requests', label: 'Permohonan', icon: Zap },
         { id: 'daily_report', label: 'Daily Report', icon: Zap },
+        { id: 'rental_ps', label: 'Rental PS', icon: Zap },
         { id: 'finance', label: 'Arus Kas', icon: Shield },
     ];
 

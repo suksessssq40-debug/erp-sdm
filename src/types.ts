@@ -202,11 +202,14 @@ export interface Transaction {
   imageUrl?: string; // New field for payment proof
 
   // New Accrual Fields
+
   coaId?: string;
   coa?: ChartOfAccount;
   contactName?: string;
   status?: string; // PAID, PENDING
   dueDate?: string;
+  debit?: number;
+  credit?: number;
 }
 
 export interface UserSalaryConfig {
@@ -300,7 +303,10 @@ export enum SystemActionType {
   USER_UPDATE = 'USER_UPDATE',
   USER_DELETE = 'USER_DELETE',
 
-  SETTINGS_UPDATE = 'SETTINGS_UPDATE'
+  SETTINGS_UPDATE = 'SETTINGS_UPDATE',
+  RENTAL_PS_CREATE = 'RENTAL_PS_CREATE',
+  RENTAL_PS_UPDATE = 'RENTAL_PS_UPDATE',
+  RENTAL_PS_DELETE = 'RENTAL_PS_DELETE'
 }
 
 export interface SystemLog {

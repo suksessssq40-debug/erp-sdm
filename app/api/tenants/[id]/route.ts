@@ -41,7 +41,13 @@ export async function PUT(
     const user = await authorize([UserRole.OWNER, UserRole.SUPERADMIN]);
     const tenantId = params.id;
     const body = await request.json();
-    const { name, description, workStrategy, radiusTolerance, lateGracePeriod, isActive, featuresJson } = body;
+    const { name, description, workStrategy, radiusTolerance, lateGracePeriod, isActive, featuresJson, features } = body;
+
+    // Robustness: Handle both raw features array or pre-stringified featuresJson
+    let finalFeaturesJson = featuresJson;
+    if (!finalFeaturesJson && features && Array.isArray(features)) {
+      finalFeaturesJson = JSON.stringify(features);
+    }
 
     const updated = await prisma.tenant.update({
       where: { id: tenantId },
@@ -52,7 +58,7 @@ export async function PUT(
         radiusTolerance: radiusTolerance !== undefined ? Number(radiusTolerance) : undefined,
         lateGracePeriod: lateGracePeriod !== undefined ? Number(lateGracePeriod) : undefined,
         isActive,
-        featuresJson
+        featuresJson: finalFeaturesJson
       }
     });
 

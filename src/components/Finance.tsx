@@ -109,9 +109,18 @@ const FinanceModule: React.FC<FinanceProps> = ({
   const [journalPage, setJournalPage] = useState(1);
   const [journalPagination, setJournalPagination] = useState({ total: 0, totalPages: 1 });
 
+
   // --- LEDGER SPECIFIC STATE ---
   const [ledgerAccount, setLedgerAccount] = useState<string>('');
-  const [ledgerData, setLedgerData] = useState<{ transactions: Transaction[], openingBalance: number }>({ transactions: [], openingBalance: 0 });
+  const [ledgerData, setLedgerData] = useState<{
+    transactions: Transaction[],
+    openingBalance: number,
+    normalPos: 'DEBIT' | 'CREDIT'
+  }>({
+    transactions: [],
+    openingBalance: 0,
+    normalPos: 'DEBIT'
+  });
 
   // Initialize Ledger Account
   useEffect(() => {
@@ -293,18 +302,26 @@ const FinanceModule: React.FC<FinanceProps> = ({
 
   // --- EXPORT HANDLER ---
   const handleExport = (type: 'pdf' | 'excel') => {
+
     if (activeTab === 'BUKU_BESAR') {
       // Calculate Ledger with Running Balance
       let balance = ledgerData.openingBalance;
       const rows = ledgerData.transactions.map(t => {
-        if (t.type === TransactionType.IN) balance += t.amount;
-        else balance -= t.amount;
+        const dr = t.debit || 0;
+        const cr = t.credit || 0;
+
+        if (ledgerData.normalPos === 'DEBIT') {
+          balance += (dr - cr);
+        } else {
+          balance += (cr - dr);
+        }
+
         return [
           new Date(t.date).toLocaleDateString('id-ID'),
-          t.account?.substring(0, 15) || '-', // Show Account brief
+          t.account?.substring(0, 15) || '-',
           t.description,
-          t.type === 'IN' ? formatCurrency(t.amount) : '-',
-          t.type === 'OUT' ? formatCurrency(t.amount) : '-',
+          dr > 0 ? formatCurrency(dr) : '-',
+          cr > 0 ? formatCurrency(cr) : '-',
           formatCurrency(balance)
         ];
       });
@@ -634,10 +651,12 @@ const FinanceModule: React.FC<FinanceProps> = ({
         />
       )}
 
+
       {activeTab === 'BUKU_BESAR' && (
         <LedgerView
           transactions={ledgerData.transactions}
           openingBalance={ledgerData.openingBalance}
+          normalPos={ledgerData.normalPos}
           financialAccounts={financialAccounts}
           coaList={coaList} // Pass all COAs to Ledger
           selectedAccount={ledgerAccount}

@@ -1,14 +1,14 @@
 
 import React from 'react';
 import { UserRole } from '../types';
-import { 
-  LayoutDashboard, 
-  Trello, 
-  CalendarCheck, 
-  FileText, 
-  Wallet, 
-  Users, 
-  Settings, 
+import {
+  LayoutDashboard,
+  Trello,
+  CalendarCheck,
+  FileText,
+  Wallet,
+  Users,
+  Settings,
   LogOut,
   Clock,
   CreditCard,
@@ -38,22 +38,22 @@ import { useAppStore } from '../context/StoreContext';
 
 // ...
 
-const Layout: React.FC<LayoutProps> = ({ 
-  children, userRole, activeTab, onTabChange, onLogout, userName, userAvatar, 
+const Layout: React.FC<LayoutProps> = ({
+  children, userRole, activeTab, onTabChange, onLogout, userName, userAvatar,
   tenantId, tenantName,
-  unreadChatCount = 0, pendingRequestCount = 0 
+  unreadChatCount = 0, pendingRequestCount = 0
 }) => {
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(true);
   const { currentUser } = useAppStore(); // Get features from store
 
   // Parse Features from User Profile (JSON String)
   const enabledFeatures = React.useMemo(() => {
-     if (!currentUser?.features) return null; // If null, assume ALL enabled
-     if (typeof currentUser.features === 'object') return currentUser.features; // Already parsed?
-     try {
-         const parsed = JSON.parse(currentUser.features);
-         return Array.isArray(parsed) ? parsed : [];
-     } catch(e) { return []; }
+    if (!currentUser?.features) return null; // If null, assume ALL enabled
+    if (typeof currentUser.features === 'object') return currentUser.features; // Already parsed?
+    try {
+      const parsed = JSON.parse(currentUser.features);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) { return []; }
   }, [currentUser?.features]);
 
   const navItems = [
@@ -62,11 +62,12 @@ const Layout: React.FC<LayoutProps> = ({
     { id: 'chat', label: 'Team Chat', icon: MessageSquare, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF], feature: 'chat' },
     { id: 'attendance', label: 'Absensi', icon: CalendarCheck, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF], feature: 'attendance' },
     { id: 'payroll', label: 'Gaji & Slip', icon: CreditCard, roles: [UserRole.OWNER, UserRole.FINANCE], feature: 'payroll' },
-    { id: 'requests', label: 'Permohonan', icon: FileText, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF], feature: 'requests' }, 
+    { id: 'requests', label: 'Permohonan', icon: FileText, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF], feature: 'requests' },
     { id: 'daily-report', label: 'Daily Report', icon: Clock, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF], feature: 'daily_report' },
+    { id: 'rental-ps', label: 'Rental PS', icon: LayoutDashboard, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF], feature: 'rental_ps' },
     { id: 'finance', label: 'Arus Kas', icon: Wallet, roles: [UserRole.OWNER, UserRole.FINANCE], feature: 'finance' },
     { id: 'users', label: 'User Management', icon: Users, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE] },
-    { id: 'tenants', label: 'Unit Bisnis', icon: Building, roles: [UserRole.OWNER] }, 
+    { id: 'tenants', label: 'Unit Bisnis', icon: Building, roles: [UserRole.OWNER] },
     { id: 'audit', label: 'Audit Trail', icon: ShieldAlert, roles: [UserRole.OWNER] },
     { id: 'settings', label: 'Settings', icon: Settings, roles: [UserRole.OWNER] },
   ];
@@ -74,24 +75,24 @@ const Layout: React.FC<LayoutProps> = ({
   const visibleNav = navItems.filter(item => {
     const hasRole = item.roles.includes(userRole);
     const it = item as any;
-    
+
     // 1. Finance & Cashflow Restriction: ONLY in 'sdm' unless explicitly enabled
     // This follows "Arus kas itu hanya di kantor utama saja (SDM)"
     if ((item.id === 'finance' || item.id === 'payroll') && tenantId !== 'sdm') {
-        const hasFeature = enabledFeatures?.includes(it.feature);
-        if (!hasFeature) return false;
+      const hasFeature = enabledFeatures?.includes(it.feature);
+      if (!hasFeature) return false;
     }
 
     // 2. Feature Toggle Check for Optional Modules
     if (it.feature && enabledFeatures && !enabledFeatures.includes(it.feature)) {
-        // Special Case: Staff/Manager might NOT see their features if disabled for tenant
-        return false;
+      // Special Case: Staff/Manager might NOT see their features if disabled for tenant
+      return false;
     }
-    
+
     return hasRole;
   });
   const isManagement = [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(userRole);
-  
+
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
 
 
@@ -99,7 +100,7 @@ const Layout: React.FC<LayoutProps> = ({
     <div className="flex h-screen bg-slate-50 overflow-hidden relative">
       {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/50 z-20 md:hidden backdrop-blur-sm"
           onClick={() => setIsSidebarOpen(false)}
         />
@@ -114,13 +115,13 @@ const Layout: React.FC<LayoutProps> = ({
       `}>
         <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-950/30">
           <TenantSwitcher />
-          
+
           {/* Close button always visible if sidebar is open, usable on mobile */}
           <button onClick={() => setIsSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-white">
             <X size={20} />
           </button>
         </div>
-        
+
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto sidebar-scrollbar">
           {visibleNav.map((item) => (
             <button
@@ -130,22 +131,21 @@ const Layout: React.FC<LayoutProps> = ({
                 // On mobile, auto-close. On desktop, keep open.
                 if (window.innerWidth < 768) setIsSidebarOpen(false);
               }}
-              className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all whitespace-nowrap ${
-                activeTab === item.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-              }`}
+              className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all whitespace-nowrap ${activeTab === item.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                }`}
             >
               <div className="flex items-center space-x-3">
-                 <item.icon size={20} className="shrink-0" />
-                 <span className="font-bold text-xs uppercase tracking-widest">{item.label}</span>
+                <item.icon size={20} className="shrink-0" />
+                <span className="font-bold text-xs uppercase tracking-widest">{item.label}</span>
               </div>
               {item.id === 'chat' && unreadChatCount > 0 && (
                 <span className="bg-rose-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse shadow-rose-500/50 shadow-md">
-                   {unreadChatCount}
+                  {unreadChatCount}
                 </span>
               )}
               {item.id === 'requests' && pendingRequestCount > 0 && isManagement && (
                 <span className="bg-amber-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse shadow-amber-500/50 shadow-md">
-                   {pendingRequestCount}
+                  {pendingRequestCount}
                 </span>
               )}
             </button>
@@ -179,14 +179,14 @@ const Layout: React.FC<LayoutProps> = ({
           </div>
           <div className="flex items-center space-x-4">
             <div className="text-right hidden md:block">
-               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">Status Sesi</p>
-               <p className="text-[10px] font-black text-emerald-500 uppercase">ONLINE - SECURE</p>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">Status Sesi</p>
+              <p className="text-[10px] font-black text-emerald-500 uppercase">ONLINE - SECURE</p>
             </div>
-      <button onClick={() => onTabChange('profile')} className="w-10 h-10 rounded-2xl bg-slate-900 flex items-center justify-center text-white font-black uppercase shadow-xl overflow-hidden hover:scale-105 active:scale-95 transition-transform" title="My Profile">
+            <button onClick={() => onTabChange('profile')} className="w-10 h-10 rounded-2xl bg-slate-900 flex items-center justify-center text-white font-black uppercase shadow-xl overflow-hidden hover:scale-105 active:scale-95 transition-transform" title="My Profile">
               {userAvatar ? (
-                  <img src={userAvatar} alt="Profile" className="w-full h-full object-cover" />
+                <img src={userAvatar} alt="Profile" className="w-full h-full object-cover" />
               ) : (
-                  (userName || '?').charAt(0)
+                (userName || '?').charAt(0)
               )}
             </button>
           </div>
