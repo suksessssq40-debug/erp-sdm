@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { cookies } from "next/headers";
 import jwt from "jsonwebtoken";
-import { getJakartaNow, recordSystemLog, serialize } from "@/lib/serverUtils";
+import { getJakartaNow, recordSystemLog } from "@/lib/serverUtils";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -22,13 +22,14 @@ export async function GET(request: Request) {
       const url = new URL(request.url);
       const queryKey = url.searchParams.get("key");
       const isForce = url.searchParams.get("force") === "true";
+      const customDate = url.searchParams.get("date"); // YYYY-MM-DD support
 
       let isAdmin = false;
       const candidateToken = token || cookies().get('token')?.value;
       if (candidateToken) {
          try {
             const decoded: any = jwt.verify(candidateToken, JWT_SECRET);
-            if (decoded && ['OWNER', 'MANAGER', 'FINANCE', 'ADMIN'].includes(decoded.role)) {
+            if (decoded && ['OWNER', 'MANAGER', 'FINANCE', 'ADMIN', 'SUPERADMIN'].includes(decoded.role)) {
                isAdmin = true;
             }
          } catch (e) { }
@@ -39,28 +40,33 @@ export async function GET(request: Request) {
       }
 
       const jkt = getJakartaNow();
-      const currentHour = parseInt(jkt.parts.hh);
+      let currentHour = parseInt(jkt.parts.hh);
 
       let targetDate = new Date();
-      targetDate.setHours(12, 0, 0, 0); // Normalize to midday
+      const jktDate = new Date(`${jkt.isoDate}T12:00:00Z`);
+      targetDate = jktDate;
 
       let contextLabel = "HARI INI";
-      let reportTitle = "LAPORAN HARIAN TERKINI";
+      let isHistorical = false;
 
-      if (isForce) {
+      if (customDate) {
+         targetDate = new Date(`${customDate}T12:00:00Z`);
+         contextLabel = `REKAP TANGGAL ${customDate}`;
+         isHistorical = true;
+      } else if (isForce) {
          contextLabel = "SNAPSHOT SAAT INI";
-         reportTitle = "📢 LAPORAN SITUASI TERKINI";
       } else if (currentHour < 12) {
          targetDate.setDate(targetDate.getDate() - 1);
          contextLabel = "KEMARIN (FULL DAY)";
-         reportTitle = "🔔 REKAP HARIAN FINAL (KEMARIN)";
       } else {
          contextLabel = "HARI INI (ON-GOING)";
-         reportTitle = "🔔 LAPORAN HARIAN SEMENTARA";
       }
 
       const sqlDateStr = targetDate.toISOString().split('T')[0];
+      const startOfTargetDate = new Date(sqlDateStr + 'T00:00:00.000Z');
+      const endOfTargetDate = new Date(sqlDateStr + 'T23:59:59.999Z');
       const displayDateStr = targetDate.toLocaleDateString("id-ID", { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      const startOfMonth = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
 
       const tenants = await prisma.tenant.findMany({ where: { isActive: true } });
       const results = [];
@@ -69,30 +75,17 @@ export async function GET(request: Request) {
          try {
             const tenantId = tenant.id;
             const settings = await prisma.settings.findUnique({ where: { tenantId } });
-            if (!settings) continue;
-
-            // --- [AUTO-HEALING] Balance Calibration ---
-            const accounts = await prisma.financialAccount.findMany({ where: { tenantId } });
-            for (const acc of accounts) {
-               const agg = await prisma.transaction.aggregate({
-                  where: { accountId: acc.id, tenantId },
-                  _sum: { amount: true }
-               });
-               // Note: Complex IN/OUT logic might need more nuance if using balance field
-               // For now we just log that we are processing
-            }
-
-            if (!settings.telegramBotToken || !settings.telegramOwnerChatId) continue;
+            if (!settings || !settings.telegramBotToken || !settings.telegramOwnerChatId) continue;
 
             const userTime = settings.dailyRecapTime || "18:00";
             const userHour = parseInt(userTime.split(':')[0]);
 
-            if (!isForce && userHour !== currentHour) {
+            if (!isForce && !customDate && userHour !== currentHour) {
                results.push({ tenantId, status: 'skipped', reason: 'time_mismatch' });
                continue;
             }
 
-            if (!isForce) {
+            if (!isForce && !customDate) {
                const alreadySent = await (prisma as any).systemLog.findFirst({
                   where: {
                      actionType: 'DAILY_RECAP_AUTO',
@@ -113,32 +106,113 @@ export async function GET(request: Request) {
                   : (settings.dailyRecapContent as any || []);
             } catch (e) { }
 
-            let message = `<b>${reportTitle}</b> \n🏢 Unit: <b>${escapeHtml(tenant.name.toUpperCase())}</b>\n📅 Data: <b>${escapeHtml(displayDateStr)}</b> (${contextLabel})\n\n`;
+            let reportTitle = isHistorical ? "📅 LAPORAN RIWAYAT HARIAN" : "📊 LAPORAN KEUANGAN TERKINI";
+            let message = `<b>${reportTitle}</b> \n🏢 Unit: <b>${escapeHtml(tenant.name.toUpperCase())}</b>\n📅 Tanggal: <b>${escapeHtml(displayDateStr)}</b>\n📍 Status: <b>${contextLabel}</b>\n\n`;
             let hasData = false;
 
-            // Finance
             if (targetModules.includes("omset")) {
-               const income = await prisma.transaction.aggregate({
-                  where: { tenantId, date: { gte: new Date(sqlDateStr), lt: new Date(new Date(sqlDateStr).getTime() + 86400000) }, type: 'IN' },
-                  _sum: { amount: true }
+               const cashAccounts = await prisma.financialAccount.findMany({
+                  where: {
+                     tenantId,
+                     isActive: true,
+                     OR: [
+                        { name: { startsWith: '11' } },
+                        { name: { startsWith: '12' } }
+                     ]
+                  }
                });
-               const expense = await prisma.transaction.aggregate({
-                  where: { tenantId, date: { gte: new Date(sqlDateStr), lt: new Date(new Date(sqlDateStr).getTime() + 86400000) }, type: 'OUT' },
-                  _sum: { amount: true }
+               const cashAccountIds = cashAccounts.map(a => a.id);
+               const accountMap: Record<string, string> = {};
+               cashAccounts.forEach(a => { accountMap[a.id] = a.name; });
+
+               const dailyTransactions = await prisma.transaction.findMany({
+                  where: {
+                     tenantId,
+                     date: { gte: startOfTargetDate, lte: endOfTargetDate },
+                     status: 'PAID',
+                     accountId: { in: cashAccountIds }
+                  },
+                  orderBy: { createdAt: 'desc' }
                });
-               const inc = Number(income._sum.amount || 0);
-               const exp = Number(expense._sum.amount || 0);
-               message += `💰 <b>KEUANGAN</b>\n📥 Masuk: Rp ${inc.toLocaleString('id-ID')}\n📤 Keluar: Rp ${exp.toLocaleString('id-ID')}\n💵 <b>NET: Rp ${(inc - exp).toLocaleString('id-ID')}</b>\n\n`;
+
+               let dailyIn = 0;
+               let dailyOut = 0;
+               let dailyInDetails = "";
+               let dailyOutDetails = "";
+
+               dailyTransactions.forEach(t => {
+                  const amt = Number(t.amount);
+                  const desc = t.description || t.category || "Tanpa Keterangan";
+                  const accName = accountMap[t.accountId!] || "Kas/Bank";
+                  const line = `   ⁃ Rp ${amt.toLocaleString('id-ID')} | <i>${escapeHtml(desc)}</i> (${escapeHtml(accName)})\n`;
+
+                  if (t.type === 'IN') {
+                     dailyIn += amt;
+                     dailyInDetails += line;
+                  } else {
+                     dailyOut += amt;
+                     dailyOutDetails += line;
+                  }
+               });
+
+               message += `💰 <b>ALIRAN KAS HARIAN</b>\n`;
+               message += `📥 <b>MASUK: Rp ${dailyIn.toLocaleString('id-ID')}</b>\n`;
+               message += dailyInDetails || `   ⁃ <i>(Tidak ada pemasukan)</i>\n`;
+
+               message += `📤 <b>KELUAR: Rp ${dailyOut.toLocaleString('id-ID')}</b>\n`;
+               message += dailyOutDetails || `   ⁃ <i>(Tidak ada pengeluaran)</i>\n`;
+               message += `💵 <b>NET HARI INI: Rp ${(dailyIn - dailyOut).toLocaleString('id-ID')}</b>\n\n`;
+
+               const monthlyTrans = await prisma.transaction.findMany({
+                  where: {
+                     tenantId,
+                     date: { gte: startOfMonth, lte: endOfTargetDate },
+                     status: 'PAID',
+                     accountId: { in: cashAccountIds }
+                  }
+               });
+
+               let mIn = 0;
+               let mOut = 0;
+               monthlyTrans.forEach(t => {
+                  if (t.type === 'IN') mIn += Number(t.amount);
+                  else mOut += Number(t.amount);
+               });
+
+               message += `📊 <b>RINGKASAN BULAN INI (MTD)</b>\n`;
+               message += `🟢 Masuk: Rp ${mIn.toLocaleString('id-ID')}\n`;
+               message += `🔴 Keluar: Rp ${mOut.toLocaleString('id-ID')}\n`;
+               message += `💎 <b>CASH PROFIT MTD: Rp ${(mIn - mOut).toLocaleString('id-ID')}</b>\n\n`;
+
+               const topMutations = [...monthlyTrans]
+                  .sort((a, b) => Number(b.amount) - Number(a.amount))
+                  .slice(0, 5);
+
+               if (topMutations.length > 0) {
+                  message += `🔝 <b>5 MUTASI TERBESAR BULAN INI:</b>\n`;
+                  topMutations.forEach((t, i) => {
+                     message += `   ${i + 1}. Rp ${Number(t.amount).toLocaleString('id-ID')} | ${escapeHtml(t.description || t.category || "No Desc")} (${t.type})\n`;
+                  });
+                  message += `\n`;
+               }
+
+               message += `🏦 <b>POSISI SALDO KAS & BANK</b>\n`;
+               let totalAll = 0;
+               cashAccounts.sort((a, b) => a.name.localeCompare(b.name)).forEach(acc => {
+                  const bal = Number(acc.balance || 0);
+                  totalAll += bal;
+                  message += `⁃ ${escapeHtml(acc.name)}: Rp ${bal.toLocaleString('id-ID')}\n`;
+               });
+               message += `🧮 <b>TOTAL LIKUID: Rp ${totalAll.toLocaleString('id-ID')}</b>\n\n`;
                hasData = true;
             }
 
-            // Attendance
             if (targetModules.includes("attendance")) {
                const present = await prisma.attendance.findMany({
                   where: { tenantId, date: sqlDateStr },
-                  include: { user: true, shift: true }
+                  include: { user: true }
                });
-               message += `👥 <b>ABSENSI SDM (${present.length} Hadir)</b>\n`;
+               message += `👥 <b>ABSENSI (${present.length} Hadir)</b>\n`;
                const lates = present.filter(p => p.isLate);
                if (lates.length > 0) {
                   message += `⚠️ <b>TERLAMBAT (${lates.length}):</b>\n`;
@@ -146,13 +220,24 @@ export async function GET(request: Request) {
                      message += `   ${i + 1}. ${escapeHtml(l.user?.name || 'Unknown')} ${l.lateReason ? `("${escapeHtml(l.lateReason)}")` : ''}\n`;
                   });
                } else {
-                  message += `   ✨ <b>Semua On-Time</b>\n`;
+                  message += `   ✨ ${present.length > 0 ? "Kedisiplinan Sempurna" : "Tidak ada data absen"}\n`;
                }
                message += `\n`;
                hasData = true;
             }
 
+            if (targetModules.includes("requests")) {
+               const pendings = await prisma.leaveRequest.count({
+                  where: { tenantId, status: 'PENDING' }
+               });
+               if (pendings > 0) {
+                  message += `📩 <b>${pendings} PERMOHONAN PENDING</b>\n<i>Mohon segera direview di Dashboard.</i>\n\n`;
+                  hasData = true;
+               }
+            }
+
             if (hasData) {
+               message += `<i>SDM ERP Intelligence System • ${jkt.isoTime} WIB</i>`;
                const teleRes = await fetch(`https://api.telegram.org/bot${settings.telegramBotToken}/sendMessage`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -166,10 +251,14 @@ export async function GET(request: Request) {
                if (teleRes.ok) {
                   await recordSystemLog({
                      actorId: 'SYSTEM', actorName: 'Cron Job', actorRole: 'SYSTEM',
-                     actionType: 'DAILY_RECAP_AUTO', details: `Sent daily recap for ${sqlDateStr}`,
+                     actionType: customDate ? 'DAILY_RECAP_MANUAL' : 'DAILY_RECAP_AUTO',
+                     details: `Sent recap for ${sqlDateStr}`,
                      targetObj: 'Telegram', tenantId
                   });
                   results.push({ tenantId, status: 'sent' });
+               } else {
+                  const errJson = await teleRes.json();
+                  results.push({ tenantId, status: 'error', error: errJson.description });
                }
             }
 
@@ -186,4 +275,3 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Internal Error' }, { status: 500 });
    }
 }
-

@@ -58,9 +58,15 @@ export const FinanceDashboard = () => {
     const todayIso = new Date().toISOString().split('T')[0];
     // Safety: Filter transactions only if they are an array and have valid dates
     const safeTransactions = Array.isArray(transactions) ? transactions : [];
-    const todayTrans = safeTransactions.filter(t => t.date && typeof t.date === 'string' && t.date.startsWith(todayIso));
-    const todayIn = todayTrans.filter(t => t.type === 'IN').reduce((s, t) => s + t.amount, 0);
-    const todayOut = todayTrans.filter(t => t.type === 'OUT').reduce((s, t) => s + t.amount, 0);
+    const todayTrans = safeTransactions.filter(t =>
+        t.date &&
+        typeof t.date === 'string' &&
+        t.date.startsWith(todayIso) &&
+        t.status === 'PAID' &&
+        t.accountId // Must be Cash/Bank
+    );
+    const todayIn = todayTrans.filter(t => t.type === 'IN').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+    const todayOut = todayTrans.filter(t => t.type === 'OUT').reduce((s, t) => s + (Number(t.amount) || 0), 0);
 
     const formatIDR = (n: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n);
 

@@ -23,11 +23,23 @@ export async function GET(request: Request) {
         const [monthlyIn, monthlyOut] = await Promise.all([
             prisma.transaction.aggregate({
                 _sum: { amount: true },
-                where: { tenantId, type: 'IN', status: 'PAID', date: { gte: startOfMonth } } as any
+                where: {
+                    tenantId,
+                    type: 'IN',
+                    status: 'PAID',
+                    accountId: { not: null },
+                    date: { gte: startOfMonth }
+                } as any
             }),
             prisma.transaction.aggregate({
                 _sum: { amount: true },
-                where: { tenantId, type: 'OUT', status: 'PAID', date: { gte: startOfMonth } } as any
+                where: {
+                    tenantId,
+                    type: 'OUT',
+                    status: 'PAID',
+                    accountId: { not: null },
+                    date: { gte: startOfMonth }
+                } as any
             })
         ]);
 
@@ -39,6 +51,7 @@ export async function GET(request: Request) {
             where: {
                 tenantId,
                 status: 'PAID',
+                accountId: { not: null },
                 date: { gte: thirtyDaysAgo }
             } as any,
             select: {

@@ -36,19 +36,10 @@ export async function GET() {
             ]);
 
             // Finance: Get latest balance (Sum of liquid accounts)
-            const accounts = await prisma.financialAccount.findMany({ where: { tenantId: tid, isActive: true } });
-            // NOTE: COA Balance would be more accurate, but for high-level, sum of banks is a good proxy.
-            // We'll try to get it from transactions if possible later, for now sum of accounts.
-            // Since account balance is not stored in the record (it's calculated), let's calculate it.
-
-            const transactions = await prisma.transaction.findMany({
-                where: { tenantId: tid, status: 'PAID' } as any,
-                select: { amount: true, type: true }
+            const accounts = await prisma.financialAccount.findMany({
+                where: { tenantId: tid, isActive: true }
             });
-
-            const balance = transactions.reduce((acc, t) => {
-                return t.type === 'INCOME' ? acc + Number(t.amount) : acc - Number(t.amount);
-            }, 0);
+            const totalLiquidBalance = accounts.reduce((sum, acc) => sum + Number(acc.balance || 0), 0);
 
             return {
                 tenantId: tid,
@@ -59,7 +50,7 @@ export async function GET() {
                     requests: pendingRequests,
                     attendanceRate: userCount > 0 ? (todayAttendance / userCount) : 0,
                     lateRate: todayAttendance > 0 ? (lateAttendance / todayAttendance) : 0,
-                    balance: balance
+                    balance: totalLiquidBalance
                 }
             };
         }));
