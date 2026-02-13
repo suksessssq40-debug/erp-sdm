@@ -252,14 +252,25 @@ const RentalPSPortal: React.FC<RentalPSPortalProps> = ({ currentUser }) => {
 
                         // Use XLSX library to parse the file
                         const { read, utils } = await import('xlsx');
-                        const workbook = read(data, { type: 'binary' });
+                        const workbook = read(data, { type: 'binary', cellDates: true, cellNF: false, cellText: false });
                         const sheetName = workbook.SheetNames[0];
                         const worksheet = workbook.Sheets[sheetName];
                         const rawRecords = utils.sheet_to_json(worksheet);
 
+                        // Helper untuk konversi serial date Excel ke JS Date jika masih angka
+                        const excelToJSDate = (serial: any) => {
+                            if (!serial) return null;
+                            if (serial instanceof Date) return serial; // Sudah jadi Date berkat cellDates: true
+                            if (typeof serial === 'number') {
+                                // Excel epoch starts 1899-12-30
+                                return new Date(Math.round((serial - 25569) * 86400 * 1000));
+                            }
+                            const d = new Date(serial);
+                            return isNaN(d.getTime()) ? null : d;
+                        };
+
                         // Mapping header excel ke key yang dimengerti backend
                         records = rawRecords.map((rec: any) => {
-                            // Mencoba mencari key yang mirip (case insensitive & handle spasi)
                             const findVal = (possibleKeys: string[]) => {
                                 const key = Object.keys(rec).find(k =>
                                     possibleKeys.some(pk => k.toLowerCase().includes(pk.toLowerCase()))
@@ -267,8 +278,11 @@ const RentalPSPortal: React.FC<RentalPSPortalProps> = ({ currentUser }) => {
                                 return key ? rec[key] : null;
                             };
 
+                            const rawDate = findVal(['tanggal', 'date']);
+                            const date = excelToJSDate(rawDate);
+
                             return {
-                                date: findVal(['tanggal', 'date']),
+                                date: date ? date.toISOString() : null,
                                 customer: findVal(['customer', 'pelanggan', 'nama']),
                                 unit: findVal(['unit', 'ps']),
                                 duration: findVal(['durasi', 'duration', 'jam']),
