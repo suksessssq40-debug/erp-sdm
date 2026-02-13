@@ -18,14 +18,14 @@ interface ChartProps {
 
 export const FinancialCharts: React.FC<ChartProps> = ({ trendData, stats }) => {
     return (
-        <div className="space-y-6 animate-in slide-in-from-top duration-700">
+        <div id="financial-charts" className="space-y-6 animate-in slide-in-from-top duration-700">
             {/* TOP CARDS */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="col-span-2 bg-white p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] shadow-xl border border-slate-50 relative overflow-hidden group">
                     <div className="absolute -right-4 -top-4 p-4 opacity-[0.03] group-hover:scale-110 transition-transform duration-700">
                         <TrendingUp size={120} />
                     </div>
-                    <p className="text-[10px] md:text-[11px] font-black text-slate-400 uppercase tracking-widest">Total Reservasi</p>
+                    <p className="text-[10px] md:text-[11px] font-black text-slate-400 uppercase tracking-widest">Total Pendapatan</p>
                     <h4 className="text-2xl md:text-3xl font-black text-slate-900 mt-2 italic tracking-tighter">Rp {stats.totalRevenue.toLocaleString()}</h4>
                 </div>
 
@@ -44,7 +44,7 @@ export const FinancialCharts: React.FC<ChartProps> = ({ trendData, stats }) => {
                         <CreditCard size={16} className="md:size-[20px]" />
                     </div>
                     <div className="min-w-0">
-                        <p className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest truncate">Bank</p>
+                        <p className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest truncate">Transfer</p>
                         <h4 className="text-sm md:text-lg font-black text-slate-800 italic">Rp {stats.totalTransfer.toLocaleString()}</h4>
                     </div>
                 </div>

@@ -10,7 +10,10 @@ import { History } from './History';
 import { Receipt } from './Receipt';
 import { Settings } from './Settings';
 import { FinancialCharts } from './FinancialCharts';
-import { CheckCircle2, Download, Share2, X, Share, Info, FileText, AlertCircle, Calendar as CalendarIcon, Filter } from 'lucide-react';
+import {
+    CheckCircle2, Download, Share2, X, Share, Info, FileText, AlertCircle,
+    Calendar as CalendarIcon, Filter, FileSpreadsheet, FileDown, ChevronDown, TrendingUp
+} from 'lucide-react';
 
 interface RentalPSPortalProps {
     currentUser: User;
@@ -39,6 +42,8 @@ const RentalPSPortal: React.FC<RentalPSPortalProps> = ({ currentUser }) => {
     const [isFiltering, setIsFiltering] = useState(false);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [isGuideOpen, setIsGuideOpen] = useState(false);
+    const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
+    const exportRef = useRef<HTMLDivElement>(null);
 
     // Form State
     const [customerName, setCustomerName] = useState('');
@@ -189,6 +194,14 @@ const RentalPSPortal: React.FC<RentalPSPortalProps> = ({ currentUser }) => {
 
     useEffect(() => {
         loadAll();
+        // Click outside handler for export dropdown
+        const handleClickOutside = (event: MouseEvent) => {
+            if (exportRef.current && !exportRef.current.contains(event.target as Node)) {
+                setIsExportDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -404,41 +417,300 @@ const RentalPSPortal: React.FC<RentalPSPortalProps> = ({ currentUser }) => {
         }
     };
 
-    const handleExport = () => {
+    const exportToPDF = async () => {
         if (history.length === 0) return toast.error("Tidak ada data untuk dieksport");
-
         setIsExporting(true);
-        try {
-            const headers = ["Nota", "Tanggal", "Customer", "Unit", "Durasi", "Total", "Metode", "Outlet", "Petugas"];
-            const csvContent = [
-                headers.join(","),
-                ...history.map(r => [
-                    r.invoiceNumber,
-                    new Date(r.createdAt).toLocaleString(),
-                    `"${r.customerName}"`,
-                    r.psType,
-                    r.duration,
-                    r.totalAmount,
-                    r.paymentMethod,
-                    `"${r.outlet?.name || 'General'}"`,
-                    `"${r.staffName || '-'}"`
-                ].join(","))
-            ].join("\n");
 
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement("a");
-            const url = URL.createObjectURL(blob);
-            link.setAttribute("href", url);
-            link.setAttribute("download", `Rental_PS_Export_${new Date().toISOString().split('T')[0]}.csv`);
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            toast.success("Data dieksport ke CSV");
+        try {
+            // Dynamic import to avoid SSR/Build issues
+            const { jsPDF } = await import('jspdf');
+            const autoTable = (await import('jspdf-autotable')).default;
+
+            const generatePDF = () => {
+                const doc = new jsPDF();
+                const pageWidth = doc.internal.pageSize.getWidth();
+                const pageHeight = doc.internal.pageSize.getHeight();
+                const margin = 15;
+
+                // 1. HEADER (Vector)
+                doc.setFillColor(15, 23, 42); // slate-900
+                doc.rect(0, 0, pageWidth, 40, 'F');
+
+                doc.setTextColor(255, 255, 255);
+                doc.setFontSize(22);
+                doc.setFont('helvetica', 'bold');
+                doc.text("LEVEL UP GAMING", margin, 20);
+
+                doc.setFontSize(8);
+                doc.setFont('helvetica', 'normal');
+                doc.text("LAPORAN RENTAL PLAYSTATION - DIGITAL REPORT", margin, 28);
+                doc.text(`PERIODE: ${dateRange.startDate || 'Semua'} s/d ${dateRange.endDate || 'Sekarang'}`, margin, 33);
+
+                let currentY = 55;
+
+                // 2. STATS CARDS (Vector Drawing for Sharpness)
+                const cardWidth = (pageWidth - (margin * 2) - 10) / 3;
+                const cardHeight = 25;
+
+                // Helper to draw card
+                const drawCard = (x: number, title: string, value: string, sub: string, color: [number, number, number]) => {
+                    // Card Bg
+                    doc.setFillColor(248, 250, 252); // slate-50
+                    doc.setDrawColor(226, 232, 240); // slate-200
+                    doc.roundedRect(x, currentY, cardWidth, cardHeight, 3, 3, 'FD');
+
+                    // Accent Line
+                    doc.setDrawColor(color[0], color[1], color[2]);
+                    doc.setLineWidth(1);
+                    doc.line(x + 5, currentY + 5, x + 5, currentY + cardHeight - 5);
+
+                    // Title
+                    doc.setTextColor(100, 116, 139); // slate-400
+                    doc.setFontSize(7);
+                    doc.setFont('helvetica', 'bold');
+                    doc.text(title, x + 10, currentY + 8);
+
+                    // Value
+                    doc.setTextColor(15, 23, 42); // slate-900
+                    doc.setFontSize(11);
+                    doc.text(value, x + 10, currentY + 18);
+
+                    // Subtext (Right aligned)
+                    doc.setFontSize(6);
+                    doc.setTextColor(color[0], color[1], color[2]);
+                    doc.text(sub, x + cardWidth - 5, currentY + 18, { align: 'right' });
+                };
+
+                drawCard(margin, "PENDAPATAN", `Rp ${stats.totalRevenue.toLocaleString()}`, `${stats.count} Sesi`, [59, 130, 246]); // Blue
+                drawCard(margin + cardWidth + 5, "TUNAI (CASH)", `Rp ${stats.totalCash.toLocaleString()}`, `${Math.round((stats.totalCash / (stats.totalRevenue || 1)) * 100)}%`, [16, 185, 129]); // Emerald
+                drawCard(margin + (cardWidth * 2) + 10, "TRANSFER", `Rp ${stats.totalTransfer.toLocaleString()}`, "Transfer", [99, 102, 241]); // Indigo
+
+                currentY += 35;
+
+                // 3. MINI TREND CHART (Vector Line Graph)
+                if (trendData && trendData.length > 1) {
+                    const chartHeight = 40;
+                    const chartWidth = pageWidth - (margin * 2);
+
+                    // Chart Config
+                    doc.setDrawColor(203, 213, 225); // slate-300 axis
+                    doc.setLineWidth(0.1);
+                    doc.line(margin, currentY + chartHeight, margin + chartWidth, currentY + chartHeight); // X-Axis
+                    doc.line(margin, currentY, margin, currentY + chartHeight); // Y-Axis
+
+                    doc.setFontSize(7);
+                    doc.setTextColor(100, 116, 139);
+                    doc.text("GRAFIK TREND HARIAN", margin, currentY - 3);
+
+                    // Calculate Points
+                    const maxVal = Math.max(...trendData.map(d => d.value)) || 1;
+                    const points: { x: number, y: number }[] = trendData.map((d, i) => {
+                        const x = margin + (i * (chartWidth / (trendData.length - 1)));
+                        const y = (currentY + chartHeight) - ((d.value / maxVal) * (chartHeight - 5)); // -5 padding top
+                        return { x, y };
+                    });
+
+                    // Draw Line
+                    doc.setDrawColor(59, 130, 246); // Blue-500
+                    doc.setLineWidth(0.5);
+                    for (let i = 0; i < points.length - 1; i++) {
+                        doc.line(points[i].x, points[i].y, points[i + 1].x, points[i + 1].y);
+                    }
+
+                    // Draw Dots
+                    doc.setFillColor(59, 130, 246);
+                    points.forEach(p => doc.circle(p.x, p.y, 0.8, 'F'));
+
+                    currentY += chartHeight + 10;
+                }
+
+                // 4. DATA TABLE
+                autoTable(doc, {
+                    startY: currentY,
+                    head: [["No", "Nota", "Customer", "Unit", "Durasi", "Total", "Metode", "Outlet"]],
+                    body: history.map((r, i) => [
+                        i + 1,
+                        r.invoiceNumber,
+                        r.customerName,
+                        r.psType,
+                        `${r.duration} Jam`,
+                        `Rp ${r.totalAmount.toLocaleString()}`,
+                        r.paymentMethod,
+                        r.outlet?.name || 'General'
+                    ]),
+                    theme: 'striped',
+                    headStyles: { fillColor: [15, 23, 42], fontSize: 8, fontStyle: 'bold', halign: 'center' },
+                    bodyStyles: { fontSize: 7, textColor: [51, 65, 85] },
+                    columnStyles: {
+                        0: { halign: 'center', cellWidth: 10 },
+                        4: { halign: 'center' },
+                        5: { halign: 'right', fontStyle: 'bold' },
+                        6: { halign: 'center' }
+                    },
+                    didDrawPage: (data) => {
+                        doc.setFontSize(6);
+                        doc.setTextColor(150);
+                        doc.text(`Halaman ${data.pageNumber} | Dicetak: ${new Date().toLocaleString()}`, pageWidth - margin, pageHeight - 10, { align: 'right' });
+                    }
+                });
+
+                doc.save(`Laporan_Rental_LevelUp_${new Date().toISOString().split('T')[0]}.pdf`);
+            };
+
+            const toastId = toast.loading("Memproses PDF Vektor...");
+            try {
+                // Add a small delay to allow UI to render toast
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                generatePDF();
+
+                toast.dismiss(toastId);
+                toast.success("Laporan PDF Siap!");
+            } catch (error) {
+                console.error(error);
+                toast.dismiss(toastId);
+                toast.error("Gagal membuat PDF");
+            }
+
         } catch (e) {
-            toast.error("Gagal mengeksport data");
+            console.error(e);
+            toast.error("Gagal inisialisasi PDF Engine");
         } finally {
             setIsExporting(false);
+            setIsExportDropdownOpen(false);
+        }
+    };
+
+    const exportToExcel = async () => {
+        if (history.length === 0) return toast.error("Tidak ada data untuk dieksport");
+        setIsExporting(true);
+
+        try {
+            const ExcelJS = (await import('exceljs')).default;
+            const workbook = new ExcelJS.Workbook();
+            const sheet = workbook.addWorksheet('Dashboard & Data', { views: [{ showGridLines: false }] });
+
+            // 1. DASHBOARD SECTION (Rows 1-6)
+            // Title
+            sheet.mergeCells('B2:E2');
+            const titleCell = sheet.getCell('B2');
+            titleCell.value = 'LEVEL UP GAMING - RENTAL REPORT';
+            titleCell.font = { name: 'Arial Black', size: 16, color: { argb: 'FF1E293B' } }; // Slate 800
+
+            sheet.mergeCells('B3:E3');
+            const subtitleCell = sheet.getCell('B3');
+            subtitleCell.value = `Periode: ${dateRange.startDate || 'Semua'} s/d ${dateRange.endDate || 'Sekarang'}`;
+            subtitleCell.font = { name: 'Arial', size: 10, color: { argb: 'FF64748B' }, italic: true }; // Slate 500
+
+            // Summary Cards Logic
+            const addCard = (colStart: string, label: string, value: string, bgColor: string, textColor: string) => {
+                sheet.mergeCells(`${colStart}5:${String.fromCharCode(colStart.charCodeAt(0) + 1)}5`); // Badge
+                sheet.mergeCells(`${colStart}6:${String.fromCharCode(colStart.charCodeAt(0) + 1)}6`); // Value
+
+                const labelCell = sheet.getCell(`${colStart}5`);
+                labelCell.value = label;
+                labelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
+                labelCell.font = { name: 'Arial', size: 9, bold: true, color: { argb: textColor } };
+                labelCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+                const valueCell = sheet.getCell(`${colStart}6`);
+                valueCell.value = value;
+                valueCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
+                valueCell.font = { name: 'Arial Black', size: 12, color: { argb: 'FF0F172A' } };
+                valueCell.alignment = { horizontal: 'center', vertical: 'middle' };
+                valueCell.border = { bottom: { style: 'thick', color: { argb: bgColor } } };
+            };
+
+            addCard('B', 'TOTAL PENDAPATAN', `Rp ${stats.totalRevenue.toLocaleString()}`, 'FF3B82F6', 'FFFFFFFF'); // Blue
+            addCard('E', 'TOTAL SESI', `${stats.count} Transaksi`, 'FF10B981', 'FFFFFFFF'); // Emerald
+            addCard('H', 'CASH RATIO', `${Math.round((stats.totalCash / (stats.totalRevenue || 1)) * 100)}%`, 'FF64748B', 'FFFFFFFF'); // Slate
+
+            // 2. DATA TABLE SECTION (Row 9+)
+            const tableStartRow = 9;
+
+            // Define columns manually first to set width
+            sheet.getColumn('A').width = 5;  // Spacing
+            sheet.getColumn('B').width = 5;  // No
+            sheet.getColumn('C').width = 18; // Invoice
+            sheet.getColumn('D').width = 20; // Date
+            sheet.getColumn('E').width = 25; // Customer
+            sheet.getColumn('F').width = 12; // Unit
+            sheet.getColumn('G').width = 12; // Duration
+            sheet.getColumn('H').width = 18; // Total (With Bars)
+            sheet.getColumn('I').width = 12; // Method
+            sheet.getColumn('J').width = 20; // Outlet
+
+            // Table Headers
+            const headerRow = sheet.getRow(tableStartRow);
+            const headers = ['NO', 'INVOICE', 'TANGGAL', 'CUSTOMER', 'UNIT', 'DURASI', 'TOTAL', 'METODE', 'OUTLET'];
+            headers.forEach((h, i) => {
+                const cell = headerRow.getCell(i + 2); // Start from col B
+                cell.value = h;
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } }; // Slate 900
+                cell.font = { color: { argb: 'FFFFFFFF' }, bold: true };
+                cell.alignment = { horizontal: 'center' };
+            });
+
+            // Data Rows
+            history.forEach((r, i) => {
+                const row = sheet.getRow(tableStartRow + i + 1);
+                row.getCell(2).value = i + 1;
+                row.getCell(3).value = r.invoiceNumber;
+                row.getCell(4).value = new Date(r.createdAt).toLocaleString();
+                row.getCell(5).value = r.customerName;
+                row.getCell(6).value = r.psType;
+                row.getCell(7).value = r.duration;
+                row.getCell(8).value = r.totalAmount;
+                row.getCell(9).value = r.paymentMethod;
+                row.getCell(10).value = r.outlet?.name || 'General';
+
+                // Styling
+                row.eachCell((cell) => {
+                    cell.border = { bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } } };
+                    cell.alignment = { vertical: 'middle' };
+                });
+
+                // Specific alignment
+                row.getCell(2).alignment = { horizontal: 'center' }; // No
+                row.getCell(6).alignment = { horizontal: 'center' }; // Unit
+                row.getCell(7).alignment = { horizontal: 'center' }; // Duration
+                row.getCell(8).alignment = { horizontal: 'right' };  // Total
+                row.getCell(8).numFmt = '#,##0'; // Currency formatting
+            });
+
+            // 3. VISUALIZATION (Data Bars for Total Column)
+            // Add conditional formatting for Data Bars on Column H (Total)
+            const totalRange = `H${tableStartRow + 1}:H${tableStartRow + history.length}`;
+            sheet.addConditionalFormatting({
+                ref: totalRange,
+                rules: [
+                    {
+                        type: 'dataBar',
+                        priority: 1,
+                        gradient: true,
+                        showValue: true,
+                        cfvo: [{ type: 'min', value: 0 }, { type: 'max', value: 0 }]
+                    }
+                ]
+            });
+
+            // Freeze panes for scrolling
+            sheet.views = [{ state: 'frozen', ySplit: tableStartRow, showGridLines: false }];
+
+            const buffer = await workbook.xlsx.writeBuffer();
+            const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = `Laporan_Visual_Rental_${new Date().toISOString().split('T')[0]}.xlsx`;
+            link.click();
+
+            toast.success("Excel Visual Berhasil Diunduh");
+        } catch (e) {
+            console.error(e);
+            toast.error("Gagal membuat Excel: " + (e as any).message);
+        } finally {
+            setIsExporting(false);
+            setIsExportDropdownOpen(false);
         }
     };
 
@@ -595,15 +867,47 @@ const RentalPSPortal: React.FC<RentalPSPortalProps> = ({ currentUser }) => {
                                     <Share size={18} className="rotate-180" />
                                     <span className="text-[10px] font-black uppercase tracking-widest hidden sm:block">Import</span>
                                 </button>
-                                <button
-                                    onClick={handleExport}
-                                    disabled={isExporting}
-                                    className="p-3 bg-slate-50 text-slate-600 rounded-2xl hover:bg-slate-600 hover:text-white transition-all shadow-sm flex items-center gap-2 group"
-                                    title="Export Data (CSV)"
-                                >
-                                    <Share size={18} />
-                                    <span className="text-[10px] font-black uppercase tracking-widest hidden sm:block">Export</span>
-                                </button>
+                                <div className="relative" ref={exportRef}>
+                                    <button
+                                        onClick={() => setIsExportDropdownOpen(!isExportDropdownOpen)}
+                                        disabled={isExporting}
+                                        className={`p-3 rounded-2xl transition-all shadow-sm flex items-center gap-2 group ${isExportDropdownOpen ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-200'}`}
+                                        title="Export Data"
+                                    >
+                                        <Share size={18} />
+                                        <span className="text-[10px] font-black uppercase tracking-widest hidden sm:block">Export</span>
+                                        <ChevronDown size={14} className={`transition-transform duration-300 ${isExportDropdownOpen ? 'rotate-180' : ''}`} />
+                                    </button>
+
+                                    {isExportDropdownOpen && (
+                                        <div className="absolute right-0 bottom-full mb-3 w-56 bg-white rounded-[2rem] shadow-2xl border border-slate-100 p-2 z-[60] animate-in slide-in-from-bottom-2 duration-300 origin-bottom-right">
+                                            <button
+                                                onClick={exportToPDF}
+                                                className="w-full flex items-center gap-3 p-4 hover:bg-slate-50 text-slate-700 rounded-xl transition-all group"
+                                            >
+                                                <div className="p-2 bg-red-100 text-red-500 rounded-lg group-hover:bg-red-500 group-hover:text-white transition-all">
+                                                    <FileDown size={16} />
+                                                </div>
+                                                <div className="text-left">
+                                                    <p className="text-[10px] font-black uppercase italic">Laporan PDF</p>
+                                                    <p className="text-[8px] font-bold text-slate-400">Formal & Visual</p>
+                                                </div>
+                                            </button>
+                                            <button
+                                                onClick={exportToExcel}
+                                                className="w-full flex items-center gap-3 p-4 hover:bg-slate-50 text-slate-700 rounded-xl transition-all group"
+                                            >
+                                                <div className="p-2 bg-emerald-100 text-emerald-500 rounded-lg group-hover:bg-emerald-500 group-hover:text-white transition-all">
+                                                    <FileSpreadsheet size={16} />
+                                                </div>
+                                                <div className="text-left">
+                                                    <p className="text-[10px] font-black uppercase italic">Dokumen Excel</p>
+                                                    <p className="text-[8px] font-bold text-slate-400">Data Analytics</p>
+                                                </div>
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     </div>
