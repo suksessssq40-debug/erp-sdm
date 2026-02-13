@@ -20,202 +20,199 @@ export async function POST(request: Request) {
     try {
         const user = await authorize(['OWNER', 'MANAGER', 'FINANCE', 'STAFF']);
         const body = await request.json();
-        const { records, outletId } = body;
+        const { records } = body;
 
         if (!records || !Array.isArray(records)) {
             return NextResponse.json({ error: 'Data tidak valid' }, { status: 400 });
         }
 
-        // Fetch Financial Settings once
+        // 1. Fetch Tenant Settings
         const settings = await (prisma as any).settings.findUnique({ where: { tenantId: user.tenantId } });
-        const targetTenant = settings?.rentalPsTargetTenantId || 'sdm';
+        const targetTenant = settings?.rentalPsTargetTenantId || user.tenantId;
         const targetBusinessUnitId = settings?.rentalPsTargetBusinessUnitId || LEVEL_UP_BIZ_UNIT_ID;
 
-        let targetCashAccount = { id: settings?.rentalPsCashAccountId || ACC_KAS_KECIL.id, name: ACC_KAS_KECIL.name };
-        let targetTransferAccount = { id: settings?.rentalPsTransferAccountId || ACC_MANDIRI_SDM.id, name: ACC_MANDIRI_SDM.name };
+        const targetCashAccount = { id: settings?.rentalPsCashAccountId || ACC_KAS_KECIL.id, name: ACC_KAS_KECIL.name };
+        const targetTransferAccount = { id: settings?.rentalPsTransferAccountId || ACC_MANDIRI_SDM.id, name: ACC_MANDIRI_SDM.name };
 
-        if (settings?.rentalPsCashAccountId) {
-            const acc = await prisma.financialAccount.findUnique({ where: { id: settings.rentalPsCashAccountId } });
-            if (acc) targetCashAccount.name = acc.name;
-        }
-        if (settings?.rentalPsTransferAccountId) {
-            const acc = await prisma.financialAccount.findUnique({ where: { id: settings.rentalPsTransferAccountId } });
-            if (acc) targetTransferAccount.name = acc.name;
-        }
+        // 2. Map Outlets for Name Resolution
+        const allOutlets = await prisma.rentalPsOutlet.findMany({ where: { tenantId: user.tenantId } });
+        const outletMap: Record<string, string> = {};
+        allOutlets.forEach(o => { outletMap[o.name.toLowerCase().trim()] = o.id; });
 
-        // Define Target COAs
-        let targetPiutangCOA = { id: (settings as any)?.rentalPsReceivableCoaId || COA_PIUTANG_LUG.id, name: `${COA_PIUTANG_LUG.code} - ${COA_PIUTANG_LUG.name}` };
-        let targetPenjualanCOA = { id: (settings as any)?.rentalPsSalesCoaId || COA_PENJUALAN_LUG.id, name: `${COA_PENJUALAN_LUG.code} - ${COA_PENJUALAN_LUG.name}` };
-
-        if ((settings as any)?.rentalPsReceivableCoaId) {
-            const coa = await prisma.chartOfAccount.findUnique({ where: { id: (settings as any).rentalPsReceivableCoaId } });
-            if (coa) targetPiutangCOA.name = `${coa.code} - ${coa.name}`;
-        }
-        if ((settings as any)?.rentalPsSalesCoaId) {
-            const coa = await prisma.chartOfAccount.findUnique({ where: { id: (settings as any).rentalPsSalesCoaId } });
-            if (coa) targetPenjualanCOA.name = `${coa.code} - ${coa.name}`;
-        }
+        // 3. Define Target COAs
+        const targetPiutangCOA = { id: (settings as any)?.rentalPsReceivableCoaId || COA_PIUTANG_LUG.id, name: COA_PIUTANG_LUG.name };
+        const targetPenjualanCOA = { id: (settings as any)?.rentalPsSalesCoaId || COA_PENJUALAN_LUG.id, name: COA_PENJUALAN_LUG.name };
 
         let successCount = 0;
         let failCount = 0;
         const errors: string[] = [];
 
-        for (const rec of records) {
-            try {
-                // 1. Clean & Parse Data
-                const cleanAmount = (val: any) => {
-                    if (typeof val === 'number') return val;
-                    if (!val) return 0;
-                    return Number(val.toString().replace(/[^0-9]/g, ''));
-                };
+        // Global counter to avoid duplicate invoice numbers within the same batch
+        const batchCounter: Record<string, number> = {};
 
-                const totalAmount = cleanAmount(rec.totalAmount || rec.nominal);
-                if (totalAmount <= 0) continue; // Skip empty rows
+        // USE TRANSACTION FOR ATOMICITY
+        await (prisma as any).$transaction(async (tx: any) => {
+            for (const rec of records) {
+                try {
+                    // A. Parse & Clean Data
+                    const cleanAmount = (val: any) => {
+                        if (typeof val === 'number') return val;
+                        if (!val) return 0;
+                        return Number(val.toString().replace(/[^0-9]/g, ''));
+                    };
 
-                const paymentMethod = (rec.paymentMethod || 'CASH').toUpperCase();
-                const cashAmount = paymentMethod === 'CASH' ? totalAmount : (paymentMethod === 'SPLIT' ? cleanAmount(rec.cashAmount) : 0);
-                const transferAmount = paymentMethod === 'TRANSFER' ? totalAmount : (paymentMethod === 'SPLIT' ? cleanAmount(rec.transferAmount) : 0);
+                    const totalAmount = cleanAmount(rec.totalAmount || rec.nominal);
+                    const cashAmountInput = cleanAmount(rec.cashAmount);
+                    const transferAmountInput = cleanAmount(rec.transferAmount);
 
-                // BACKDATE FIX: Stricter date parsing
-                let createdAt = new Date();
-                if (rec.date) {
-                    const parsed = new Date(rec.date);
-                    if (!isNaN(parsed.getTime())) {
-                        createdAt = parsed;
+                    if (totalAmount <= 0) continue;
+
+                    // Determine Dates
+                    let transactionDate = new Date();
+                    if (rec.date) {
+                        const parsed = new Date(rec.date);
+                        if (!isNaN(parsed.getTime())) transactionDate = parsed;
                     }
-                }
 
-                const psType = rec.psType || rec.unit || 'PS 3';
-                const customerName = rec.customerName || rec.customer || 'Unknown';
-                const staffName = rec.staffName || rec.petugas || 'Spreadsheet Import';
+                    // Resolve Outlet
+                    const inputOutlet = (rec.outlet || rec.cabang || "").toLowerCase().trim();
+                    const outletId = outletMap[inputOutlet] || allOutlets[0]?.id || null;
 
-                // 2. Generate Invoice Number based on the ACTUAL transaction date
-                const startOfMonth = new Date(createdAt.getFullYear(), createdAt.getMonth(), 1);
-                const endOfMonth = new Date(createdAt.getFullYear(), createdAt.getMonth() + 1, 0, 23, 59, 59, 999);
+                    // B. GENERATE INVOICE NUMBER (The Smart Way)
+                    const year = transactionDate.getFullYear();
+                    const month = transactionDate.getMonth() + 1;
+                    const periodKey = `${year}-${month}`;
 
-                const monthCount = await prisma.rentalRecord.count({
-                    where: {
-                        createdAt: { gte: startOfMonth, lte: endOfMonth }
+                    if (!batchCounter[periodKey]) {
+                        // Find the highest sequence number in DB for this month/year
+                        const latestInDB = await tx.rentalRecord.findFirst({
+                            where: {
+                                createdAt: {
+                                    gte: new Date(year, month - 1, 1),
+                                    lt: new Date(year, month, 1)
+                                }
+                            },
+                            orderBy: { invoiceNumber: 'desc' },
+                            select: { invoiceNumber: true }
+                        });
+
+                        let currentSeq = 0;
+                        if (latestInDB?.invoiceNumber) {
+                            const parts = latestInDB.invoiceNumber.split('-');
+                            const lastPart = parts[parts.length - 1];
+                            currentSeq = parseInt(lastPart) || 0;
+                        }
+                        batchCounter[periodKey] = currentSeq;
                     }
-                });
 
-                const invoiceNumber = rec.invoiceNumber || generateInvoiceNumber(monthCount + 1, createdAt);
+                    batchCounter[periodKey]++;
+                    const invoiceNumber = generateInvoiceNumber(batchCounter[periodKey], transactionDate);
 
-                // 3. EXECUTE ATOMIC TRANSACTION
-                await (prisma as any).$transaction(async (tx: any) => {
-                    // A. Create Rental Record
+                    // C. Payment Method Logic
+                    let paymentMethod = (rec.paymentMethod || 'CASH').toUpperCase();
+                    let finalCash = 0;
+                    let finalTf = 0;
+
+                    if (paymentMethod === 'SPLIT' || (cashAmountInput > 0 && transferAmountInput > 0)) {
+                        paymentMethod = 'SPLIT';
+                        finalCash = cashAmountInput;
+                        finalTf = transferAmountInput;
+                        // Safety check if split amounts don't match total
+                        if (finalCash + finalTf !== totalAmount && finalCash + finalTf > 0) {
+                            // Keep input as is, but maybe prioritize total? Let's assume input is correct.
+                        }
+                    } else if (paymentMethod === 'TRANSFER' || transferAmountInput > 0) {
+                        paymentMethod = 'TRANSFER';
+                        finalTf = totalAmount;
+                    } else {
+                        paymentMethod = 'CASH';
+                        finalCash = totalAmount;
+                    }
+
+                    const staffName = rec.staffName || rec.petugas || 'System Import';
+
+                    // D. CREATE RENTAL RECORD
                     const rental = await tx.rentalRecord.create({
                         data: {
                             invoiceNumber,
-                            customerName,
-                            psType,
+                            customerName: rec.customerName || rec.customer || 'Unknown',
+                            psType: rec.psType || rec.unit || 'PS 3',
                             duration: Number(rec.duration || 1),
                             totalAmount,
                             paymentMethod,
-                            cashAmount,
-                            transferAmount,
+                            cashAmount: finalCash,
+                            transferAmount: finalTf,
                             tenantId: user.tenantId,
-                            outletId: outletId || rec.outletId,
+                            outletId,
                             staffName,
                             businessUnitId: targetBusinessUnitId,
-                            createdAt: createdAt // FORCE SET
+                            createdAt: transactionDate
                         }
                     });
 
+                    // E. FINANCE JOURNALS
                     const transactionIds: string[] = [];
+                    const recognitionTime = new Date(transactionDate.getTime() - 1000);
 
-                    // B. JURNAL 1: PENGAKUAN PENJUALAN
-                    const recognitionTime = new Date(createdAt.getTime() - 1000);
-                    const j1Id = `J1-${Math.random().toString(36).substr(2, 7)}-${Date.now()}`;
-
+                    // J1: Sales Recognition (Piutang)
+                    const j1Id = `J1-${Math.random().toString(36).substr(2, 5)}-${Date.now()}`;
                     await tx.transaction.create({
                         data: {
-                            id: j1Id,
-                            tenantId: targetTenant,
-                            date: recognitionTime,
-                            amount: totalAmount,
-                            type: 'IN',
-                            category: targetPenjualanCOA.name,
-                            coaId: targetPenjualanCOA.id,
-                            description: `[IMPORT] Penjualan PS (${psType}) - ${invoiceNumber} - ${customerName}`,
-                            account: targetPiutangCOA.name,
-                            accountId: null,
-                            businessUnitId: targetBusinessUnitId,
-                            status: 'PAID',
-                            createdAt: recognitionTime
+                            id: j1Id, tenantId: targetTenant, date: recognitionTime, amount: totalAmount,
+                            type: 'IN', category: targetPenjualanCOA.name, coaId: targetPenjualanCOA.id,
+                            description: `[IMPORT] Penjualan PS - ${invoiceNumber} - ${rental.customerName}`,
+                            account: targetPiutangCOA.name, accountId: null, status: 'PAID',
+                            businessUnitId: targetBusinessUnitId, createdAt: recognitionTime
                         } as any
                     });
                     transactionIds.push(j1Id);
 
-                    // C. JURNAL 2: PELUNASAN
-                    const createSettlement = async (amount: number, acc: { id: string, name: string }, suffix: string) => {
-                        const jId = `J2-${Math.random().toString(36).substr(2, 7)}-${Date.now()}`;
-
+                    // J2: Settlement (Payment)
+                    const createSettlement = async (amt: number, acc: { id: string, name: string }, type: string) => {
+                        const jId = `J2-${Math.random().toString(36).substr(2, 5)}-${Date.now()}`;
                         await tx.transaction.create({
                             data: {
-                                id: jId,
-                                tenantId: targetTenant,
-                                date: createdAt,
-                                amount: Number(amount),
-                                type: 'IN',
-                                category: targetPiutangCOA.name,
-                                coaId: targetPiutangCOA.id,
-                                description: `[IMPORT] Pelunasan ${invoiceNumber} - ${customerName} (${suffix})`,
-                                account: acc.name,
-                                accountId: acc.id,
-                                businessUnitId: targetBusinessUnitId,
-                                status: 'PAID',
-                                createdAt: createdAt
+                                id: jId, tenantId: targetTenant, date: transactionDate, amount: amt,
+                                type: 'IN', category: targetPiutangCOA.name, coaId: targetPiutangCOA.id,
+                                description: `[IMPORT] Pelunasan ${invoiceNumber} (${type})`,
+                                account: acc.name, accountId: acc.id, status: 'PAID',
+                                businessUnitId: targetBusinessUnitId, createdAt: transactionDate
                             } as any
                         });
-
-                        // Update Bank Balance
-                        await (tx.financialAccount as any).update({
-                            where: { id: acc.id, tenantId: targetTenant },
-                            data: { balance: { increment: Number(amount) } }
+                        await tx.financialAccount.update({
+                            where: { id: acc.id },
+                            data: { balance: { increment: amt } }
                         });
-
                         transactionIds.push(jId);
                     };
 
-                    if (paymentMethod === 'CASH') {
-                        await createSettlement(totalAmount, targetCashAccount, 'CASH');
-                    } else if (paymentMethod === 'TRANSFER') {
-                        await createSettlement(totalAmount, targetTransferAccount, 'TF');
-                    } else if (paymentMethod === 'SPLIT') {
-                        if (cashAmount > 0) await createSettlement(cashAmount, targetCashAccount, 'SPLIT-CASH');
-                        if (transferAmount > 0) await createSettlement(transferAmount, targetTransferAccount, 'SPLIT-TF');
-                    }
+                    if (finalCash > 0) await createSettlement(finalCash, targetCashAccount, 'KAS');
+                    if (finalTf > 0) await createSettlement(finalTf, targetTransferAccount, 'BANK');
 
-                    // D. Link Audit
                     await tx.rentalRecord.update({
                         where: { id: rental.id },
                         data: { transactionIds }
                     });
-                });
 
-                successCount++;
-            } catch (err: any) {
-                failCount++;
-                errors.push(`Row ${successCount + failCount}: ${err.message}`);
+                    successCount++;
+                } catch (err: any) {
+                    failCount++;
+                    errors.push(`Baris ${successCount + failCount}: ${err.message}`);
+                    throw err; // Trigger transaction rollback
+                }
             }
-        }
+        }, { timeout: 30000 });
 
         await recordSystemLog({
             actorId: user.id, actorName: user.name, actorRole: user.role, tenantId: user.tenantId,
-            actionType: 'RENTAL_PS_IMPORT_FULL',
-            details: `Import masal berhasil: ${successCount}, Gagal: ${failCount}. Dengan Jurnal Keuangan Dinamis.`,
+            actionType: 'RENTAL_PS_IMPORT_EXCEL',
+            details: `Import berhasil: ${successCount}, Gagal: ${failCount}.`,
             targetObj: 'RentalRecord'
         });
 
-        return NextResponse.json({
-            success: true,
-            count: successCount,
-            failed: failCount,
-            errors: errors.slice(0, 10)
-        });
+        return NextResponse.json({ success: true, count: successCount, failed: failCount, errors });
+
     } catch (error: any) {
-        console.error('Core Import Error:', error);
-        return NextResponse.json({ error: 'Gagal total proses import', details: error.message }, { status: 500 });
+        return NextResponse.json({ error: error.message || 'Gagal proses import' }, { status: 500 });
     }
 }

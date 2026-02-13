@@ -237,7 +237,7 @@ const RentalPSPortal: React.FC<RentalPSPortalProps> = ({ currentUser }) => {
     const handleImport = async () => {
         const input = document.createElement('input');
         input.type = 'file';
-        input.accept = '.json,.csv';
+        input.accept = '.xlsx,.csv';
         input.onchange = async (e: any) => {
             const file = e.target.files[0];
             if (!file) return;
@@ -248,25 +248,40 @@ const RentalPSPortal: React.FC<RentalPSPortalProps> = ({ currentUser }) => {
                 reader.onload = async (event: any) => {
                     try {
                         let records = [];
-                        const content = event.target.result as string;
+                        const data = event.target.result;
 
-                        if (file.name.endsWith('.csv')) {
-                            // Simple CSV Parser
-                            const lines = content.split('\n');
-                            const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-                            records = lines.slice(1).filter(line => line.trim()).map(line => {
-                                const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
-                                const obj: any = {};
-                                headers.forEach((header, i) => {
-                                    obj[header] = values[i];
-                                });
-                                return obj;
-                            });
-                        } else {
-                            records = JSON.parse(content);
-                        }
+                        // Use XLSX library to parse the file
+                        const { read, utils } = await import('xlsx');
+                        const workbook = read(data, { type: 'binary' });
+                        const sheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[sheetName];
+                        const rawRecords = utils.sheet_to_json(worksheet);
 
-                        if (!Array.isArray(records)) throw new Error("Format harus array");
+                        // Mapping header excel ke key yang dimengerti backend
+                        records = rawRecords.map((rec: any) => {
+                            // Mencoba mencari key yang mirip (case insensitive & handle spasi)
+                            const findVal = (possibleKeys: string[]) => {
+                                const key = Object.keys(rec).find(k =>
+                                    possibleKeys.some(pk => k.toLowerCase().includes(pk.toLowerCase()))
+                                );
+                                return key ? rec[key] : null;
+                            };
+
+                            return {
+                                date: findVal(['tanggal', 'date']),
+                                customer: findVal(['customer', 'pelanggan', 'nama']),
+                                unit: findVal(['unit', 'ps']),
+                                duration: findVal(['durasi', 'duration', 'jam']),
+                                cashAmount: findVal(['cash', 'tunai']),
+                                transferAmount: findVal(['transfer', 'tf', 'bank']),
+                                totalAmount: findVal(['total', 'nominal', 'jumlah']),
+                                paymentMethod: findVal(['metode', 'payment']),
+                                outlet: findVal(['outlet', 'cabang']),
+                                petugas: findVal(['petugas', 'staff', 'admin'])
+                            };
+                        });
+
+                        if (records.length === 0) throw new Error("Tidak ada data dalam file");
 
                         const token = localStorage.getItem('sdm_erp_auth_token');
                         const res = await fetch('/api/rental-ps/import', {
@@ -275,7 +290,7 @@ const RentalPSPortal: React.FC<RentalPSPortalProps> = ({ currentUser }) => {
                                 'Authorization': `Bearer ${token}`,
                                 'Content-Type': 'application/json'
                             },
-                            body: JSON.stringify({ records, outletId: selectedOutletId })
+                            body: JSON.stringify({ records })
                         });
 
                         if (res.ok) {
@@ -283,17 +298,18 @@ const RentalPSPortal: React.FC<RentalPSPortalProps> = ({ currentUser }) => {
                             if (result.failed > 0) {
                                 toast.warning(`Berhasil: ${result.count}, Gagal: ${result.failed}. Cek log error.`);
                             } else {
-                                toast.success(`Berhasil mengimpor ${result.count} data!`);
+                                toast.success(`🔥 Berhasil mengimpor ${result.count} data transaksi!`);
                             }
                             fetchHistory();
                         } else {
-                            toast.error("Gagal mengimpor data");
+                            const err = await res.json();
+                            toast.error(err.error || "Gagal mengimpor data");
                         }
                     } catch (e: any) {
                         toast.error(e.message || "File tidak valid");
                     }
                 };
-                reader.readAsText(file);
+                reader.readAsBinaryString(file);
             } catch (e) {
                 toast.error("Gagal membaca file");
             } finally {
@@ -303,17 +319,30 @@ const RentalPSPortal: React.FC<RentalPSPortalProps> = ({ currentUser }) => {
         input.click();
     };
 
-    const downloadTemplate = () => {
-        const headers = ["date", "customer", "unit", "duration", "nominal", "paymentMethod", "petugas"];
-        const sampleData = "2024-01-20,Budi Darmawan,PS 4,2,20.000,CASH,Andri Staff";
-        const csvContent = headers.join(",") + "\n" + sampleData;
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement("a");
-        const url = URL.createObjectURL(blob);
-        link.setAttribute("href", url);
-        link.setAttribute("download", "Template_Import_Rental.csv");
-        link.click();
-        toast.info("Template CSV diunduh");
+    const downloadTemplate = async () => {
+        try {
+            toast.info("Sedang menyiapkan template Excel...");
+            const token = localStorage.getItem('sdm_erp_auth_token');
+            const res = await fetch('/api/rental-ps/import/template?type=template', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (res.ok) {
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'Template_Import_Rental_LevelUp.xlsx';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                toast.success("Template Excel berhasil diunduh!");
+            } else {
+                toast.error("Gagal mengunduh template");
+            }
+        } catch (e) {
+            toast.error("Terjadi kesalahan sistem");
+        }
     };
 
     const handleExport = () => {
