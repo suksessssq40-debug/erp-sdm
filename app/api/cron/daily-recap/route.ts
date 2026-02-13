@@ -163,38 +163,7 @@ export async function GET(request: Request) {
                message += dailyOutDetails || `   ⁃ <i>(Tidak ada pengeluaran)</i>\n`;
                message += `💵 <b>NET HARI INI: Rp ${(dailyIn - dailyOut).toLocaleString('id-ID')}</b>\n\n`;
 
-               const monthlyTrans = await prisma.transaction.findMany({
-                  where: {
-                     tenantId,
-                     date: { gte: startOfMonth, lte: endOfTargetDate },
-                     status: 'PAID',
-                     accountId: { in: cashAccountIds }
-                  }
-               });
 
-               let mIn = 0;
-               let mOut = 0;
-               monthlyTrans.forEach(t => {
-                  if (t.type === 'IN') mIn += Number(t.amount);
-                  else mOut += Number(t.amount);
-               });
-
-               message += `📊 <b>RINGKASAN BULAN INI (MTD)</b>\n`;
-               message += `🟢 Masuk: Rp ${mIn.toLocaleString('id-ID')}\n`;
-               message += `🔴 Keluar: Rp ${mOut.toLocaleString('id-ID')}\n`;
-               message += `💎 <b>CASH PROFIT MTD: Rp ${(mIn - mOut).toLocaleString('id-ID')}</b>\n\n`;
-
-               const topMutations = [...monthlyTrans]
-                  .sort((a, b) => Number(b.amount) - Number(a.amount))
-                  .slice(0, 5);
-
-               if (topMutations.length > 0) {
-                  message += `🔝 <b>5 MUTASI TERBESAR BULAN INI:</b>\n`;
-                  topMutations.forEach((t, i) => {
-                     message += `   ${i + 1}. Rp ${Number(t.amount).toLocaleString('id-ID')} | ${escapeHtml(t.description || t.category || "No Desc")} (${t.type})\n`;
-                  });
-                  message += `\n`;
-               }
 
                message += `🏦 <b>POSISI SALDO KAS & BANK</b>\n`;
                let totalAll = 0;
