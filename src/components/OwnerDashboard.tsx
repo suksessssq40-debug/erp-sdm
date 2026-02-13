@@ -234,11 +234,11 @@ export const OwnerDashboard = () => {
                             <AreaChart data={finStats.dailyTrend}>
                                 <defs>
                                     <linearGradient id="colorIncome" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.1} />
+                                        <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.2} />
                                         <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
                                     </linearGradient>
                                     <linearGradient id="colorExpense" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#FB7185" stopOpacity={0.1} />
+                                        <stop offset="5%" stopColor="#FB7185" stopOpacity={0.2} />
                                         <stop offset="95%" stopColor="#FB7185" stopOpacity={0} />
                                     </linearGradient>
                                 </defs>
@@ -257,7 +257,12 @@ export const OwnerDashboard = () => {
                                     axisLine={false}
                                     tickLine={false}
                                     tick={{ fontSize: 10, fill: '#94A3B8', fontWeight: 700 }}
-                                    tickFormatter={(val) => `Rp${val / 1000000}M`}
+                                    tickFormatter={(val) => {
+                                        if (val >= 1000000000) return `Rp${(val / 1000000000).toFixed(1)}M`;
+                                        if (val >= 1000000) return `Rp${(val / 1000000).toFixed(1)}Jt`;
+                                        if (val >= 1000) return `Rp${(val / 1000).toFixed(0)}Rb`;
+                                        return `Rp${val}`;
+                                    }}
                                 />
                                 <Tooltip
                                     contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', fontWeight: 'bold' }}

@@ -62,6 +62,14 @@ export async function POST(request: Request) {
                         return Number(val.toString().replace(/[^0-9]/g, ''));
                     };
 
+                    const cleanFloat = (val: any) => {
+                        if (typeof val === 'number') return isNaN(val) ? 1 : val;
+                        if (!val) return 1;
+                        const str = val.toString().replace(',', '.').replace(/[^0-9.]/g, '');
+                        const num = parseFloat(str);
+                        return isNaN(num) ? 1 : num;
+                    };
+
                     const cashAmountInput = cleanAmount(rec.cashAmount || rec.tunai);
                     const transferAmountInput = cleanAmount(rec.transferAmount || rec.transfer || rec.bank);
 
@@ -138,7 +146,7 @@ export async function POST(request: Request) {
                             invoiceNumber,
                             customerName: rec.customerName || rec.customer || 'Unknown',
                             psType: rec.psType || rec.unit || 'PS 3',
-                            duration: Number(rec.duration || 1),
+                            duration: cleanFloat(rec.duration),
                             totalAmount,
                             paymentMethod,
                             cashAmount: finalCash,

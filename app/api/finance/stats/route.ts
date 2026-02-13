@@ -43,9 +43,27 @@ export async function GET(request: Request) {
             })
         ]);
 
-        // 3. Daily Trend (Last 30 Days)
+        // 3. Daily Trend (Last 30 Days in Jakarta Time)
+        const trendMap: Record<string, { date: string, income: number, expense: number }> = {};
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(now.getDate() - 30);
+
+        // Helper for Jakarta Date String
+        const toJktDate = (d: Date) => {
+            return new Intl.DateTimeFormat('en-CA', { // YYYY-MM-DD format
+                timeZone: 'Asia/Jakarta',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            }).format(d);
+        };
+
+        for (let i = 0; i <= 30; i++) {
+            const d = new Date();
+            d.setDate(now.getDate() - (30 - i));
+            const dateStr = toJktDate(d);
+            trendMap[dateStr] = { date: dateStr, income: 0, expense: 0 };
+        }
 
         const trendTransactions = await prisma.transaction.findMany({
             where: {
@@ -62,17 +80,9 @@ export async function GET(request: Request) {
             orderBy: { date: 'asc' }
         });
 
-        const trendMap: Record<string, { date: string, income: number, expense: number }> = {};
-        for (let i = 0; i <= 30; i++) {
-            const d = new Date();
-            d.setDate(now.getDate() - (30 - i));
-            const dateStr = d.toISOString().split('T')[0];
-            trendMap[dateStr] = { date: dateStr, income: 0, expense: 0 };
-        }
-
         trendTransactions.forEach(t => {
             if (!t.date) return;
-            const dateStr = t.date.toISOString().split('T')[0];
+            const dateStr = toJktDate(t.date);
             if (trendMap[dateStr]) {
                 if (t.type === 'IN') trendMap[dateStr].income += Number(t.amount);
                 else trendMap[dateStr].expense += Number(t.amount);
