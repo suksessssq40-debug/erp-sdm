@@ -216,7 +216,7 @@ export const Settings: React.FC<SettingsProps> = ({
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* OUTLET MANAGEMENT */}
-            <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-100">
+            <div className="bg-white p-5 md:p-8 rounded-[2rem] md:rounded-[2.5rem] shadow-xl border border-slate-100">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
                     <div className="flex items-center gap-3">
                         <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl">
@@ -233,35 +233,35 @@ export const Settings: React.FC<SettingsProps> = ({
                             type="text"
                             value={newOutletName}
                             onChange={e => setNewOutletName(e.target.value)}
-                            className="bg-slate-50 border-none rounded-xl px-4 py-2 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-emerald-500 placeholder:text-slate-300 transition-all"
+                            className="flex-1 bg-slate-50 border-none rounded-xl px-4 py-3 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-emerald-500 placeholder:text-slate-300 transition-all"
                             placeholder="Nama Outlet Baru..."
                             required
                         />
                         <button
                             type="submit"
                             disabled={isSaving}
-                            className="bg-emerald-600 text-white p-3 rounded-xl hover:bg-emerald-700 transition-all"
+                            className="bg-emerald-600 text-white p-3 rounded-xl hover:bg-emerald-700 transition-all shrink-0"
                         >
                             <Plus size={18} />
                         </button>
                     </form>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     {outlets.map(o => (
-                        <div key={o.id} className={`p-5 rounded-3xl border-2 transition-all flex items-center justify-between ${o.id === selectedOutletId ? 'border-blue-500 bg-blue-50/30' : 'border-slate-50 bg-slate-50/30 hover:border-slate-200'}`}>
+                        <div key={o.id} className={`p-4 md:p-5 rounded-3xl border-2 transition-all flex items-center justify-between ${o.id === selectedOutletId ? 'border-blue-500 bg-blue-50/30' : 'border-slate-50 bg-slate-50/30 hover:border-slate-200'}`}>
                             <div className="flex items-center gap-3 cursor-pointer grow" onClick={() => setSelectedOutletId(o.id)}>
-                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black ${o.isActive ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
+                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black shrink-0 ${o.isActive ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
                                     {o.name.charAt(0).toUpperCase()}
                                 </div>
-                                <div>
-                                    <p className="text-xs font-black text-slate-900 uppercase">{o.name}</p>
+                                <div className="min-w-0">
+                                    <p className="text-xs font-black text-slate-900 uppercase truncate">{o.name}</p>
                                     <p className={`text-[9px] font-bold uppercase tracking-widest ${o.isActive ? 'text-emerald-500' : 'text-slate-400'}`}>
                                         {o.isActive ? 'AKTIF' : 'NON-AKTIF'}
                                     </p>
                                 </div>
                             </div>
-                            <button onClick={() => toggleOutlet(o)} className={`p-2 rounded-lg transition-all ${o.isActive ? 'text-emerald-500 hover:bg-emerald-50' : 'text-slate-300 hover:bg-slate-100'}`}>
+                            <button onClick={() => toggleOutlet(o)} className={`p-2 rounded-lg transition-all shrink-0 ${o.isActive ? 'text-emerald-500 hover:bg-emerald-50' : 'text-slate-300 hover:bg-slate-100'}`}>
                                 {o.isActive ? <ToggleRight size={24} /> : <ToggleLeft size={24} />}
                             </button>
                         </div>
@@ -272,7 +272,7 @@ export const Settings: React.FC<SettingsProps> = ({
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* PRICE LIST */}
                 <div className="lg:col-span-2 space-y-6">
-                    <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-100 h-full">
+                    <div className="bg-white p-5 md:p-8 rounded-[2rem] md:rounded-[2.5rem] shadow-xl border border-slate-100 h-full">
                         <div className="flex items-center justify-between mb-8">
                             <div className="flex items-center gap-3">
                                 <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
@@ -286,27 +286,27 @@ export const Settings: React.FC<SettingsProps> = ({
                         </div>
 
                         {!selectedOutletId ? (
-                            <div className="py-20 text-center space-y-4">
+                            <div className="py-16 md:py-20 text-center space-y-4">
                                 <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto text-slate-300">
                                     <MapPin size={32} />
                                 </div>
                                 <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-relaxed">Pilih outlet di atas untuk<br />mengelola daftar harga</p>
                             </div>
                         ) : (
-                            <div className="space-y-4">
+                            <div className="space-y-3 md:space-y-4">
                                 {sortedPrices.map(p => (
-                                    <div key={p.id} className="flex flex-col md:flex-row md:items-center justify-between p-6 bg-slate-50 rounded-3xl gap-4 border border-transparent hover:border-blue-100 transition-all group">
+                                    <div key={p.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-5 md:p-6 bg-slate-50 rounded-3xl gap-4 border border-transparent hover:border-blue-100 transition-all group">
                                         <div className="flex items-center gap-4">
-                                            <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center font-black text-blue-600 shadow-sm">
+                                            <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center font-black text-blue-600 shadow-sm shrink-0">
                                                 {p.name.includes('3') ? '3' : p.name.includes('4') ? '4' : p.name.includes('5') ? '5' : '?'}
                                             </div>
-                                            <div>
-                                                <p className="text-xs font-black text-slate-900 uppercase">{p.name}</p>
+                                            <div className="min-w-0">
+                                                <p className="text-xs font-black text-slate-900 uppercase truncate">{p.name}</p>
                                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">TARIF: {formatCurrency(p.pricePerHour)}</p>
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-2">
-                                            <div className="relative">
+                                        <div className="flex items-center gap-2 justify-end">
+                                            <div className="relative flex-1 sm:flex-none">
                                                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">Rp</span>
                                                 <input
                                                     type="number"
@@ -316,10 +316,10 @@ export const Settings: React.FC<SettingsProps> = ({
                                                             handleUpdate(p.name, e.target.value);
                                                         }
                                                     }}
-                                                    className="pl-10 pr-4 py-3 bg-white border-2 border-slate-100 rounded-xl text-xs font-black text-slate-700 w-32 focus:border-blue-500 outline-none transition-all"
+                                                    className="pl-10 pr-4 py-3 bg-white border-2 border-slate-100 rounded-xl text-xs font-black text-slate-700 w-full sm:w-32 focus:border-blue-500 outline-none transition-all"
                                                 />
                                             </div>
-                                            <div className="p-3 text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="p-3 text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity hidden sm:block">
                                                 <Save size={16} />
                                             </div>
                                         </div>
@@ -339,7 +339,7 @@ export const Settings: React.FC<SettingsProps> = ({
 
                 {/* ADD NEW TYPE */}
                 <div className="space-y-6">
-                    <div className="bg-slate-900 p-8 rounded-[2.5rem] shadow-xl text-white relative overflow-hidden group">
+                    <div className="bg-slate-900 p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] shadow-xl text-white relative overflow-hidden group">
                         <div className="absolute -right-10 -bottom-10 opacity-10 group-hover:scale-110 transition-transform duration-700">
                             <Plus size={200} />
                         </div>
@@ -352,7 +352,7 @@ export const Settings: React.FC<SettingsProps> = ({
                                         type="text"
                                         value={newPrice.name}
                                         onChange={e => setNewPrice({ ...newPrice, name: e.target.value })}
-                                        className="w-full bg-white/10 border-none rounded-2xl p-4 font-bold text-white focus:ring-2 focus:ring-blue-500 placeholder:text-slate-600 transition-all uppercase"
+                                        className="w-full bg-white/10 border-none rounded-2xl p-4 font-bold text-white focus:ring-2 focus:ring-blue-500 placeholder:text-slate-600 transition-all uppercase text-sm"
                                         placeholder="CONTOH: PS 5"
                                         required
                                     />
@@ -363,7 +363,7 @@ export const Settings: React.FC<SettingsProps> = ({
                                         type="number"
                                         value={newPrice.pricePerHour}
                                         onChange={e => setNewPrice({ ...newPrice, pricePerHour: e.target.value })}
-                                        className="w-full bg-white/10 border-none rounded-2xl p-4 font-bold text-white focus:ring-2 focus:ring-blue-500 placeholder:text-slate-600 transition-all"
+                                        className="w-full bg-white/10 border-none rounded-2xl p-4 font-bold text-white focus:ring-2 focus:ring-blue-500 placeholder:text-slate-600 transition-all text-sm"
                                         placeholder="15000"
                                         required
                                     />
@@ -380,7 +380,7 @@ export const Settings: React.FC<SettingsProps> = ({
                         </div>
                     </div>
 
-                    <div className="bg-emerald-50 p-8 rounded-[2.5rem] border border-emerald-100 shrink-0">
+                    <div className="bg-emerald-50 p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border border-emerald-100 shrink-0">
                         <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600 mb-4">Skalabilitas Outlet</h4>
                         <p className="text-[11px] font-bold text-emerald-800/70 leading-relaxed italic">
                             Sistem dirancang untuk mendukung banyak cabang. Setiap cabang bisa memiliki tarif berbeda-beda sesuai dengan strategi operasional masing-masing lokasi.
@@ -390,9 +390,9 @@ export const Settings: React.FC<SettingsProps> = ({
             </div>
             {/* FINANCIAL MAPPING (ONLY OWNER/FINANCE/SUPERADMIN) - FULL WIDTH */}
             {(['OWNER', 'FINANCE', 'SUPERADMIN'].includes(currentUser.role)) && (
-                <div className="bg-white p-8 md:p-10 rounded-[2.5rem] shadow-xl border border-slate-100 animate-in fade-in slide-in-from-bottom-8 duration-700">
-                    <div className="flex items-center gap-5 mb-10 border-b border-slate-50 pb-8">
-                        <div className="p-4 bg-slate-900 text-white rounded-2xl shadow-lg shadow-slate-200">
+                <div className="bg-white p-5 md:p-10 rounded-[2rem] md:rounded-[2.5rem] shadow-xl border border-slate-100 animate-in fade-in slide-in-from-bottom-8 duration-700">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-5 mb-10 border-b border-slate-50 pb-8">
+                        <div className="p-4 bg-slate-900 text-white rounded-2xl shadow-lg shadow-slate-200 w-fit">
                             <SettingsIcon size={24} />
                         </div>
                         <div>
@@ -401,86 +401,76 @@ export const Settings: React.FC<SettingsProps> = ({
                         </div>
                     </div>
 
-                    {/* TARGET TENANT SELECTION (ENTERPRISE SCALABILITY) */}
-                    <div className="mb-10 bg-slate-50 p-6 rounded-3xl border border-slate-100">
-                        <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 ml-1 mb-3">
-                            <div className="w-2 h-2 rounded-full bg-slate-800"></div>
-                            Target Kantor Keuangan (Pusat / Cabang)
-                        </label>
-                        <div className="relative group">
-                            <select
-                                value={finSettings.rentalPsTargetTenantId}
-                                onChange={(e) => {
-                                    const newTarget = e.target.value;
-                                    setFinSettings({
-                                        ...finSettings,
-                                        rentalPsTargetTenantId: newTarget,
-                                        rentalPsCashAccountId: '',
-                                        rentalPsTransferAccountId: '',
-                                        rentalPsReceivableCoaId: '',
-                                        rentalPsSalesCoaId: '',
-                                        rentalPsTargetBusinessUnitId: ''
-                                    });
-                                    // Refresh data based on new target
-                                    fetchFinancialSettings(newTarget);
-                                }}
-                                className="w-full appearance-none bg-white border-2 border-slate-200 rounded-2xl p-4 pr-10 font-black text-xs text-slate-800 focus:ring-4 focus:ring-slate-200 focus:border-slate-300 transition-all cursor-pointer uppercase tracking-wider"
-                            >
-                                <option value="">-- PILIH KANTOR --</option>
-                                {isFetchingFin ? (
-                                    <option value="" disabled>Memuat data kantor...</option>
-                                ) : (
-                                    tenants.length === 0 ? (
-                                        <option value="" disabled>Kantor tidak ditemukan</option>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                        {/* TARGET TENANT SELECTION (ENTERPRISE SCALABILITY) */}
+                        <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 flex flex-col">
+                            <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 ml-1 mb-3">
+                                <div className="w-2 h-2 rounded-full bg-slate-800"></div>
+                                Target Kantor Keuangan
+                            </label>
+                            <div className="relative group">
+                                <select
+                                    value={finSettings.rentalPsTargetTenantId}
+                                    onChange={(e) => {
+                                        const newTarget = e.target.value;
+                                        setFinSettings({
+                                            ...finSettings,
+                                            rentalPsTargetTenantId: newTarget,
+                                            rentalPsCashAccountId: '',
+                                            rentalPsTransferAccountId: '',
+                                            rentalPsReceivableCoaId: '',
+                                            rentalPsSalesCoaId: '',
+                                            rentalPsTargetBusinessUnitId: ''
+                                        });
+                                        fetchFinancialSettings(newTarget);
+                                    }}
+                                    className="w-full appearance-none bg-white border-2 border-slate-200 rounded-2xl p-4 pr-10 font-black text-[11px] text-slate-800 focus:ring-4 focus:ring-slate-200 focus:border-slate-300 transition-all cursor-pointer uppercase truncate"
+                                >
+                                    <option value="">-- PILIH KANTOR --</option>
+                                    {isFetchingFin ? (
+                                        <option value="" disabled>Memuat...</option>
                                     ) : (
                                         tenants.map(t => (
-                                            <option key={t.id} value={t.id}>{t.name} ({t.id})</option>
+                                            <option key={t.id} value={t.id}>{t.name}</option>
                                         ))
-                                    )
-                                )}
-                            </select>
-                            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                                <ToggleRight size={16} className="rotate-90" />
+                                    )}
+                                </select>
+                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                                    <ToggleRight size={16} className="rotate-90" />
+                                </div>
                             </div>
                         </div>
-                        <p className="text-[10px] font-bold text-slate-400/80 px-2 italic mt-2">
-                            Pilih ke kantor mana laporan keuangan rental ini akan disetorkan. Mengubah ini akan mereset pilihan akun di bawah.
-                        </p>
-                    </div>
 
-                    {/* TARGET BUSINESS UNIT SELECTION */}
-                    <div className="mb-10 bg-blue-50/30 p-6 rounded-3xl border border-blue-100">
-                        <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-blue-500 ml-1 mb-3">
-                            <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                            Target Unit Bisnis (Untuk Filter Laporan)
-                        </label>
-                        <div className="relative group">
-                            <select
-                                value={finSettings.rentalPsTargetBusinessUnitId}
-                                onChange={(e) => setFinSettings({ ...finSettings, rentalPsTargetBusinessUnitId: e.target.value })}
-                                className="w-full appearance-none bg-white border-2 border-blue-100 rounded-2xl p-4 pr-10 font-black text-xs text-slate-800 focus:ring-4 focus:ring-blue-100 focus:border-blue-200 transition-all cursor-pointer uppercase"
-                            >
-                                <option value="">-- PILIH UNIT BISNIS --</option>
-                                {businessUnits.map(bu => (
-                                    <option key={bu.id} value={bu.id}>{bu.name} ({bu.id})</option>
-                                ))}
-                            </select>
-                            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-blue-300">
-                                <ToggleRight size={16} className="rotate-90" />
+                        {/* TARGET BUSINESS UNIT SELECTION */}
+                        <div className="bg-blue-50/30 p-6 rounded-3xl border border-blue-100 flex flex-col">
+                            <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-blue-500 ml-1 mb-3">
+                                <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                                Target Unit Bisnis
+                            </label>
+                            <div className="relative group">
+                                <select
+                                    value={finSettings.rentalPsTargetBusinessUnitId}
+                                    onChange={(e) => setFinSettings({ ...finSettings, rentalPsTargetBusinessUnitId: e.target.value })}
+                                    className="w-full appearance-none bg-white border-2 border-blue-100 rounded-2xl p-4 pr-10 font-black text-[11px] text-slate-800 focus:ring-4 focus:ring-blue-100 focus:border-blue-200 transition-all cursor-pointer uppercase truncate"
+                                >
+                                    <option value="">-- PILIH UNIT BISNIS --</option>
+                                    {businessUnits.map(bu => (
+                                        <option key={bu.id} value={bu.id}>{bu.name}</option>
+                                    ))}
+                                </select>
+                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-blue-300">
+                                    <ToggleRight size={16} className="rotate-90" />
+                                </div>
                             </div>
                         </div>
-                        <p className="text-[10px] font-bold text-blue-400/80 px-2 italic mt-2">
-                            Pilih unit bisnis spesifik agar laporan keuangan ini muncul di dashboard unit tersebut (e.g. LEVEL UP GAMING).
-                        </p>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8 lg:gap-12">
                         {/* CASH & BANK */}
-                        <div className="space-y-8">
-                            <div className="space-y-3">
+                        <div className="space-y-6">
+                            <div className="space-y-2">
                                 <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">
-                                    <div className="w-2 h-2 rounded-full bg-slate-400"></div>
-                                    Akun Kas (Tunai)
+                                    AKUN KAS (TUNAI)
                                 </label>
                                 <div className="relative group">
                                     <select
@@ -497,13 +487,11 @@ export const Settings: React.FC<SettingsProps> = ({
                                         <ToggleRight size={16} className="rotate-90" />
                                     </div>
                                 </div>
-                                <p className="text-[10px] font-medium text-slate-400 px-2 italic">Setiap transaksi Tunai akan otomatis masuk ke saldo akun ini.</p>
                             </div>
 
-                            <div className="space-y-3">
+                            <div className="space-y-2">
                                 <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">
-                                    <div className="w-2 h-2 rounded-full bg-slate-400"></div>
-                                    Akun Bank (Transfer)
+                                    AKUN BANK (TRANSFER)
                                 </label>
                                 <div className="relative group">
                                     <select
@@ -520,22 +508,20 @@ export const Settings: React.FC<SettingsProps> = ({
                                         <ToggleRight size={16} className="rotate-90" />
                                     </div>
                                 </div>
-                                <p className="text-[10px] font-medium text-slate-400 px-2 italic">Setiap transaksi Transfer akan otomatis masuk ke saldo akun ini.</p>
                             </div>
                         </div>
 
                         {/* COA MAPPING */}
-                        <div className="space-y-8">
-                            <div className="space-y-3">
+                        <div className="space-y-6">
+                            <div className="space-y-2">
                                 <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-blue-500 ml-1">
-                                    <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                                    Akun Piutang (Receivable)
+                                    AKUN PIUTANG (RECEIVABLE)
                                 </label>
                                 <div className="relative group">
                                     <select
                                         value={finSettings.rentalPsReceivableCoaId}
                                         onChange={(e) => setFinSettings({ ...finSettings, rentalPsReceivableCoaId: e.target.value })}
-                                        className="w-full appearance-none bg-blue-50/30 border-2 border-transparent rounded-2xl p-4 pr-10 font-bold text-xs text-slate-700 focus:ring-4 focus:ring-blue-100 focus:bg-white focus:border-blue-200 transition-all cursor-pointer hover:bg-blue-50 overflow-hidden text-ellipsis"
+                                        className="w-full appearance-none bg-blue-50/30 border-2 border-transparent rounded-2xl p-4 pr-10 font-bold text-xs text-slate-700 focus:ring-4 focus:ring-blue-100 focus:bg-white focus:border-blue-200 transition-all cursor-pointer hover:bg-blue-50 truncate"
                                     >
                                         <option value="">-- PILIH COA PIUTANG --</option>
                                         {coas.map(c => (
@@ -546,19 +532,17 @@ export const Settings: React.FC<SettingsProps> = ({
                                         <ToggleRight size={16} className="rotate-90" />
                                     </div>
                                 </div>
-                                <p className="text-[10px] font-medium text-blue-400/80 px-2 italic">Akun penyeimbang (offset) sebelum pelunasan kas/bank.</p>
                             </div>
 
-                            <div className="space-y-3">
+                            <div className="space-y-2">
                                 <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-emerald-500 ml-1">
-                                    <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                                    Akun Penjualan (Revenue)
+                                    AKUN PENJUALAN (REVENUE)
                                 </label>
                                 <div className="relative group">
                                     <select
                                         value={finSettings.rentalPsSalesCoaId}
                                         onChange={(e) => setFinSettings({ ...finSettings, rentalPsSalesCoaId: e.target.value })}
-                                        className="w-full appearance-none bg-emerald-50/30 border-2 border-transparent rounded-2xl p-4 pr-10 font-bold text-xs text-slate-700 focus:ring-4 focus:ring-emerald-100 focus:bg-white focus:border-emerald-200 transition-all cursor-pointer hover:bg-emerald-50 overflow-hidden text-ellipsis"
+                                        className="w-full appearance-none bg-emerald-50/30 border-2 border-transparent rounded-2xl p-4 pr-10 font-bold text-xs text-slate-700 focus:ring-4 focus:ring-emerald-100 focus:bg-white focus:border-emerald-200 transition-all cursor-pointer hover:bg-emerald-50 truncate"
                                     >
                                         <option value="">-- PILIH COA PENJUALAN --</option>
                                         {coas.map(c => (
@@ -569,18 +553,17 @@ export const Settings: React.FC<SettingsProps> = ({
                                         <ToggleRight size={16} className="rotate-90" />
                                     </div>
                                 </div>
-                                <p className="text-[10px] font-medium text-emerald-400/80 px-2 italic">Akun yang mencatat total omzet kotor rental PS.</p>
                             </div>
                         </div>
                     </div>
 
-                    <div className="mt-10 pt-8 border-t border-slate-50 flex justify-end">
+                    <div className="mt-10 pt-8 border-t border-slate-50 flex justify-center sm:justify-end">
                         <button
                             onClick={handleSaveFinSettings}
                             disabled={isSaving || isFetchingFin}
-                            className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-3 hover:bg-blue-600 transition-all shadow-xl shadow-slate-200 hover:shadow-blue-200 active:scale-95 group"
+                            className="w-full sm:w-auto bg-slate-900 text-white px-8 py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-blue-600 transition-all shadow-xl shadow-slate-200 hover:shadow-blue-200 active:scale-95 group"
                         >
-                            {isSaving ? 'MENYIMPAN...' : <><Save size={16} className="group-hover:rotate-12 transition-transform" /> SIMPAN PEMETAAN AKUN</>}
+                            {isSaving ? 'MEMPROSES...' : <><Save size={16} className="group-hover:rotate-12 transition-transform" /> SIMPAN KONFIGURASI</>}
                         </button>
                     </div>
                 </div>

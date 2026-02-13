@@ -21,16 +21,14 @@ export async function GET(request: Request) {
             const workbook = new ExcelJS.Workbook();
             const worksheet = workbook.addWorksheet('Import Rental PS');
 
-            // Define Headers
+            // Define Headers (Simplified & Smarter)
             const headers = [
                 { header: 'Tanggal (YYYY-MM-DD)', key: 'date', width: 20 },
                 { header: 'Nama Customer', key: 'customer', width: 25 },
                 { header: 'Unit (PS 3/4)', key: 'unit', width: 15 },
                 { header: 'Durasi (Jam)', key: 'duration', width: 12 },
-                { header: 'Nominal Cash', key: 'cashAmount', width: 15 },
-                { header: 'Nominal Transfer', key: 'transferAmount', width: 15 },
-                { header: 'Total Nominal', key: 'totalAmount', width: 15 },
-                { header: 'Metode (CASH/TF/SPLIT)', key: 'paymentMethod', width: 22 },
+                { header: 'Nominal Tunai (CASH)', key: 'cashAmount', width: 20 },
+                { header: 'Nominal Transfer (BANK)', key: 'transferAmount', width: 25 },
                 { header: 'Outlet', key: 'outlet', width: 20 },
                 { header: 'Petugas', key: 'petugas', width: 15 }
             ];
@@ -47,22 +45,20 @@ export async function GET(request: Request) {
             worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
 
             // Add Sample Row
-            const sampleRow = worksheet.addRow({
+            worksheet.addRow({
                 date: new Date().toISOString().split('T')[0],
-                customer: 'Contoh Budi',
+                customer: 'Budi Darmawan',
                 unit: 'PS 4',
                 duration: 2,
                 cashAmount: 20000,
                 transferAmount: 0,
-                totalAmount: 20000,
-                paymentMethod: 'CASH',
                 outlet: outletNames[0] || 'Utama',
                 petugas: user.name
             });
 
             // Add Data Validations (Dropdowns)
-            // 1. Column C (Unit)
             for (let i = 2; i <= 500; i++) {
+                // 1. Column C (Unit)
                 worksheet.getCell(`C${i}`).dataValidation = {
                     type: 'list',
                     allowBlank: true,
@@ -72,18 +68,9 @@ export async function GET(request: Request) {
                     error: 'Silakan pilih tipe unit dari daftar'
                 };
 
-                // 2. Column H (Payment Method)
-                worksheet.getCell(`H${i}`).dataValidation = {
-                    type: 'list',
-                    allowBlank: true,
-                    formulae: ['"CASH,TRANSFER,SPLIT"'],
-                    showErrorMessage: true,
-                    error: 'Silakan pilih metode yang tersedia'
-                };
-
-                // 3. Column I (Outlet Dropdown from DB)
+                // 2. Column G (Outlet Dropdown from DB)
                 if (outletNames.length > 0) {
-                    worksheet.getCell(`I${i}`).dataValidation = {
+                    worksheet.getCell(`G${i}`).dataValidation = {
                         type: 'list',
                         allowBlank: true,
                         formulae: [`"${outletNames.join(',')}"`],
@@ -92,16 +79,25 @@ export async function GET(request: Request) {
                         error: 'Silakan pilih outlet yang terdaftar'
                     };
                 }
+
+                // Currency formatting for cash/transfer
+                worksheet.getCell(`E${i}`).numFmt = '#,##0';
+                worksheet.getCell(`F${i}`).numFmt = '#,##0';
             }
 
             // Instructions Sheet
             const helpSheet = workbook.addWorksheet('Panduan');
-            helpSheet.addRow(['PANDUAN IMPORT DATA RENTAL PS']);
-            helpSheet.addRow(['1. Gunakan format tanggal YYYY-MM-DD (Misal: 2026-02-12).']);
-            helpSheet.addRow(['2. Pilih Outlet dari dropdown agar data masuk ke cabang yang benar.']);
-            helpSheet.addRow(['3. Untuk bayar SPLIT, isi kolom Nominal Cash DAN Nominal Transfer.']);
-            helpSheet.addRow(['4. Total Nominal adalah jumlah akhir yang harus dibayar.']);
-            helpSheet.addRow(['5. Nomor Nota akan dibuat otomatis oleh sistem (LUG-Tahun-Bulan-Sequence).']);
+            helpSheet.getColumn(1).width = 80;
+            helpSheet.addRow(['PANDUAN IMPORT DATA RENTAL PS (VERSION 2.0)']).font = { bold: true, size: 14 };
+            helpSheet.addRow(['']);
+            helpSheet.addRow(['1. TANGGAL: Gunakan format YYYY-MM-DD (Contoh: 2026-02-12).']);
+            helpSheet.addRow(['2. OUTLET: Wajib pilih dari dropdown agar laporan keuangan cabang akurat.']);
+            helpSheet.addRow(['3. SISTEM CERDAS PEMBAYARAN:']);
+            helpSheet.addRow(['   - Jika isi kolom TUNAI saja -> Otomatis metode CASH']);
+            helpSheet.addRow(['   - Jika isi kolom TRANSFER saja -> Otomatis metode TRANSFER']);
+            helpSheet.addRow(['   - Jika isi Keduanya -> Otomatis metode SPLIT']);
+            helpSheet.addRow(['4. TOTAL NOMINAL: Tidak perlu diisi, sistem akan menjumlahkan TUNAI + TRANSFER secara otomatis.']);
+            helpSheet.addRow(['5. NO. NOTA (INVOICE): Akan dibuat otomatis mengikuti urutan romawi terbaru (LUG-Year-Month-Sequence).']);
 
             const buffer = await workbook.xlsx.writeBuffer();
 

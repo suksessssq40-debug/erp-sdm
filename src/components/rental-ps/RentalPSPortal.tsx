@@ -9,7 +9,8 @@ import { Form } from './Form';
 import { History } from './History';
 import { Receipt } from './Receipt';
 import { Settings } from './Settings';
-import { CheckCircle2, Download, Share2, X, Share, Info, FileText, AlertCircle } from 'lucide-react';
+import { FinancialCharts } from './FinancialCharts';
+import { CheckCircle2, Download, Share2, X, Share, Info, FileText, AlertCircle, Calendar as CalendarIcon, Filter } from 'lucide-react';
 
 interface RentalPSPortalProps {
     currentUser: User;
@@ -28,10 +29,15 @@ const RentalPSPortal: React.FC<RentalPSPortalProps> = ({ currentUser }) => {
 
     // Dashboard & Filter States
     const [stats, setStats] = useState({ totalRevenue: 0, totalCash: 0, totalTransfer: 0, count: 0 });
+    const [trendData, setTrendData] = useState<any[]>([]);
     const [dateRange, setDateRange] = useState({ startDate: '', endDate: '' });
+    const [searchQuery, setSearchQuery] = useState('');
+    const [page, setPage] = useState(1);
+    const [hasMore, setHasMore] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const [isFiltering, setIsFiltering] = useState(false);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [isGuideOpen, setIsGuideOpen] = useState(false);
 
     // Form State
@@ -100,31 +106,72 @@ const RentalPSPortal: React.FC<RentalPSPortalProps> = ({ currentUser }) => {
         }
     };
 
-    const fetchHistory = async () => {
-        setIsFiltering(true);
+    const fetchHistory = async (isLoadMore = false) => {
+        if (isLoadMore) setIsLoadingMore(true);
+        else setIsFiltering(true);
+
         try {
             const token = localStorage.getItem('sdm_erp_auth_token');
+            const currentPage = isLoadMore ? page + 1 : 1;
+
             const params = new URLSearchParams({
-                limit: '100'
+                limit: '20',
+                page: String(currentPage),
+                trend: 'true'
             });
+
             if (dateRange.startDate) params.append('startDate', dateRange.startDate);
             if (dateRange.endDate) params.append('endDate', dateRange.endDate);
             if (selectedOutletId) params.append('outletId', selectedOutletId);
+            if (searchQuery) params.append('search', searchQuery);
 
             const res = await fetch(`/api/rental-ps?${params.toString()}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
+
             if (res.ok) {
                 const data = await res.json();
-                setHistory(data.records);
+                if (isLoadMore) {
+                    setHistory(prev => [...prev, ...data.records]);
+                    setPage(currentPage);
+                } else {
+                    setHistory(data.records);
+                    setTrendData(data.trend || []);
+                    setPage(1);
+                }
                 setStats(data.stats);
+                setHasMore(data.records.length === 20 && (data.stats.totalCount > (isLoadMore ? history.length + 20 : 20)));
             }
         } catch (e) {
             toast.error("Gagal mengambil riwayat rental");
         } finally {
             setIsFiltering(false);
+            setIsLoadingMore(false);
             setIsLoading(false);
         }
+    };
+
+    // Debounce search
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            if (isLoading) return;
+            fetchHistory();
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [searchQuery]);
+
+    const handlePresetDate = (type: 'TODAY' | 'WEEK' | 'MONTH') => {
+        const now = new Date();
+        let start = new Date();
+        if (type === 'WEEK') start.setDate(now.getDate() - 7);
+        if (type === 'MONTH') {
+            start = new Date(now.getFullYear(), now.getMonth(), 1);
+        }
+
+        setDateRange({
+            startDate: start.toISOString().split('T')[0],
+            endDate: now.toISOString().split('T')[0]
+        });
     };
 
     const loadAll = async () => {
@@ -286,10 +333,8 @@ const RentalPSPortal: React.FC<RentalPSPortalProps> = ({ currentUser }) => {
                                 customer: findVal(['customer', 'pelanggan', 'nama']),
                                 unit: findVal(['unit', 'ps']),
                                 duration: findVal(['durasi', 'duration', 'jam']),
-                                cashAmount: findVal(['cash', 'tunai']),
-                                transferAmount: findVal(['transfer', 'tf', 'bank']),
-                                totalAmount: findVal(['total', 'nominal', 'jumlah']),
-                                paymentMethod: findVal(['metode', 'payment']),
+                                cashAmount: findVal(['tunai', 'cash']),
+                                transferAmount: findVal(['transfer', 'bank', 'tf']),
                                 outlet: findVal(['outlet', 'cabang']),
                                 petugas: findVal(['petugas', 'staff', 'admin'])
                             };
@@ -475,112 +520,144 @@ const RentalPSPortal: React.FC<RentalPSPortalProps> = ({ currentUser }) => {
                 canAccessSettings={canAccessSettings}
             />
 
-            {(currentUser.role === 'OWNER' || currentUser.role === 'FINANCE') && stage === 'LIST' && (
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 animate-in fade-in slide-in-from-top-4 duration-500">
-                    <div className="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-100 relative overflow-hidden group">
-                        <div className="absolute -right-4 -top-4 w-20 h-20 bg-blue-50 rounded-full group-hover:scale-110 transition-transform" />
-                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1 relative">Total Omzet</p>
-                        <h4 className="text-xl font-black italic tracking-tighter text-slate-900 relative">Rp {stats.totalRevenue.toLocaleString()}</h4>
-                    </div>
-                    <div className="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-100 relative overflow-hidden group">
-                        <div className="absolute -right-4 -top-4 w-20 h-20 bg-emerald-50 rounded-full group-hover:scale-110 transition-transform" />
-                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1 relative">Metode Tunai</p>
-                        <h4 className="text-xl font-black italic tracking-tighter text-emerald-600 relative">Rp {stats.totalCash.toLocaleString()}</h4>
-                    </div>
-                    <div className="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-100 relative overflow-hidden group">
-                        <div className="absolute -right-4 -top-4 w-20 h-20 bg-amber-50 rounded-full group-hover:scale-110 transition-transform" />
-                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1 relative">Metode Transfer</p>
-                        <h4 className="text-xl font-black italic tracking-tighter text-amber-600 relative">Rp {stats.totalTransfer.toLocaleString()}</h4>
-                    </div>
-                    <div className="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-100 relative overflow-hidden group">
-                        <div className="absolute -right-4 -top-4 w-20 h-20 bg-slate-50 rounded-full group-hover:scale-110 transition-transform" />
-                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1 relative">Total Transaksi</p>
-                        <h4 className="text-xl font-black italic tracking-tighter text-slate-900 relative">{stats.count} Items</h4>
+            {stage === 'LIST' && (
+                <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-top-4 duration-500">
+                    {/* CONTROL CENTER: One row for everything */}
+                    <div className="bg-white p-4 md:p-6 rounded-[2rem] md:rounded-[2.5rem] shadow-xl border border-slate-100 flex flex-col xl:flex-row xl:items-center justify-between gap-4 md:gap-6">
+                        {/* LEFT: Outlet & Presets */}
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+                            <div className="relative group flex-1 sm:flex-none">
+                                <select
+                                    value={selectedOutletId}
+                                    onChange={(e) => setSelectedOutletId(e.target.value)}
+                                    className="w-full appearance-none bg-slate-50 pl-6 pr-12 py-3 rounded-2xl text-[10px] md:text-[11px] font-black uppercase tracking-widest border-none shadow-inner focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                                >
+                                    <option value="">🏢 SEMUA OUTLET</option>
+                                    {outlets.map(o => (
+                                        <option key={o.id} value={o.id}>{o.name}</option>
+                                    ))}
+                                </select>
+                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                                    <Filter size={14} />
+                                </div>
+                            </div>
+
+                            <div className="flex bg-slate-50 p-1 rounded-2xl shadow-inner gap-0.5 overflow-x-auto scrollbar-hide">
+                                <button onClick={() => handlePresetDate('TODAY')} className="px-3 md:px-4 py-2 hover:bg-white hover:shadow-sm text-[8px] md:text-[9px] font-black uppercase rounded-xl transition-all border-none italic text-slate-500 hover:text-blue-600 whitespace-nowrap">HARI INI</button>
+                                <button onClick={() => handlePresetDate('WEEK')} className="px-3 md:px-4 py-2 hover:bg-white hover:shadow-sm text-[8px] md:text-[9px] font-black uppercase rounded-xl transition-all border-none italic text-slate-500 hover:text-blue-600 whitespace-nowrap">7 KEBELAKANG</button>
+                                <button onClick={() => handlePresetDate('MONTH')} className="px-3 md:px-4 py-2 hover:bg-white hover:shadow-sm text-[8px] md:text-[9px] font-black uppercase rounded-xl transition-all border-none italic text-slate-500 hover:text-blue-600 whitespace-nowrap">BULAN INI</button>
+                            </div>
+                        </div>
+
+                        {/* RIGHT CONTENT: Date Range & Action Buttons */}
+                        <div className="flex flex-col md:flex-row items-stretch md:items-center gap-4">
+                            {/* Manual Date Filter */}
+                            <div className="flex flex-1 items-center gap-2 md:gap-3 bg-slate-50 px-4 md:px-5 py-2.5 md:py-3 rounded-2xl shadow-inner border-none overflow-x-auto scrollbar-hide">
+                                <CalendarIcon size={14} className="text-slate-400 shrink-0" />
+                                <input
+                                    type="date"
+                                    value={dateRange.startDate}
+                                    onChange={(e) => setDateRange(prev => ({ ...prev, startDate: e.target.value }))}
+                                    className="bg-transparent border-none text-[10px] font-black focus:ring-0 p-0 text-slate-600 min-w-[90px]"
+                                />
+                                <span className="text-slate-300 font-bold text-[10px]">TO</span>
+                                <input
+                                    type="date"
+                                    value={dateRange.endDate}
+                                    onChange={(e) => setDateRange(prev => ({ ...prev, endDate: e.target.value }))}
+                                    className="bg-transparent border-none text-[10px] font-black focus:ring-0 p-0 text-slate-600 min-w-[90px]"
+                                />
+                                <button
+                                    onClick={() => fetchHistory()}
+                                    disabled={isFiltering}
+                                    className="ml-auto p-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-200 disabled:opacity-50 shrink-0"
+                                    title="Terapkan Filter"
+                                >
+                                    <Filter size={14} />
+                                </button>
+                            </div>
+
+                            {/* Secondary Actions */}
+                            <div className="flex items-center gap-2 justify-end">
+                                <button
+                                    onClick={() => setIsGuideOpen(true)}
+                                    className="p-3 bg-slate-50 text-slate-400 rounded-2xl hover:bg-slate-900 hover:text-white transition-all shadow-sm"
+                                    title="Bantuan & Panduan"
+                                >
+                                    <Info size={18} />
+                                </button>
+                                <button
+                                    onClick={handleImport}
+                                    disabled={isImporting}
+                                    className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl hover:bg-emerald-600 hover:text-white transition-all shadow-sm flex items-center gap-2 group"
+                                    title="Import Data (Excel)"
+                                >
+                                    <Share size={18} className="rotate-180" />
+                                    <span className="text-[10px] font-black uppercase tracking-widest hidden sm:block">Import</span>
+                                </button>
+                                <button
+                                    onClick={handleExport}
+                                    disabled={isExporting}
+                                    className="p-3 bg-slate-50 text-slate-600 rounded-2xl hover:bg-slate-600 hover:text-white transition-all shadow-sm flex items-center gap-2 group"
+                                    title="Export Data (CSV)"
+                                >
+                                    <Share size={18} />
+                                    <span className="text-[10px] font-black uppercase tracking-widest hidden sm:block">Export</span>
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}
 
-            {stage === 'LIST' && (
-                <div className="bg-white px-8 py-6 rounded-[2rem] shadow-xl border border-slate-100 flex flex-col md:flex-row items-center justify-between gap-6 animate-in fade-in duration-500">
-                    <div className="flex flex-wrap items-center gap-4">
-                        <div className="space-y-1">
-                            <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-2">Dari Tanggal</label>
-                            <input
-                                type="date"
-                                value={dateRange.startDate}
-                                onChange={(e) => setDateRange({ ...dateRange, startDate: e.target.value })}
-                                className="bg-slate-50 border-none rounded-xl px-4 py-2 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-blue-500"
-                            />
-                        </div>
-                        <div className="space-y-1">
-                            <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-2">Sampai Tanggal</label>
-                            <input
-                                type="date"
-                                value={dateRange.endDate}
-                                onChange={(e) => setDateRange({ ...dateRange, endDate: e.target.value })}
-                                className="bg-slate-50 border-none rounded-xl px-4 py-2 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-blue-500"
-                            />
-                        </div>
-                        <button
-                            onClick={fetchHistory}
-                            disabled={isFiltering}
-                            className="mt-5 bg-slate-900 text-white px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition-all disabled:opacity-50"
-                        >
-                            {isFiltering ? 'LOADING...' : 'TERAPKAN'}
-                        </button>
-                    </div>
+            {/* VISUAL DASHBOARD (Charts) */}
+            {stage === 'LIST' && ['OWNER', 'FINANCE'].includes(currentUser.role) && trendData.length > 0 && (
+                <div className="mb-10">
+                    <FinancialCharts trendData={trendData} stats={stats} />
+                </div>
+            )}
 
-                    <div className="flex items-center gap-3">
-                        <button
-                            onClick={() => setIsGuideOpen(true)}
-                            className="p-3 bg-slate-50 text-slate-400 rounded-xl hover:bg-slate-900 hover:text-white transition-all shadow-sm"
-                            title="Panduan Import"
-                        >
-                            <Info size={16} />
-                        </button>
-                        <button
-                            onClick={handleImport}
-                            disabled={isImporting}
-                            className="p-3 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-600 hover:text-white transition-all shadow-sm flex items-center gap-2 group"
-                            title="Import Spreadsheet (CSV/JSON)"
-                        >
-                            <Share size={16} className="rotate-180" />
-                            <span className="text-[10px] font-black uppercase tracking-widest hidden group-hover:block">Import</span>
-                        </button>
-                        <button
-                            onClick={handleExport}
-                            disabled={isExporting}
-                            className="p-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm flex items-center gap-2 group"
-                            title="Export to CSV"
-                        >
-                            <Download size={16} />
-                            <span className="text-[10px] font-black uppercase tracking-widest hidden group-hover:block">Export</span>
-                        </button>
-                    </div>
+            {stage === 'LIST' && (
+                <div className="mt-8">
+                    <History
+                        history={history}
+                        onSelect={setSelectedRecord}
+                        onEdit={handleEdit}
+                        onDelete={handleDelete}
+                        searchQuery={searchQuery}
+                        onSearchChange={setSearchQuery}
+                        onLoadMore={() => fetchHistory(true)}
+                        hasMore={hasMore}
+                        isLoadingMore={isLoadingMore}
+                    />
                 </div>
             )}
 
             {stage === 'FORM' && (
-                <Form
-                    customerName={customerName} setCustomerName={setCustomerName}
-                    psType={psType} setPsType={setPsType}
-                    duration={duration} setDuration={setDuration}
-                    paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod}
-                    cashPart={cashPart} setCashPart={setCashPart}
-                    transferPart={transferPart} setTransferPart={setTransferPart}
-                    calculateTotal={calculateTotal} prices={pricesMap}
-                    isSubmitting={isSubmitting} isEditing={!!editingRecord} handleSubmit={handleSubmit}
-                    outlets={outlets} selectedOutletId={selectedOutletId} setSelectedOutletId={setSelectedOutletId}
-                />
-            )}
-
-            {stage === 'LIST' && (
-                <History
-                    history={history}
-                    onSelect={setSelectedRecord}
-                    onEdit={handleEdit}
-                    onDelete={handleDelete}
-                />
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-4xl mx-auto">
+                    <Form
+                        outlets={outlets}
+                        prices={pricesMap}
+                        selectedOutletId={selectedOutletId}
+                        setSelectedOutletId={setSelectedOutletId}
+                        customerName={customerName}
+                        setCustomerName={setCustomerName}
+                        psType={psType}
+                        setPsType={setPsType}
+                        duration={duration}
+                        setDuration={setDuration}
+                        paymentMethod={paymentMethod}
+                        setPaymentMethod={setPaymentMethod}
+                        cashPart={cashPart}
+                        setCashPart={setCashPart}
+                        transferPart={transferPart}
+                        setTransferPart={setTransferPart}
+                        calculateTotal={calculateTotal}
+                        isSubmitting={isSubmitting}
+                        handleSubmit={handleSubmit}
+                        isEditing={!!editingRecord}
+                    />
+                </div>
             )}
 
             {stage === 'SETTINGS' && canAccessSettings && (

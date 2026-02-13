@@ -35,7 +35,7 @@ export const Form: React.FC<FormProps> = ({
             {/* INPUT FORM */}
             <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-100">
                 <form onSubmit={handleSubmit} className="space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-4">
                         <div className="space-y-2">
                             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
                                 <MapPin size={12} className="text-blue-500" /> Pilih Outlet
@@ -43,7 +43,7 @@ export const Form: React.FC<FormProps> = ({
                             <select
                                 value={selectedOutletId}
                                 onChange={e => setSelectedOutletId(e.target.value)}
-                                className="w-full bg-slate-50 border-none rounded-2xl p-4 font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 transition-all"
+                                className="w-full bg-slate-50 border-none rounded-2xl p-4 md:p-5 font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 transition-all text-sm"
                                 required
                             >
                                 <option value="" disabled>-- Pilih Outlet --</option>
@@ -60,7 +60,7 @@ export const Form: React.FC<FormProps> = ({
                                 type="text"
                                 value={customerName}
                                 onChange={e => setCustomerName(e.target.value)}
-                                className="w-full bg-slate-50 border-none rounded-2xl p-4 font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 placeholder:text-slate-300 transition-all"
+                                className="w-full bg-slate-50 border-none rounded-2xl p-4 md:p-5 font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 placeholder:text-slate-300 transition-all text-sm"
                                 placeholder="Contoh: Pak Jaka"
                                 required
                             />
@@ -76,7 +76,7 @@ export const Form: React.FC<FormProps> = ({
                             <select
                                 value={psType}
                                 onChange={e => setPsType(e.target.value)}
-                                className="w-full bg-slate-50 border-none rounded-2xl p-4 font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 font-mono"
+                                className="w-full bg-slate-50 border-none rounded-2xl p-4 md:p-5 font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 font-mono text-sm"
                             >
                                 {Object.keys(prices).length > 0 ? (
                                     Object.keys(prices).sort().map(name => (
@@ -96,7 +96,7 @@ export const Form: React.FC<FormProps> = ({
                                 step="0.5"
                                 value={duration}
                                 onChange={e => setDuration(e.target.value)}
-                                className="w-full bg-slate-50 border-none rounded-2xl p-4 font-bold text-slate-700 focus:ring-2 focus:ring-blue-500"
+                                className="w-full bg-slate-50 border-none rounded-2xl p-4 md:p-5 font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 text-sm"
                                 required
                             />
                         </div>
@@ -106,7 +106,7 @@ export const Form: React.FC<FormProps> = ({
                         <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
                             <CreditCard size={12} className="text-blue-500" /> Metode Pembayaran
                         </label>
-                        <div className="grid grid-cols-3 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                             {(['CASH', 'TRANSFER', 'SPLIT'] as const).map(m => (
                                 <button
                                     key={m}
@@ -122,22 +122,22 @@ export const Form: React.FC<FormProps> = ({
                         {paymentMethod === 'SPLIT' && (
                             <div className="grid grid-cols-2 gap-4 animate-in zoom-in duration-300">
                                 <div className="space-y-1">
-                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">Porsi Tunai (Cash)</p>
+                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">Porsi Tunai</p>
                                     <input
                                         type="number"
                                         value={cashPart}
                                         onChange={e => setCashPart(e.target.value)}
-                                        className="w-full bg-emerald-50/50 border-emerald-100 border text-emerald-700 rounded-xl p-3 font-bold"
+                                        className="w-full bg-emerald-50/50 border-emerald-100 border text-emerald-700 rounded-xl p-3 font-bold text-sm"
                                         placeholder="0"
                                     />
                                 </div>
                                 <div className="space-y-1">
-                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">Porsi Transfer (TF)</p>
+                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">Porsi Transfer</p>
                                     <input
                                         type="number"
                                         value={transferPart}
                                         onChange={e => setTransferPart(e.target.value)}
-                                        className="w-full bg-blue-50/50 border-blue-100 border text-blue-700 rounded-xl p-3 font-bold"
+                                        className="w-full bg-blue-50/50 border-blue-100 border text-blue-700 rounded-xl p-3 font-bold text-sm"
                                         placeholder="0"
                                     />
                                 </div>
@@ -145,15 +145,15 @@ export const Form: React.FC<FormProps> = ({
                         )}
                     </div>
 
-                    <div className="pt-4 border-t border-slate-100">
-                        <div className="flex justify-between items-center mb-6">
+                    <div className="pt-6 border-t border-slate-100">
+                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 gap-2">
                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Pembayaran</p>
-                            <p className="text-3xl font-black text-slate-900 tracking-tighter italic">Rp {calculateTotal().toLocaleString()}</p>
+                            <p className="text-2xl md:text-3xl font-black text-slate-900 tracking-tighter italic">Rp {calculateTotal().toLocaleString()}</p>
                         </div>
                         <button
                             type="submit"
                             disabled={isSubmitting}
-                            className="w-full bg-slate-900 text-white py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.3em] shadow-2xl shadow-slate-300 hover:bg-black active:scale-[0.98] transition-all flex items-center justify-center gap-3"
+                            className="w-full bg-slate-900 text-white py-5 md:py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] md:tracking-[0.3em] shadow-2xl shadow-slate-300 hover:bg-black active:scale-[0.98] transition-all flex items-center justify-center gap-3"
                         >
                             {isSubmitting ? (
                                 <>
@@ -162,7 +162,7 @@ export const Form: React.FC<FormProps> = ({
                                 </>
                             ) : (
                                 <>
-                                    {isEditing ? 'PERBARUI DATA & SINKRON KAS' : 'SELESAI & POST KE FINANCE'}
+                                    {isEditing ? 'PERBARUI DATA' : 'SELESAI & POST'}
                                     <ChevronRight size={18} />
                                 </>
                             )}
@@ -172,7 +172,7 @@ export const Form: React.FC<FormProps> = ({
             </div>
 
             {/* PREVIEW / INFO AREA */}
-            <div className="hidden lg:flex flex-col gap-6">
+            <div className="hidden md:flex flex-col gap-6">
                 <div className="bg-blue-600 text-white p-8 rounded-[2.5rem] shadow-xl shadow-blue-200 relative overflow-hidden group">
                     <div className="absolute -right-10 -bottom-10 opacity-10 group-hover:scale-110 transition-transform duration-700">
                         <Gamepad2 size={240} />

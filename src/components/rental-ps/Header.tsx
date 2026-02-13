@@ -23,27 +23,29 @@ export const Header: React.FC<HeaderProps> = ({ stage, setStage, onReset, canAcc
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] ml-1">Sistem Manajemen Rental PlayStation</p>
             </div>
 
-            <div className="flex bg-white p-2 rounded-[2rem] shadow-xl shadow-slate-100 border border-slate-50">
-                <button
-                    onClick={() => { setStage('LIST'); onReset(); }}
-                    className={`px-8 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${stage === 'LIST' ? 'bg-slate-900 text-white shadow-xl shadow-slate-300' : 'text-slate-400 hover:text-slate-600'}`}
-                >
-                    RIWAYAT
-                </button>
-                <button
-                    onClick={() => { setStage('FORM'); onReset(); }}
-                    className={`px-8 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${stage === 'FORM' ? 'bg-slate-900 text-white shadow-xl shadow-slate-300' : 'text-slate-400 hover:text-slate-600'}`}
-                >
-                    INPUT RENTAL
-                </button>
-                {canAccessSettings && (
+            <div className="flex bg-white p-1.5 rounded-[2rem] shadow-xl shadow-slate-100 border border-slate-50 overflow-x-auto scrollbar-hide max-w-full">
+                <div className="flex items-center min-w-max gap-1">
                     <button
-                        onClick={() => { setStage('SETTINGS'); onReset(); }}
-                        className={`px-8 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${stage === 'SETTINGS' ? 'bg-slate-900 text-white shadow-xl shadow-slate-300' : 'text-slate-400 hover:text-slate-600'}`}
+                        onClick={() => { setStage('LIST'); onReset(); }}
+                        className={`px-6 md:px-8 py-3 rounded-2xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${stage === 'LIST' ? 'bg-slate-900 text-white shadow-xl shadow-slate-300' : 'text-slate-400 hover:text-slate-600'}`}
                     >
-                        PENGATURAN
+                        RIWAYAT
                     </button>
-                )}
+                    <button
+                        onClick={() => { setStage('FORM'); onReset(); }}
+                        className={`px-6 md:px-8 py-3 rounded-2xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${stage === 'FORM' ? 'bg-slate-900 text-white shadow-xl shadow-slate-300' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                        INPUT RENTAL
+                    </button>
+                    {canAccessSettings && (
+                        <button
+                            onClick={() => { setStage('SETTINGS'); onReset(); }}
+                            className={`px-6 md:px-8 py-3 rounded-2xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${stage === 'SETTINGS' ? 'bg-slate-900 text-white shadow-xl shadow-slate-300' : 'text-slate-400 hover:text-slate-600'}`}
+                        >
+                            PENGATURAN
+                        </button>
+                    )}
+                </div>
             </div>
         </div>
     );

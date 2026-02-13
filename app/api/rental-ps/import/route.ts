@@ -58,14 +58,23 @@ export async function POST(request: Request) {
                     const cleanAmount = (val: any) => {
                         if (typeof val === 'number') return val;
                         if (!val) return 0;
+                        // Handle potential currency strings from excel
                         return Number(val.toString().replace(/[^0-9]/g, ''));
                     };
 
-                    const totalAmount = cleanAmount(rec.totalAmount || rec.nominal);
-                    const cashAmountInput = cleanAmount(rec.cashAmount);
-                    const transferAmountInput = cleanAmount(rec.transferAmount);
+                    const cashAmountInput = cleanAmount(rec.cashAmount || rec.tunai);
+                    const transferAmountInput = cleanAmount(rec.transferAmount || rec.transfer || rec.bank);
 
-                    if (totalAmount <= 0) continue;
+                    // SMART TOTAL: Calculate total from components
+                    // Even if totalAmount header is missing or wrong, we trust cash + transfer
+                    const totalAmount = cashAmountInput + transferAmountInput;
+
+                    // STRICT VALIDATION: Must have some money coming in
+                    if (totalAmount <= 0) {
+                        failCount++;
+                        errors.push(`Baris ${successCount + failCount}: Nominal Tunai & Transfer kosong.`);
+                        continue;
+                    }
 
                     // Determine Dates
                     let transactionDate = new Date();
@@ -108,25 +117,17 @@ export async function POST(request: Request) {
                     batchCounter[periodKey]++;
                     const invoiceNumber = generateInvoiceNumber(batchCounter[periodKey], transactionDate);
 
-                    // C. Payment Method Logic
-                    let paymentMethod = (rec.paymentMethod || 'CASH').toUpperCase();
-                    let finalCash = 0;
-                    let finalTf = 0;
+                    // C. SMART PAYMENT METHOD DETECTION
+                    let paymentMethod: 'CASH' | 'TRANSFER' | 'SPLIT' = 'CASH';
+                    let finalCash = cashAmountInput;
+                    let finalTf = transferAmountInput;
 
-                    if (paymentMethod === 'SPLIT' || (cashAmountInput > 0 && transferAmountInput > 0)) {
+                    if (finalCash > 0 && finalTf > 0) {
                         paymentMethod = 'SPLIT';
-                        finalCash = cashAmountInput;
-                        finalTf = transferAmountInput;
-                        // Safety check if split amounts don't match total
-                        if (finalCash + finalTf !== totalAmount && finalCash + finalTf > 0) {
-                            // Keep input as is, but maybe prioritize total? Let's assume input is correct.
-                        }
-                    } else if (paymentMethod === 'TRANSFER' || transferAmountInput > 0) {
+                    } else if (finalTf > 0) {
                         paymentMethod = 'TRANSFER';
-                        finalTf = totalAmount;
                     } else {
                         paymentMethod = 'CASH';
-                        finalCash = totalAmount;
                     }
 
                     const staffName = rec.staffName || rec.petugas || 'System Import';

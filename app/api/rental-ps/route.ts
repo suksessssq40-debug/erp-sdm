@@ -1,6 +1,7 @@
 
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 import { authorize } from '@/lib/auth';
 import { generateInvoiceNumber } from '@/utils/roman';
 import { getJakartaNow, recordSystemLog, serialize } from '@/lib/serverUtils';
@@ -586,13 +587,19 @@ export async function GET(request: Request) {
         const { searchParams } = new URL(request.url);
 
         const limit = parseInt(searchParams.get('limit') || '50');
+        const page = parseInt(searchParams.get('page') || '1');
+        const skip = (page - 1) * limit;
+
         const outletId = searchParams.get('outletId');
         const startDate = searchParams.get('startDate');
         const endDate = searchParams.get('endDate');
+        const search = searchParams.get('search')?.trim();
+        const getTrend = searchParams.get('trend') === 'true';
 
         const where: any = { tenantId };
         if (outletId) where.outletId = outletId;
 
+        // Date Filter
         if (startDate || endDate) {
             where.createdAt = {};
             if (startDate) where.createdAt.gte = new Date(startDate);
@@ -603,12 +610,23 @@ export async function GET(request: Request) {
             }
         }
 
-        const [records, stats] = await Promise.all([
+        // Universal Search
+        if (search) {
+            where.OR = [
+                { customerName: { contains: search, mode: 'insensitive' } },
+                { invoiceNumber: { contains: search, mode: 'insensitive' } },
+                { psType: { contains: search, mode: 'insensitive' } },
+                { staffName: { contains: search, mode: 'insensitive' } }
+            ];
+        }
+
+        const [records, stats, totalCount] = await Promise.all([
             (prisma as any).rentalRecord.findMany({
                 where,
                 include: { outlet: true },
                 orderBy: { createdAt: 'desc' },
-                take: limit
+                take: limit,
+                skip: skip
             }),
             (prisma as any).rentalRecord.aggregate({
                 where,
@@ -617,11 +635,31 @@ export async function GET(request: Request) {
                     cashAmount: true,
                     transferAmount: true
                 },
-                _count: {
-                    id: true
-                }
-            })
+                _count: { id: true }
+            }),
+            (prisma as any).rentalRecord.count({ where })
         ]);
+
+        // Optional: Calculate Trend Data for Chart (Revenue per day)
+        let trendData: any[] = [];
+        if (getTrend) {
+            const rawTrend = await prisma.$queryRaw`
+                SELECT 
+                    DATE_TRUNC('day', created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jakarta') as day,
+                    SUM(total_amount) as total
+                FROM rental_records
+                WHERE tenant_id = ${tenantId}
+                ${outletId ? Prisma.raw(`AND outlet_id = '${outletId}'`) : Prisma.raw('')}
+                AND created_at >= ${new Date(startDate || new Date(Date.now() - 30 * 86400000))}
+                GROUP BY 1
+                ORDER BY 1 ASC
+            ` as any[];
+
+            trendData = rawTrend.map(t => ({
+                date: t.day.toISOString().split('T')[0],
+                value: Number(t.total)
+            }));
+        }
 
         return NextResponse.json(serialize({
             records,
@@ -629,8 +667,10 @@ export async function GET(request: Request) {
                 totalRevenue: Number(stats._sum.totalAmount || 0),
                 totalCash: Number(stats._sum.cashAmount || 0),
                 totalTransfer: Number(stats._sum.transferAmount || 0),
-                count: stats._count.id
-            }
+                count: stats._count.id,
+                totalCount: totalCount
+            },
+            trend: trendData
         }));
     } catch (e) {
         console.error('Fetch History Error:', e);
