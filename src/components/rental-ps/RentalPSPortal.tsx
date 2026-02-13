@@ -341,8 +341,17 @@ const RentalPSPortal: React.FC<RentalPSPortalProps> = ({ currentUser }) => {
                             const rawDate = findVal(['tanggal', 'date']);
                             const date = excelToJSDate(rawDate);
 
+                            // Format as YYYY-MM-DD string to avoid timezone shifts during transmission
+                            let dateStr = null;
+                            if (date) {
+                                const y = date.getFullYear();
+                                const m = (date.getMonth() + 1).toString().padStart(2, '0');
+                                const d = date.getDate().toString().padStart(2, '0');
+                                dateStr = `${y}-${m}-${d}`;
+                            }
+
                             return {
-                                date: date ? date.toISOString() : null,
+                                date: dateStr,
                                 customer: findVal(['customer', 'pelanggan', 'nama']),
                                 unit: findVal(['unit', 'ps']),
                                 duration: findVal(['durasi', 'duration', 'jam']),

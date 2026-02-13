@@ -84,32 +84,55 @@ export async function POST(request: Request) {
                         continue;
                     }
 
-                    // Determine Dates
+                    // Determine Dates (Force to Jakarta context to avoid UTC shifts)
                     let transactionDate = new Date();
                     if (rec.date) {
-                        const parsed = new Date(rec.date);
-                        if (!isNaN(parsed.getTime())) transactionDate = parsed;
+                        try {
+                            const d = new Date(rec.date);
+                            if (!isNaN(d.getTime())) {
+                                // Extract the YYYY-MM-DD regardless of whether it's local or UTC
+                                // We take the date part and force it to Jakarta Noon (safe zone)
+                                const jktParts = new Intl.DateTimeFormat('en-CA', {
+                                    timeZone: 'Asia/Jakarta',
+                                    year: 'numeric',
+                                    month: '2-digit',
+                                    day: '2-digit'
+                                }).formatToParts(d);
+
+                                const getP = (t: string) => jktParts.find(p => p.type === t)?.value;
+                                const dateStr = `${getP('year')}-${getP('month')}-${getP('day')}`;
+
+                                // Set to 12:00 PM Jakarta (05:00 AM UTC) - safe from any TZ boundary shifts
+                                transactionDate = new Date(`${dateStr}T12:00:00.000+07:00`);
+                            }
+                        } catch (e) {
+                            transactionDate = new Date();
+                        }
                     }
 
                     // Resolve Outlet
                     const inputOutlet = (rec.outlet || rec.cabang || "").toLowerCase().trim();
                     const outletId = outletMap[inputOutlet] || allOutlets[0]?.id || null;
 
-                    // B. GENERATE INVOICE NUMBER (The Smart Way)
-                    const year = transactionDate.getFullYear();
-                    const month = transactionDate.getMonth() + 1;
+                    // B. GENERATE INVOICE NUMBER (Using Jakarta Context)
+                    const jktFmt = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Jakarta', year: 'numeric', month: 'numeric' }).formatToParts(transactionDate);
+                    const year = parseInt(jktFmt.find(p => p.type === 'year')?.value || "0");
+                    const month = parseInt(jktFmt.find(p => p.type === 'month')?.value || "0");
                     const periodKey = `${year}-${month}`;
 
                     if (!batchCounter[periodKey]) {
-                        // Find the highest sequence number in DB for this month/year
+                        // Find the highest sequence number in DB for this month/year (Jakarta range)
+                        const start = new Date(`${year}-${month.toString().padStart(2, '0')}-01T00:00:00+07:00`);
+                        const end = new Date(`${month === 12 ? year + 1 : year}-${(month === 12 ? 1 : month + 1).toString().padStart(2, '0')}-01T00:00:00+07:00`);
+
                         const latestInDB = await tx.rentalRecord.findFirst({
                             where: {
                                 createdAt: {
-                                    gte: new Date(year, month - 1, 1),
-                                    lt: new Date(year, month, 1)
+                                    gte: start,
+                                    lt: end
                                 }
                             },
-                            orderBy: { invoiceNumber: 'desc' },
+                            orderBy: { createdAt: 'desc' },
                             select: { invoiceNumber: true }
                         });
 
