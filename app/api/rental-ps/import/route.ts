@@ -88,22 +88,27 @@ export async function POST(request: Request) {
                     let transactionDate = new Date();
                     if (rec.date) {
                         try {
-                            const d = new Date(rec.date);
-                            if (!isNaN(d.getTime())) {
-                                // Extract the YYYY-MM-DD regardless of whether it's local or UTC
-                                // We take the date part and force it to Jakarta Noon (safe zone)
-                                const jktParts = new Intl.DateTimeFormat('en-CA', {
-                                    timeZone: 'Asia/Jakarta',
-                                    year: 'numeric',
-                                    month: '2-digit',
-                                    day: '2-digit'
-                                }).formatToParts(d);
+                            // If it's already a simple YYYY-MM-DD string, parse components directly
+                            const isoMatch = typeof rec.date === 'string' && rec.date.match(/^(\d{4})-(\d{2})-(\d{2})/);
+                            if (isoMatch) {
+                                transactionDate = new Date(`${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}T12:00:00.000+07:00`);
+                            } else {
+                                const d = new Date(rec.date);
+                                if (!isNaN(d.getTime())) {
+                                    // Extract components using Jakarta timezone
+                                    const jktParts = new Intl.DateTimeFormat('en-CA', {
+                                        timeZone: 'Asia/Jakarta',
+                                        year: 'numeric',
+                                        month: '2-digit',
+                                        day: '2-digit'
+                                    }).formatToParts(d);
 
-                                const getP = (t: string) => jktParts.find(p => p.type === t)?.value;
-                                const dateStr = `${getP('year')}-${getP('month')}-${getP('day')}`;
+                                    const getP = (t: string) => jktParts.find(p => p.type === t)?.value;
+                                    const dateStr = `${getP('year')}-${getP('month')}-${getP('day')}`;
 
-                                // Set to 12:00 PM Jakarta (05:00 AM UTC) - safe from any TZ boundary shifts
-                                transactionDate = new Date(`${dateStr}T12:00:00.000+07:00`);
+                                    // Set to 12:00 PM Jakarta (05:00 AM UTC) - safe from any TZ boundary shifts
+                                    transactionDate = new Date(`${dateStr}T12:00:00.000+07:00`);
+                                }
                             }
                         } catch (e) {
                             transactionDate = new Date();
@@ -132,7 +137,7 @@ export async function POST(request: Request) {
                                     lt: end
                                 }
                             },
-                            orderBy: { createdAt: 'desc' },
+                            orderBy: { invoiceNumber: 'desc' },
                             select: { invoiceNumber: true }
                         });
 

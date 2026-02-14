@@ -26,8 +26,17 @@ export function toRoman(num: number): string {
 }
 
 export function generateInvoiceNumber(seq: number, date: Date): string {
-    const year = date.getFullYear();
-    const month = date.getMonth() + 1; // 1-12
+    // Force Jakarta timezone for invoice components (Year/Month)
+    // to avoid shifts due to server local time vs WIB.
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Jakarta',
+        year: 'numeric',
+        month: '2-digit'
+    });
+
+    const parts = formatter.formatToParts(date);
+    const year = parseInt(parts.find(p => p.type === 'year')?.value || date.getFullYear().toString());
+    const month = parseInt(parts.find(p => p.type === 'month')?.value || (date.getMonth() + 1).toString());
 
     const yearRoman = toRoman(year);
     const monthRoman = toRoman(month);

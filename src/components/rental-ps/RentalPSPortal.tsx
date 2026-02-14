@@ -311,20 +311,55 @@ const RentalPSPortal: React.FC<RentalPSPortalProps> = ({ currentUser }) => {
                         const data = event.target.result;
 
                         // Use XLSX library to parse the file
+                        // CRITICAL: cellDates:false to get raw serial numbers and avoid XLSX timezone bugs
                         const { read, utils } = await import('xlsx');
-                        const workbook = read(data, { type: 'binary', cellDates: true, cellNF: false, cellText: false });
+                        const workbook = read(data, {
+                            type: 'binary',
+                            cellDates: false,  // FALSE! We handle conversion manually for accuracy
+                            cellNF: false,
+                            cellText: false
+                        });
                         const sheetName = workbook.SheetNames[0];
                         const worksheet = workbook.Sheets[sheetName];
                         const rawRecords = utils.sheet_to_json(worksheet);
 
-                        // Helper untuk konversi serial date Excel ke JS Date jika masih angka
+                        // ROBUST Excel Date Converter - Handles serial numbers correctly
                         const excelToJSDate = (serial: any) => {
                             if (!serial) return null;
-                            if (serial instanceof Date) return serial; // Sudah jadi Date berkat cellDates: true
-                            if (typeof serial === 'number') {
-                                // Excel epoch starts 1899-12-30
-                                return new Date(Math.round((serial - 25569) * 86400 * 1000));
+
+                            // If somehow still a Date object, return as-is
+                            if (serial instanceof Date) {
+                                return serial;
                             }
+
+                            if (typeof serial === 'number') {
+                                // Excel serial date system:
+                                // Serial 1 = January 1, 1900
+                                // Serial 2 = January 2, 1900
+                                // etc.
+
+                                // Excel has a bug: treats 1900 as a leap year (it wasn't)
+                                // Serial 60 = February 29, 1900 (which didn't exist)
+                                // For serials > 60, we need to subtract 1 day
+
+                                let adjustedSerial = serial;
+
+                                // Correct for Excel's 1900 leap year bug
+                                if (serial > 60) {
+                                    adjustedSerial = serial - 1;
+                                }
+
+                                // Excel epoch: January 1, 1900 is serial 1
+                                // So serial 0 would be December 31, 1899
+                                // We calculate from January 1, 1900 and subtract 1 from adjusted serial
+                                const jan1_1900 = Date.UTC(1900, 0, 1, 0, 0, 0, 0);
+                                const msPerDay = 86400000;
+                                const dateUTC = new Date(jan1_1900 + ((adjustedSerial - 1) * msPerDay));
+
+                                return dateUTC;
+                            }
+
+                            // Try parsing as string
                             const d = new Date(serial);
                             return isNaN(d.getTime()) ? null : d;
                         };
@@ -341,12 +376,14 @@ const RentalPSPortal: React.FC<RentalPSPortalProps> = ({ currentUser }) => {
                             const rawDate = findVal(['tanggal', 'date']);
                             const date = excelToJSDate(rawDate);
 
-                            // Format as YYYY-MM-DD string to avoid timezone shifts during transmission
+                            // BULLETPROOF DATE: Extract YYYY-MM-DD from Excel Date object
+                            // CRITICAL: XLSX library returns Date objects in UTC, so we MUST use getUTC* methods!
+                            // Using getFullYear/getMonth/getDate would apply local timezone offset and shift the date
                             let dateStr = null;
                             if (date) {
-                                const y = date.getFullYear();
-                                const m = (date.getMonth() + 1).toString().padStart(2, '0');
-                                const d = date.getDate().toString().padStart(2, '0');
+                                const y = date.getUTCFullYear();
+                                const m = (date.getUTCMonth() + 1).toString().padStart(2, '0');
+                                const d = date.getUTCDate().toString().padStart(2, '0');
                                 dateStr = `${y}-${m}-${d}`;
                             }
 

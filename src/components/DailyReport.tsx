@@ -21,6 +21,8 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingReport, setEditingReport] = useState<DailyReport | null>(null);
   const [selectedReport, setSelectedReport] = useState<DailyReport | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedUserId, setSelectedUserId] = useState<string>('all');
 
   // SERVER-SIDE FILTER STATE (Auto Fetch)
   const today = new Date();
@@ -93,13 +95,38 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
 
   const canViewAll = [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(currentUser.role);
   const canReport = currentUser.role !== UserRole.OWNER;
+
+  // Advanced Filtering
   const filteredByRole = canViewAll ? reports : reports.filter(r => r.userId === currentUser.id);
-  const displayReports = filteredByRole;
+
+  const displayReports = [...filteredByRole]
+    .filter(r => {
+      const matchUser = selectedUserId === 'all' || r.userId === selectedUserId;
+      const userObj = users.find(u => u.id === r.userId);
+      const userName = userObj?.name.toLowerCase() || '';
+      const activityMatch = r.activities.some(a => a.task.toLowerCase().includes(searchTerm.toLowerCase()));
+      const nameMatch = userName.includes(searchTerm.toLowerCase());
+      return matchUser && (nameMatch || activityMatch);
+    })
+    .sort((a, b) => {
+      if (b.date !== a.date) return b.date.localeCompare(a.date);
+      return b.id.localeCompare(a.id);
+    });
+
+  // Grouping Logic
+  const groupedReports = displayReports.reduce((acc, report) => {
+    const date = report.date;
+    if (!acc[date]) acc[date] = [];
+    acc[date].push(report);
+    return acc;
+  }, {} as Record<string, DailyReport[]>);
+
+  const sortedDates = Object.keys(groupedReports).sort((a, b) => b.localeCompare(a));
 
   const prepareEdit = (report: DailyReport) => {
     setEditingReport(report);
     setReportDate(report.date);
-    setActivities(report.activities.map(a => ({
+    setActivities((report.activities || []).map(a => ({
       task: a.task || '',
       quantity: a.quantity || 1,
       unit: a.unit || '',
@@ -150,6 +177,40 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
               <div className="h-2 w-2 bg-emerald-500 rounded-full animate-pulse" title="Live Sync Active"></div>
             </div>
           </div>
+
+          <div className="flex flex-wrap items-center gap-3 mt-4">
+            <div className="relative group min-w-[200px]">
+              <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
+                <Send size={14} className="rotate-[-45deg]" />
+              </div>
+              <input
+                type="text"
+                placeholder="Cari aktivitas atau nama..."
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-[11px] font-bold text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 transition-all shadow-sm"
+              />
+            </div>
+
+            {canViewAll && (
+              <select
+                value={selectedUserId}
+                onChange={e => setSelectedUserId(e.target.value)}
+                className="px-4 py-3 bg-white border border-slate-200 rounded-2xl text-[11px] font-bold text-slate-700 outline-none focus:border-blue-500 transition-all shadow-sm cursor-pointer min-w-[150px]"
+              >
+                <option value="all">SEMUA ANGGOTA</option>
+                {users.filter(u => u.role !== UserRole.OWNER).map(u => (
+                  <option key={u.id} value={u.id}>{u.name.toUpperCase()}</option>
+                ))}
+              </select>
+            )}
+
+            <div className="bg-slate-100/50 px-4 py-3 rounded-2xl border border-slate-200/50">
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none">
+                Ditemukan: <span className="text-blue-600">{displayReports.length} Laporan</span>
+              </p>
+            </div>
+          </div>
         </div>
         {canReport && (
           <button
@@ -159,92 +220,105 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
               setActivities([{ task: '', quantity: 1, unit: '', link: '' }]);
               setShowAdd(true);
             }}
-            className="bg-slate-900 text-white px-8 py-3 rounded-[1.5rem] flex items-center space-x-3 font-black text-xs uppercase tracking-widest shadow-2xl hover:bg-blue-600 transition"
+            className="bg-slate-900 text-white px-8 py-4 rounded-[2rem] flex items-center space-x-3 font-black text-xs uppercase tracking-[0.2em] shadow-2xl hover:bg-blue-600 transition-all active:scale-95 group"
           >
-            <Plus size={18} /> <span>BUAT LAPORAN</span>
+            <Plus size={18} className="group-hover:rotate-90 transition-transform duration-300" />
+            <span>BUAT LAPORAN</span>
           </button>
         )}
       </div>
 
-      <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
-        {/* Table content unchanged */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="bg-slate-50 border-b border-slate-100">
-              <tr>
-                <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Tanggal</th>
-                <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Anggota</th>
-                <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Ringkasan Aktivitas</th>
-                <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Total Item</th>
-                <th className="px-6 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Detail</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {displayReports.slice().reverse().map(report => {
-                const user = users.find(u => u.id === report.userId);
-                // Render nicely formatted date
-                const displayDate = new Date(report.date).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      <div className="space-y-10">
+        {sortedDates.length === 0 ? (
+          <div className="bg-white rounded-[3rem] p-20 text-center border-2 border-dashed border-slate-100">
+            <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Calendar size={32} className="text-slate-300" />
+            </div>
+            <h4 className="text-xl font-black text-slate-400 uppercase tracking-widest">Tidak Ada Aktivitas</h4>
+            <p className="text-xs font-bold text-slate-300 mt-2">Coba sesuaikan filter tanggal atau pencarian Anda.</p>
+          </div>
+        ) : (
+          sortedDates.map(date => {
+            const dateObj = new Date(date);
+            const isToday = date === new Date().toISOString().split('T')[0];
+            const displayDate = dateObj.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
-                return (
-                  <tr key={report.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-6 py-5">
-                      <span className="text-xs font-bold text-slate-700">{displayDate}</span>
-                    </td>
-                    <td className="px-6 py-5">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center font-black text-xs overflow-hidden shadow-md">
-                          {user?.avatarUrl ? (
-                            <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
-                          ) : (
-                            user?.name.charAt(0)
+            return (
+              <div key={date} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="flex items-center gap-4 mb-6 ml-4">
+                  <div className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] ${isToday ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'bg-slate-900 text-white'}`}>
+                    {isToday ? 'HARI INI' : displayDate}
+                  </div>
+                  <div className="h-px flex-1 bg-gradient-to-r from-slate-200 to-transparent"></div>
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{groupedReports[date].length} LAPORAN</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                  {groupedReports[date].map(report => {
+                    const user = users.find(u => u.id === report.userId);
+                    return (
+                      <div key={report.id} className="bg-white rounded-[2.5rem] border border-slate-100 p-8 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 group flex flex-col">
+                        <div className="flex justify-between items-start mb-6">
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center font-black text-sm overflow-hidden shadow-lg border-2 border-white ring-4 ring-slate-50">
+                              {user?.avatarUrl ? (
+                                <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
+                              ) : (
+                                user?.name.charAt(0)
+                              )}
+                            </div>
+                            <div>
+                              <h4 className="text-xs font-black text-slate-800 uppercase tracking-tight">{user?.name}</h4>
+                              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest truncate max-w-[120px]">{user?.jobTitle || 'Anggota Tim'}</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {report.userId === currentUser.id && (
+                              <button onClick={() => prepareEdit(report)} className="p-2 bg-amber-50 text-amber-500 rounded-xl hover:bg-amber-500 hover:text-white transition">
+                                <Pencil size={14} />
+                              </button>
+                            )}
+                            {(report.userId === currentUser.id || canViewAll) && (
+                              <button onClick={() => handleDelete(report.id)} className="p-2 bg-rose-50 text-rose-500 rounded-xl hover:bg-rose-600 hover:text-white transition">
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex-1 space-y-4 mb-6">
+                          {(report.activities || []).slice(0, 3).map((act, i) => (
+                            <div key={i} className="flex gap-3">
+                              <div className="mt-1.5 shrink-0 w-1.5 h-1.5 rounded-full bg-blue-500 ring-4 ring-blue-50"></div>
+                              <p className="text-[11px] font-bold text-slate-600 leading-relaxed line-clamp-2 italic">"{act.task}"</p>
+                            </div>
+                          ))}
+                          {(report.activities || []).length > 3 && (
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-4">
+                              + {(report.activities || []).length - 3} Aktivitas Lainnya
+                            </p>
                           )}
                         </div>
-                        <span className="text-xs font-bold text-slate-700">{user?.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-5">
-                      <p className="text-xs font-medium text-slate-500 italic truncate max-w-xs">
-                        "{report.activities && report.activities.length > 0 ? (report.activities[0]?.task || 'No task title') : 'No activity'}"
-                        {report.activities && report.activities.length > 1 && ` dan ${report.activities.length - 1} lainnya...`}
-                      </p>
-                    </td>
-                    <td className="px-6 py-5">
-                      <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">
-                        {(report.activities || []).length} AKTIVITAS
-                      </span>
-                    </td>
-                    <td className="px-6 py-5 text-right">
-                      <button onClick={() => setSelectedReport(report)} className="p-2 bg-slate-100 text-slate-500 rounded-xl hover:bg-blue-600 hover:text-white transition group mr-2">
-                        <Eye size={16} />
-                      </button>
-                      {/* Actions */}
-                      <div className="flex items-center gap-1">
-                        {/* Edit: Only Report Owner */}
-                        {report.userId === currentUser.id && (
-                          <button onClick={() => prepareEdit(report)} className="p-2 bg-slate-100 text-slate-500 rounded-xl hover:bg-amber-500 hover:text-white transition group">
-                            <Pencil size={16} />
-                          </button>
-                        )}
 
-                        {/* Delete: Owner or Management */}
-                        {(report.userId === currentUser.id || canViewAll) && (
-                          <button onClick={() => handleDelete(report.id)} className="p-2 bg-slate-100 text-slate-500 rounded-xl hover:bg-rose-600 hover:text-white transition group">
-                            <Trash2 size={16} />
+                        <div className="flex items-center justify-between pt-6 border-t border-slate-50 mt-auto">
+                          <span className="bg-slate-100 text-slate-500 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest">
+                            {report.activities?.length || 0} TOTAL TUGAS
+                          </span>
+                          <button
+                            onClick={() => setSelectedReport(report)}
+                            className="flex items-center gap-2 text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] hover:bg-blue-50 px-4 py-2 rounded-xl transition-colors"
+                          >
+                            DETAIL <Eye size={14} />
                           </button>
-                        )}
+                        </div>
                       </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {displayReports.length === 0 && (
-            <div className="p-12 text-center text-slate-300 font-bold uppercase tracking-widest text-xs">
-              Tidak ada laporan aktivitas pada rentang tanggal ini.
-            </div>
-          )}
-        </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
 
       {/* View Detail Modal ... (Unchanged) ... */}
@@ -259,7 +333,7 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
               <button onClick={() => setSelectedReport(null)} className="p-2 bg-slate-100 rounded-full hover:bg-rose-500 hover:text-white transition"><X size={20} /></button>
             </div>
             <div className="flex-1 overflow-y-auto custom-scrollbar max-h-[60vh] space-y-4">
-              {selectedReport.activities.map((act, i) => (
+              {(selectedReport.activities || []).map((act, i) => (
                 <div key={i} className="bg-slate-50 p-5 rounded-[1.5rem] border border-slate-100">
                   <div className="flex justify-between items-start mb-2">
                     <p className="text-sm font-bold text-slate-800 w-2/3 whitespace-pre-wrap">{act.task}</p>

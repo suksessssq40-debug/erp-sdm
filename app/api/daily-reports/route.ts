@@ -78,7 +78,12 @@ export async function POST(request: Request) {
       tenantId
     });
 
-    return NextResponse.json(serialize(created), { status: 201 });
+    const formatted = {
+      ...created,
+      activities: created.activitiesJson ? JSON.parse(created.activitiesJson) : []
+    };
+
+    return NextResponse.json(serialize(formatted), { status: 201 });
   } catch (error: any) {
     console.error(error);
     return NextResponse.json({ error: 'Failed', details: error.message }, { status: 500 });

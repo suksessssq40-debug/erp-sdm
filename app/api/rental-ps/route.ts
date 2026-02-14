@@ -156,7 +156,7 @@ export async function POST(request: Request) {
         const now = new Date(jkt.full); // Today in Jakarta as exact JS Date
 
         // 1. Generate Invoice Number (Sequential within month/year in Jakarta)
-        const startOfMonth = new Date(`${jkt.parts.yyyy}-${jkt.parts.mm}-01T00:00:00+07:00`);
+        const startOfMonth = new Date(`${jkt.parts.yyyy}-${jkt.parts.mm}-01T00:00:00Z`);
         const count = await prisma.rentalRecord.count({
             where: {
                 createdAt: { gte: startOfMonth }
