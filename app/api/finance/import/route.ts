@@ -1,4 +1,3 @@
-
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import ExcelJS from 'exceljs';
@@ -17,7 +16,6 @@ export async function POST(request: Request) {
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.load(buffer);
 
-        // Find the correct sheet
         let sheet = workbook.getWorksheet('Template Import') || workbook.getWorksheet('Sheet1') || workbook.getWorksheet(1);
         if (sheet && sheet.name.toLowerCase().includes('referensi')) {
             workbook.eachSheet((sh) => {
@@ -28,23 +26,22 @@ export async function POST(request: Request) {
 
         if (!sheet || sheet.actualRowCount <= 1) return NextResponse.json({ error: 'File kosong atau format salah.' }, { status: 400 });
 
-        // 1. LOAD MASTER DATA (For Validation)
         const [accounts, coas, units] = await Promise.all([
-            prisma.financialAccount.findMany({ where: { tenantId } }),
-            prisma.chartOfAccount.findMany({ where: { tenantId } }),
+            prisma.financialAccount.findMany({ where: { tenantId, isActive: true } }),
+            prisma.chartOfAccount.findMany({ where: { tenantId, isActive: true } }),
             prisma.businessUnit.findMany({ where: { tenantId, isActive: true } })
         ]);
 
         const accMap = new Map();
         const coaMap = new Map();
         const unitMap = new Map();
-
         const normalize = (s: any) => s ? s.toString().toLowerCase().trim().replace(/\s+/g, ' ') : '';
 
-        // Build mapping maps
         accounts.forEach(a => {
-            accMap.set(normalize(a.name), a);
-            accMap.set(normalize(a.bankName), a);
+            const n = normalize(a.name);
+            accMap.set(n, a);
+            const b = normalize(a.bankName);
+            if (b) accMap.set(b, a);
             accMap.set(normalize(`${a.bankName} - ${a.name}`), a);
         });
 
@@ -54,15 +51,12 @@ export async function POST(request: Request) {
             coaMap.set(normalize(`${c.code} - ${c.name}`), c);
         });
 
-        units.forEach(u => {
-            unitMap.set(normalize(u.name), u);
-        });
+        units.forEach(u => unitMap.set(normalize(u.name), u));
 
         const rowsToProcess: any[] = [];
         const errors: string[] = [];
         const datesFound: Date[] = [];
 
-        // 2. EXTRACTION & VALIDATION (STRICT)
         for (let i = 2; i <= sheet.rowCount; i++) {
             const row = sheet.getRow(i);
             const dateCell = row.getCell(1).value;
@@ -71,21 +65,17 @@ export async function POST(request: Request) {
             const creditCell = row.getCell(4).value;
             const amountCell = row.getCell(5).value;
             const unitCell = row.getCell(6).value;
-            // Status cell is optional as we have description-based logic, but we can capture it
-            // const statusCell = row.getCell(7).value;
 
-            if (!dateCell && !descCell && !amountCell) continue; // Skip empty rows
+            if (!dateCell && !descCell && !amountCell) continue;
 
-            // PARSE DATE
             let finalDate = new Date();
             if (dateCell instanceof Date) finalDate = dateCell;
             else if (dateCell) {
                 const p = new Date(dateCell.toString());
                 if (!isNaN(p.getTime())) finalDate = p;
                 else { errors.push(`Brs ${i}: Tanggal '${dateCell}' tidak valid.`); continue; }
-            } else { errors.push(`Brs ${i}: Tanggal wajib diisi.`); continue; }
+            } else { errors.push(`Brs ${i}: Tanggal wajib.`); continue; }
 
-            // PARSE NOMINAL
             const amount = (() => {
                 if (typeof amountCell === 'number') return amountCell;
                 if (!amountCell) return 0;
@@ -94,133 +84,85 @@ export async function POST(request: Request) {
             })();
             if (!amount || amount <= 0) { errors.push(`Brs ${i}: Nominal '${amountCell}' tidak valid.`); continue; }
 
-            // MAPPING UNIT (STRICT)
-            const unitData = unitMap.get(normalize(unitCell));
-            if (!unitData) {
-                errors.push(`Brs ${i}: Unit Bisnis '${unitCell}' tidak terdaftar atau tidak aktif.`);
+            const unitData = unitMap.get(normalize(unitCell)) || units[0]; // fallback to first unit if none
+            if (!unitData) { errors.push(`Brs ${i}: Unit '${unitCell}' tidak valid.`); continue; }
+
+            if (!debitCell || !creditCell) {
+                errors.push(`Brs ${i}: Akun Debet dan Kredit wajib diisi.`);
                 continue;
             }
 
-            // MAPPING ACCOUNTS (STRICT)
-            const dStr = normalize(debitCell);
-            const cStr = normalize(creditCell);
+            const dBank = accMap.get(normalize(debitCell));
+            const cBank = accMap.get(normalize(creditCell));
+            const dCoa = coaMap.get(normalize(debitCell));
+            const cCoa = coaMap.get(normalize(creditCell));
 
-            const dBank = accMap.get(dStr);
-            const cBank = accMap.get(cStr);
-            const dCoa = coaMap.get(dStr);
-            const cCoa = coaMap.get(cStr);
+            if (!dBank && !dCoa) { errors.push(`Brs ${i}: Akun Debet '${debitCell.toString()}' tidak ditemukan.`); continue; }
+            if (!cBank && !cCoa) { errors.push(`Brs ${i}: Akun Kredit '${creditCell.toString()}' tidak ditemukan.`); continue; }
 
-            let type: 'IN' | 'OUT' | null = null;
-            let accountId: string | null = null;
-            let coaId: string | null = null;
-            let accountName = '';
-            let categoryName = '';
+            // Double Entry Universal Logic (Same as Manual Input)
+            let type: 'IN' | 'OUT' = 'IN';
+            let financialAccountId = null;
+            let finalAccountLabel = debitCell.toString();
+            let finalCategoryLabel = creditCell.toString();
 
-            // CASE A: Bank (Debit) - Income dari COA (Credit) => IN
-            if (dBank && cCoa) {
-                type = 'IN';
-                accountId = dBank.id;
-                accountName = dBank.name;
-                coaId = cCoa.id;
-                categoryName = `${cCoa.code} - ${cCoa.name}`;
-            }
-            // CASE B: COA (Debit) - Pengeluaran dari Bank (Credit) => OUT
-            else if (dCoa && cBank) {
-                type = 'OUT';
-                accountId = cBank.id;
-                accountName = cBank.name;
-                coaId = dCoa.id;
-                categoryName = `${dCoa.code} - ${dCoa.name}`;
-            }
-            // CASE C: COA (Debit) - COA (Credit) => General Journal (IN representation)
-            else if (dCoa && cCoa) {
-                type = 'IN';
-                accountId = null;
-                accountName = `${dCoa.code} - ${dCoa.name}`; // Debit Side stored here for GJ
-                coaId = cCoa.id;
-                categoryName = `${cCoa.code} - ${cCoa.name}`;
-            }
-            // CASE D: Bank (Debit) - Bank (Credit) => Internal Transfer
-            else if (dBank && cBank) {
-                // We'll treat as OUT from Credit bank for balance logic, 
-                // but ideally this is handled as special Case. 
-                // For now, let's treat as separate Mutasi if needed or block it.
-                // Let's allow but treat as OUT from Source.
-                type = 'OUT';
-                accountId = cBank.id;
-                accountName = cBank.name;
-                categoryName = `Transfer ke ${dBank.name}`;
-                // Note: Does not update target bank automatically here to prevent double counting 
-                // unless we create 2 transactions.
+            if (dBank || cBank) {
+                const bank = dBank || cBank;
+                financialAccountId = bank?.id;
+                // Consistency with UI: Bank name in 'account' field
+                if (dBank && !cBank) {
+                    type = 'IN';
+                    finalAccountLabel = dBank.name;
+                    finalCategoryLabel = creditCell.toString();
+                } else if (cBank && !dBank) {
+                    type = 'OUT';
+                    finalAccountLabel = cBank.name;
+                    finalCategoryLabel = debitCell.toString();
+                } else {
+                    // Transfer
+                    type = 'OUT';
+                    finalAccountLabel = cBank.name;
+                    finalCategoryLabel = dBank.name;
+                }
             } else {
-                errors.push(`Brs ${i}: Akun '${debitCell}' atau '${creditCell}' tidak ditemukan/tidak valid.`);
-                continue;
+                // General Journal
+                if (dCoa?.type === 'EXPENSE') type = 'OUT';
+                else if (cCoa?.type === 'REVENUE' || cCoa?.type === 'INCOME') type = 'IN';
+                else type = 'IN';
+
+                finalAccountLabel = debitCell.toString();
+                finalCategoryLabel = creditCell.toString();
             }
 
-            // STATUS DETECTION
-            const sNorm = normalize(descCell);
-            let finalStatus = 'PAID';
-            if (sNorm.includes('pelunasan')) finalStatus = 'PAID';
-            else if (sNorm.includes('dp') || sNorm.includes('down payment')) finalStatus = 'UNPAID';
+            const coaId = (cCoa?.type === 'REVENUE' || cCoa?.type === 'EXPENSE')
+                ? cCoa.id
+                : (dCoa?.type === 'REVENUE' || dCoa?.type === 'EXPENSE')
+                    ? dCoa.id
+                    : cCoa?.id || dCoa?.id || null;
 
             datesFound.push(finalDate);
             rowsToProcess.push({
                 date: finalDate,
                 amount,
                 type,
-                desc: descCell?.toString() || `Import Excel Brs ${i}`,
-                accountId,
+                description: descCell?.toString() || `Import Jurnal Brs ${i}`,
+                bankDebitId: dBank?.id,
+                bankCreditId: cBank?.id,
+                financialAccountId, // Main bank link for transaction record
                 coaId,
                 businessUnitId: unitData.id,
-                status: finalStatus,
-                account: accountName,
-                category: categoryName || 'Import'
+                account: finalAccountLabel,
+                category: finalCategoryLabel,
+                status: 'PAID'
             });
         }
 
-        if (rowsToProcess.length === 0) {
-            return NextResponse.json({
-                error: 'Tidak ada data valid yang bisa diproses.',
-                details: errors
-            }, { status: 400 });
-        }
-
-        // 3. DUPLICATE CHECK (Same Day, Same Amount, Same Desc, Same Account)
-        const minDate = new Date(Math.min(...datesFound.map(d => d.getTime())));
-        const maxDate = new Date(Math.max(...datesFound.map(d => d.getTime())));
-
-        const existingTransactions = await prisma.transaction.findMany({
-            where: {
-                tenantId,
-                date: { gte: minDate, lte: maxDate }
-            },
-            select: { date: true, amount: true, description: true, account: true, accountId: true }
-        });
-
-        const batchId = `BATCH_${Date.now()}`;
-        const validRowsToInsert: any[] = [];
-
-        for (const row of rowsToProcess) {
-            const isDuplicate = existingTransactions.some(t => {
-                const sameDate = t.date?.toISOString().split('T')[0] === row.date.toISOString().split('T')[0];
-                const sameAmount = Number(t.amount) === row.amount;
-                const sameDesc = t.description === row.desc;
-                const sameAcc = t.accountId === row.accountId || t.account === row.account;
-                return sameDate && sameAmount && sameDesc && sameAcc;
-            });
-
-            if (isDuplicate) {
-                errors.push(`Skip Duplikat: '${row.desc}' (${row.amount}) sudah ada.`);
-                continue;
-            }
-            validRowsToInsert.push(row);
-        }
-
-        // 4. ATOMIC EXECUTION
+        const batchId = `IMP_${Date.now()}`;
         let importedCount = 0;
-        if (validRowsToInsert.length > 0) {
+
+        if (rowsToProcess.length > 0) {
             await prisma.$transaction(async (tx) => {
-                for (const row of validRowsToInsert) {
+                for (const row of rowsToProcess) {
                     const uniqueId = `IMP_${batchId}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 
                     await (tx as any).transaction.create({
@@ -230,28 +172,34 @@ export async function POST(request: Request) {
                             date: row.date,
                             amount: row.amount,
                             type: row.type,
-                            description: row.desc,
-                            accountId: row.accountId,
+                            description: row.description,
+                            accountId: row.financialAccountId,
                             coaId: row.coaId,
                             businessUnitId: row.businessUnitId,
                             account: row.account,
-                            status: row.status,
                             category: row.category,
+                            status: row.status,
                             createdAt: new Date()
                         }
                     });
 
-                    // Update Balance immediately if accountId exists
-                    if (row.accountId) {
-                        const change = row.type === 'IN' ? row.amount : -row.amount;
+                    // Update Balance for DEBIT bank (+)
+                    if (row.bankDebitId) {
                         await (tx as any).financialAccount.update({
-                            where: { id: row.accountId },
-                            data: { balance: { increment: change } }
+                            where: { id: row.bankDebitId },
+                            data: { balance: { increment: row.amount } }
+                        });
+                    }
+                    // Update Balance for CREDIT bank (-)
+                    if (row.bankCreditId) {
+                        await (tx as any).financialAccount.update({
+                            where: { id: row.bankCreditId },
+                            data: { balance: { decrement: row.amount } }
                         });
                     }
                     importedCount++;
                 }
-            }, { timeout: 60000 }); // Longer timeout for large batches
+            }, { timeout: 60000 });
         }
 
         return NextResponse.json({
@@ -259,13 +207,11 @@ export async function POST(request: Request) {
             processed: importedCount,
             batchId,
             errors,
-            message: importedCount > 0
-                ? `Berhasil mengimport ${importedCount} transaksi.`
-                : `Import selesai, tapi tidak ada transaksi baru yang ditambahkan.`
+            message: `Berhasil mengimport ${importedCount} jurnal.`
         });
 
     } catch (error: any) {
-        console.error('CRITICAL IMPORT ERROR:', error);
-        return NextResponse.json({ error: error.message || 'Terjadi kesalahan sistem.' }, { status: 500 });
+        console.error('CRITICAL_IMPORT_ERROR:', error);
+        return NextResponse.json({ error: error.message || 'Gagal memproses file.' }, { status: 500 });
     }
 }

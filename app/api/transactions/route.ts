@@ -36,7 +36,10 @@ export async function GET(request: Request) {
       if (accountName === 'GENERAL_JOURNAL') {
         whereClause.accountId = null;
       } else {
-        whereClause.account = { equals: accountName, mode: 'insensitive' };
+        whereClause.OR = [
+          { account: { equals: accountName, mode: 'insensitive' } },
+          { category: { equals: accountName, mode: 'insensitive' } }
+        ];
       }
     }
     if (search) {
@@ -62,8 +65,6 @@ export async function GET(request: Request) {
     const safeTransactions = transactions.map((t: any) => ({
       ...t,
       amount: Number(t.amount || 0),
-      // Ensure category matches the COA if possible for display consistency
-      category: t.coa ? `${t.coa.code} - ${t.coa.name}` : (t.category || t.account),
       coa: t.coa ? {
         ...t.coa,
         createdAt: t.coa.createdAt ? t.coa.createdAt.toString() : null
@@ -92,54 +93,70 @@ export async function POST(request: Request) {
     const body = await request.json();
 
     const {
-      date, amount, description, account, category, coaId: providedCoaId,
-      isNonCash, businessUnitId, imageUrl
+      date, amount, description, account, category,
+      businessUnitId, imageUrl, contactName
     } = body;
 
-    const providedType = body.type || 'IN';
+    const valAmount = parseFloat(amount || 0);
+    const debitName = account;
+    const creditName = category;
 
-    // 1. Resolve sides based on provided type for Cash vs General
-    // For Cash mode, 'account' typically carries the Bank name (for compatibility)
-    let debitSideName = account;
-    let creditSideName = category;
-
-    if (!isNonCash && providedType === 'OUT') {
-      // Swap for 'OUT' so 'account' (Bank) is correctly identified as the Credit side
-      debitSideName = category;
-      creditSideName = account;
-    }
-
-    const [coaDebit, coaCredit] = await Promise.all([
-      prisma.chartOfAccount.findFirst({ where: { tenantId, OR: [{ name: debitSideName }, { code: debitSideName.split(' - ')[0] }] } }),
-      prisma.chartOfAccount.findFirst({ where: { tenantId, OR: [{ name: creditSideName }, { code: creditSideName.split(' - ')[0] }] } })
+    // 1. Audit both sides to identify Banks vs COAs
+    const [bankDebit, bankCredit, coaDebit, coaCredit] = await Promise.all([
+      prisma.financialAccount.findFirst({ where: { tenantId, name: debitName, isActive: true } }),
+      prisma.financialAccount.findFirst({ where: { tenantId, name: creditName, isActive: true } }),
+      prisma.chartOfAccount.findFirst({ where: { tenantId, OR: [{ name: debitName }, { code: debitName.split(' - ')[0] }] } }),
+      prisma.chartOfAccount.findFirst({ where: { tenantId, OR: [{ name: creditName }, { code: creditName.split(' - ')[0] }] } })
     ]);
 
     const result = await prisma.$transaction(async (tx) => {
-      let finalType = providedType;
+      let finalType: 'IN' | 'OUT' = 'IN';
       let financialAccountId = null;
-      let finalCoaId = providedCoaId;
+      let finalAccountLabel = debitName;
+      let finalCategoryLabel = creditName;
 
-      // Logic: CASH/BANK (Involves a real bank account)
-      if (!isNonCash) {
-        // In CASH mode, 'account' field in request always identifies the Bank for SDM ERP
-        const bankAcc = await tx.financialAccount.findFirst({ where: { tenantId, name: account } });
-        if (!bankAcc) throw new Error(`Akun Bank/Kas '${account}' tidak ditemukan.`);
+      // RULE 1: If it's a Cash Transaction (Bank is involved)
+      // To maintain compatibility with the UI's swapping logic:
+      // We ALWAYS store the Bank Name in the 'account' field for cash transactions.
+      if (bankDebit || bankCredit) {
+        const bank = bankDebit || bankCredit;
+        financialAccountId = bank?.id;
 
-        financialAccountId = bankAcc.id;
-        finalType = providedType;
-        // Link coaId to the side that ISN'T the bank
-        finalCoaId = providedType === 'IN' ? coaCredit?.id : coaDebit?.id;
+        if (bankDebit && !bankCredit) {
+          finalType = 'IN'; // Money entering bank (Bank is Debit)
+          finalAccountLabel = bankDebit.name;
+          finalCategoryLabel = creditName;
+        } else if (bankCredit && !bankDebit) {
+          finalType = 'OUT'; // Money leaving bank (Bank is Credit)
+          finalAccountLabel = bankCredit.name;
+          finalCategoryLabel = debitName;
+        } else if (bankDebit && bankCredit) {
+          // Internal Transfer
+          finalType = 'OUT'; // We treat it as OUT from the 'Credit' side bank
+          finalAccountLabel = bankCredit.name;
+          finalCategoryLabel = bankDebit.name;
+        }
       }
-      // Logic: GENERAL JOURNAL (Between COAs)
+      // RULE 2: General Journal (No Bank)
       else {
-        // Determine type based on P&L impact (Expense on Debit = OUT, Revenue on Credit = IN)
+        // Determine type based on P&L impact for Reporting
         if (coaDebit?.type === 'EXPENSE') finalType = 'OUT';
         else if (coaCredit?.type === 'REVENUE' || coaCredit?.type === 'INCOME') finalType = 'IN';
 
-        finalCoaId = (coaCredit?.type === 'REVENUE' || coaCredit?.type === 'EXPENSE')
-          ? coaCredit.id
-          : coaDebit?.id || coaCredit?.id || null;
+        // For General Journal, we use IN to avoid UI swapping, and keep labels as is
+        // Wait, if I use 'IN', UI shows Debit=Account, Credit=Category. Correct.
+        finalType = 'IN';
+        finalAccountLabel = debitName;
+        finalCategoryLabel = creditName;
       }
+
+      // Linking coaId (mostly for P&L reporting)
+      // Prioritize P&L side (Revenue/Expense)
+      const finalCoaId = (coaCredit?.type === 'REVENUE' || coaCredit?.type === 'EXPENSE')
+        ? coaCredit.id
+        : (coaDebit?.type === 'REVENUE' || coaDebit?.type === 'EXPENSE')
+          ? coaDebit.id
+          : coaCredit?.id || coaDebit?.id || null;
 
       const transactionId = `TRX_${Date.now()}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 
@@ -148,25 +165,31 @@ export async function POST(request: Request) {
           id: transactionId,
           tenantId,
           date: new Date(date),
-          amount: parseFloat(amount),
+          amount: valAmount,
           type: finalType,
-          account: debitSideName,
-          category: creditSideName,
+          account: finalAccountLabel,
+          category: finalCategoryLabel,
           description,
           accountId: financialAccountId,
           coaId: finalCoaId,
           businessUnitId,
           imageUrl,
+          contactName,
           status: 'PAID'
         }
       });
 
-      // Atomic Balance Update
-      if (financialAccountId) {
-        const change = finalType === 'IN' ? parseFloat(amount) : -parseFloat(amount);
+      // Atomic Balance Updates
+      if (bankDebit) {
         await (tx as any).financialAccount.update({
-          where: { id: financialAccountId },
-          data: { balance: { increment: change } }
+          where: { id: bankDebit.id },
+          data: { balance: { increment: valAmount } }
+        });
+      }
+      if (bankCredit) {
+        await (tx as any).financialAccount.update({
+          where: { id: bankCredit.id },
+          data: { balance: { decrement: valAmount } }
         });
       }
 
@@ -175,7 +198,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result, { status: 201 });
   } catch (error: any) {
-    console.error('TRX_CREATE_ERROR:', error);
+    console.error('UNIVERSAL_TRX_ERROR:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
