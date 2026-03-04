@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, X, FileSpreadsheet, AlertCircle, CheckCircle, Download } from 'lucide-react';
+import { Upload, X, FileSpreadsheet, AlertCircle, FileText, Download } from 'lucide-react';
 import { useToast } from '../Toast';
 
 interface ImportModalProps {
@@ -23,7 +23,7 @@ export const ImportTransactionModal: React.FC<ImportModalProps> = ({ isOpen, onC
 
     const handleUndo = async () => {
         if (!report?.batchId) return;
-        if (!confirm("Apakah Anda yakin ingin membatalkan import terakhir ini? Saldo akan dikembalikan otomatis.")) return;
+        if (!confirm("Apakah Anda yakin ingin membatalkan import terakhir ini? Saldo akun akan dikembalikan otomatis ke posisi semula.")) return;
 
         setIsProcessing(true);
         try {
@@ -43,7 +43,7 @@ export const ImportTransactionModal: React.FC<ImportModalProps> = ({ isOpen, onC
                 toast.error(data.error);
             }
         } catch (e) {
-            toast.error("Gagal melakukan Undo");
+            toast.error("Gagal membatalkan import.");
         } finally {
             setIsProcessing(false);
         }
@@ -51,13 +51,11 @@ export const ImportTransactionModal: React.FC<ImportModalProps> = ({ isOpen, onC
 
     const handleUpload = async () => {
         if (!file) return;
-
         setIsProcessing(true);
         setReport(null);
 
         const formData = new FormData();
         formData.append('file', file);
-
         const token = typeof window !== 'undefined' ? localStorage.getItem('sdm_erp_auth_token') : '';
 
         if (!token) {
@@ -69,9 +67,7 @@ export const ImportTransactionModal: React.FC<ImportModalProps> = ({ isOpen, onC
         try {
             const res = await fetch('/api/finance/import', {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                },
+                headers: { 'Authorization': `Bearer ${token}` },
                 body: formData,
             });
             const data = await res.json();
@@ -79,17 +75,17 @@ export const ImportTransactionModal: React.FC<ImportModalProps> = ({ isOpen, onC
             if (res.ok) {
                 setReport({ processed: data.processed, errors: data.errors || [], batchId: data.batchId });
                 if (data.processed > 0) {
-                    toast.success(`Berhasil mengimport ${data.processed} transaksi!`);
+                    toast.success(`Berhasil mengimport ${data.processed} jurnal!`);
                     onSuccess();
                 } else {
-                    toast.warning("File diproses tapi tidak ada transaksi baru.");
+                    toast.warning("File diproses tapi tidak ada data baru.");
                 }
             } else {
                 toast.error(data.error || 'Gagal import');
                 setReport(null);
             }
         } catch (err) {
-            toast.error('Terjadi kesalahan koneksi');
+            toast.error('Gagal menghubungi server');
             setReport(null);
         } finally {
             setIsProcessing(false);
@@ -99,141 +95,132 @@ export const ImportTransactionModal: React.FC<ImportModalProps> = ({ isOpen, onC
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4 animate-in fade-in">
-            <div className="bg-white rounded-[2rem] w-full max-w-2xl p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar">
-                <button onClick={onClose} className="absolute top-6 right-6 p-2 bg-slate-100 rounded-full hover:bg-slate-200 transition">
-                    <X size={20} className="text-slate-500" />
-                </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4 animate-in fade-in duration-300">
+            <div className="bg-white rounded-[3.5rem] w-full max-w-2xl p-10 shadow-2xl border border-white/20 animate-in zoom-in duration-500 overflow-y-auto max-h-[90vh] custom-scrollbar">
 
-                <div className="mb-6">
+                <div className="flex justify-between items-center mb-10">
                     <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center">
-                            <FileSpreadsheet size={24} />
-                        </div>
+                        <div className="w-14 h-14 bg-blue-600 text-white rounded-[1.5rem] flex items-center justify-center shadow-lg shadow-blue-100 italic font-black text-2xl">Ex</div>
                         <div>
-                            <h3 className="text-xl font-bold text-slate-800">
-                                Import Transaksi Excel
-                            </h3>
-                            <div className="mt-1 flex gap-2">
-                                <button
-                                    onClick={async () => {
-                                        try {
-                                            const token = localStorage.getItem('sdm_erp_auth_token') || '';
-                                            if (!token) {
-                                                toast.error("Sesi habis. Silakan login ulang.");
-                                                return;
-                                            }
-                                            const res = await fetch('/api/finance/import/template', {
-                                                headers: { 'Authorization': `Bearer ${token}` }
-                                            });
-                                            if (!res.ok) throw new Error("Gagal download template");
-                                            const blob = await res.blob();
-                                            const url = window.URL.createObjectURL(blob);
-                                            const a = document.createElement('a');
-                                            a.href = url;
-                                            a.download = 'Template_ArusKas_SDM_ERP.xlsx';
-                                            document.body.appendChild(a);
-                                            a.click();
-                                            window.URL.revokeObjectURL(url);
-                                        } catch (e) {
-                                            toast.error("Gagal mendownload template.");
-                                        }
-                                    }}
-                                    className="text-[10px] bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg border border-blue-200 font-bold hover:bg-blue-100 transition flex items-center gap-1"
-                                >
-                                    <Download size={12} /> DOWNLOAD TEMPLATE
-                                </button>
-                            </div>
+                            <h3 className="text-2xl font-black text-slate-800 italic uppercase tracking-tighter">Import Jurnal</h3>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Universal Transaction Importer (Excel)</p>
                         </div>
                     </div>
+                    <button onClick={onClose} className="w-12 h-12 bg-slate-100 rounded-2xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition flex items-center justify-center font-bold">✕</button>
                 </div>
 
-                {/* GUIDANCE SECTION */}
                 {!report && (
-                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-xs text-slate-600 mb-6 space-y-2">
-                        <p className="font-bold text-slate-800 border-b border-slate-200 pb-1 mb-2">PANDUAN PENGISIAN:</p>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="p-2 bg-white rounded-lg border border-slate-100 shadow-sm">
-                                <p className="font-black text-emerald-600 flex items-center gap-1 mb-1">💰 UANG MASUK (IN)</p>
-                                <ul className="list-disc pl-4 space-y-0.5 text-[10px]">
-                                    <li>Kolom <b>AKUN DEBET</b> = Nama Bank (Misal: <i>Bank BCA</i>)</li>
-                                    <li>Kolom <b>AKUN KREDIT</b> = Akun Lawan (Misal: <i>Penjualan</i>)</li>
-                                </ul>
+                    <>
+                        <div className="bg-blue-50/50 p-6 rounded-[2.5rem] border border-blue-100 mb-8">
+                            <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                                <FileText size={14} /> PANDUAN DEBET & KREDIT (LOGIKA EXCEL):
+                            </h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="bg-white p-4 rounded-2xl border border-blue-50">
+                                    <p className="text-[9px] font-black text-emerald-600 mb-2 uppercase italic">• UANG MASUK (IN)</p>
+                                    <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
+                                        Kolom <b>DEBET</b> = Nama Bank (BCA)<br />
+                                        Kolom <b>KREDIT</b> = Akun Pendapatan
+                                    </p>
+                                </div>
+                                <div className="bg-white p-4 rounded-2xl border border-blue-50">
+                                    <p className="text-[9px] font-black text-rose-600 mb-2 uppercase italic">• UANG KELUAR (OUT)</p>
+                                    <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
+                                        Kolom <b>DEBET</b> = Akun Biaya/Beban<br />
+                                        Kolom <b>KREDIT</b> = Nama Bank (BCA)
+                                    </p>
+                                </div>
                             </div>
-                            <div className="p-2 bg-white rounded-lg border border-slate-100 shadow-sm">
-                                <p className="font-black text-rose-600 flex items-center gap-1 mb-1">💸 UANG KELUAR (OUT)</p>
-                                <ul className="list-disc pl-4 space-y-0.5 text-[10px]">
-                                    <li>Kolom <b>AKUN KREDIT</b> = Nama Bank (Misal: <i>Bank BCA</i>)</li>
-                                    <li>Kolom <b>AKUN DEBET</b> = Akun Lawan (Misal: <i>Beban Listrik</i>)</li>
-                                </ul>
-                            </div>
+                            <button
+                                onClick={async () => {
+                                    try {
+                                        const token = localStorage.getItem('sdm_erp_auth_token') || '';
+                                        const res = await fetch('/api/finance/import/template', { headers: { 'Authorization': `Bearer ${token}` } });
+                                        if (!res.ok) throw new Error();
+                                        const blob = await res.blob();
+                                        const url = window.URL.createObjectURL(blob);
+                                        const a = document.createElement('a');
+                                        a.href = url;
+                                        a.download = 'Template_Jurnal_SDM_ERP.xlsx';
+                                        a.click();
+                                    } catch (e) { toast.error("Gagal download template"); }
+                                }}
+                                className="w-full mt-4 py-3.5 bg-white border border-blue-100 text-blue-600 rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-blue-600 hover:text-white transition flex items-center justify-center gap-2 group"
+                            >
+                                <Download size={14} className="group-hover:-translate-y-1 transition-transform" /> DOWNLOAD TEMPLATE EXCEL TERBARU
+                            </button>
                         </div>
-                    </div>
+
+                        <div className="space-y-6">
+                            <label className="w-full h-40 border-4 border-dashed border-slate-100 rounded-[3rem] flex flex-col items-center justify-center cursor-pointer hover:border-blue-200 hover:bg-blue-50/30 transition-all group">
+                                <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleFileChange} />
+                                {file ? (
+                                    <div className="text-center animate-in zoom-in">
+                                        <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                                            <FileSpreadsheet size={24} />
+                                        </div>
+                                        <span className="text-sm font-black text-slate-700 block max-w-[200px] truncate mx-auto">{file.name}</span>
+                                        <p className="text-[9px] font-black text-slate-400 mt-1 uppercase tracking-widest">{(file.size / 1024).toFixed(1)} KB READY</p>
+                                    </div>
+                                ) : (
+                                    <div className="text-center group-hover:scale-105 transition-transform">
+                                        <Upload className="w-10 h-10 text-slate-200 group-hover:text-blue-500 mx-auto mb-3 transition-colors" />
+                                        <span className="text-[10px] font-black text-slate-400 group-hover:text-blue-600 uppercase tracking-widest">Klik atau Taruh File Excel Disini</span>
+                                    </div>
+                                )}
+                            </label>
+
+                            <button
+                                onClick={handleUpload}
+                                disabled={!file || isProcessing}
+                                className="w-full py-5 bg-slate-900 text-white rounded-[2rem] font-black uppercase text-[11px] tracking-[0.3em] hover:bg-blue-600 transition disabled:opacity-30 shadow-2xl shadow-blue-900/10 flex items-center justify-center gap-3"
+                            >
+                                {isProcessing ? 'SEDANG MEMPROSES...' : 'MULAI IMPORT JURNAL'}
+                            </button>
+                        </div>
+                    </>
                 )}
 
-                {/* UPLOAD & RESULT */}
-                {!report ? (
-                    <div className="space-y-6">
-                        <label className="w-full h-32 border-4 border-dashed border-slate-100 rounded-3xl flex flex-col items-center justify-center cursor-pointer hover:border-emerald-200 hover:bg-emerald-50 transition group">
-                            <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleFileChange} />
-                            {file ? (
-                                <div className="text-center">
-                                    <FileSpreadsheet className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
-                                    <span className="text-sm font-bold text-slate-700">{file.name}</span>
-                                    <p className="text-[10px] text-slate-400 mt-1">{(file.size / 1024).toFixed(1)} KB</p>
+                {report && (
+                    <div className="space-y-8 animate-in zoom-in duration-500">
+                        <div className="bg-slate-50 rounded-[2.5rem] p-10 text-center border border-slate-100 relative overflow-hidden">
+                            <div className="absolute top-0 right-0 p-6 opacity-5"><FileSpreadsheet size={80} /></div>
+                            <h4 className="text-xl font-black text-slate-800 uppercase italic mb-8">Hasil Import Jurnal</h4>
+                            <div className="flex justify-center gap-6">
+                                <div className="bg-white px-8 py-6 rounded-[2rem] shadow-xl border border-emerald-50 relative group">
+                                    <span className="block text-4xl font-black text-emerald-500 tabular-nums">{report.processed}</span>
+                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Berhasil</span>
                                 </div>
-                            ) : (
-                                <div className="text-center">
-                                    <Upload className="w-8 h-8 text-slate-300 group-hover:text-emerald-500 mx-auto mb-2 transition" />
-                                    <span className="text-xs font-bold text-slate-400 group-hover:text-emerald-600">Klik untuk Pilih File Excel</span>
-                                </div>
-                            )}
-                        </label>
-
-                        <button
-                            onClick={handleUpload}
-                            disabled={!file || isProcessing}
-                            className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-emerald-200"
-                        >
-                            {isProcessing ? 'SEDANG MEMPROSES...' : 'PROSES DATA IMPORT'}
-                        </button>
-                    </div>
-                ) : (
-                    <div className="space-y-6 animate-in zoom-in">
-                        <div className="bg-slate-50 rounded-2xl p-6 text-center border border-slate-100">
-                            <p className="text-lg font-black text-slate-700 mb-1">Hasil Import</p>
-                            <div className="flex justify-center gap-4 mt-4">
-                                <div className="bg-white px-4 py-3 rounded-xl shadow-sm border border-slate-200">
-                                    <span className="block text-2xl font-black text-emerald-500">{report.processed}</span>
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Sukses</span>
-                                </div>
-                                <div className="bg-white px-4 py-3 rounded-xl shadow-sm border border-slate-200">
-                                    <span className="block text-2xl font-black text-rose-500">{report.errors.length}</span>
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Gagal/Skip</span>
+                                <div className="bg-white px-8 py-6 rounded-[2rem] shadow-xl border border-rose-50">
+                                    <span className="block text-4xl font-black text-rose-500 tabular-nums">{report.errors.length}</span>
+                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Gagal/Skip</span>
                                 </div>
                             </div>
                         </div>
 
                         {report.errors.length > 0 && (
-                            <div className="max-h-40 overflow-y-auto bg-rose-50 rounded-xl p-4 border border-rose-100 custom-scrollbar">
-                                <p className="text-[10px] font-bold text-rose-700 mb-2 flex items-center gap-2"><AlertCircle size={12} /> Detail:</p>
-                                <ul className="space-y-1">
+                            <div className="max-h-56 overflow-y-auto bg-rose-50/50 rounded-[2rem] p-8 border border-rose-100 custom-scrollbar">
+                                <p className="text-[10px] font-black text-rose-700 mb-4 flex items-center gap-2 uppercase tracking-widest"><AlertCircle size={14} /> Problem Log:</p>
+                                <ul className="space-y-2">
                                     {report.errors.map((err, idx) => (
-                                        <li key={idx} className="text-[10px] text-rose-600 font-medium font-mono">• {err}</li>
+                                        <li key={idx} className="text-[10px] text-rose-600 font-bold leading-relaxed flex gap-3">
+                                            <span className="flex-shrink-0 w-5 h-5 bg-white rounded-lg flex items-center justify-center text-[8px] border border-rose-100 shadow-sm">{idx + 1}</span>
+                                            {err}
+                                        </li>
                                     ))}
                                 </ul>
                             </div>
                         )}
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-2 gap-6 pb-4">
                             <button
                                 onClick={handleUndo}
                                 disabled={isProcessing || report.processed === 0}
-                                className="py-4 bg-rose-100 text-rose-600 rounded-2xl font-bold uppercase text-[10px] tracking-widest hover:bg-rose-200 transition disabled:opacity-30 flex items-center justify-center gap-2"
+                                className="py-5 bg-rose-50 text-rose-600 rounded-[2rem] font-black uppercase text-[10px] tracking-[0.2em] hover:bg-rose-100 transition disabled:opacity-30 flex items-center justify-center gap-3 border border-rose-100"
                             >
-                                {isProcessing ? '...' : <><AlertCircle size={14} /> Batalkan (Undo)</>}
+                                {isProcessing ? '...' : <><AlertCircle size={16} /> Undo Import</>}
                             </button>
-                            <button onClick={() => { setReport(null); setFile(null); onClose(); onSuccess(); }} className="py-4 bg-slate-900 text-white rounded-2xl font-bold uppercase text-[10px] tracking-widest hover:bg-slate-700 transition">
+                            <button onClick={() => { setReport(null); setFile(null); onClose(); onSuccess(); }} className="py-5 bg-slate-900 text-white rounded-[2rem] font-black uppercase text-[10px] tracking-[0.2em] hover:bg-blue-600 transition shadow-xl">
                                 Selesai
                             </button>
                         </div>

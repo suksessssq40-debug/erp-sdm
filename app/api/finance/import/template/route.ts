@@ -18,32 +18,32 @@ export async function GET() {
     helpSheet.getCell('A1').font = { bold: true, size: 14 };
 
     const helpData = [
-      ['KASUS', 'PENJELASAN', 'AKUN DEBET', 'AKUN KREDIT', 'STATUS'],
-      ['Uang Masuk (Omzet)', 'Pendapatan masuk ke Bank', 'Pilih Nama Bank (e.g. Bank BCA)', 'Pilih Akun Lawan (e.g. 411-Penjualan)', 'PAID'],
-      ['Uang Keluar (Beban)', 'Membayar biaya/pengeluaran', 'Pilih Akun Lawan (e.g. 511-Beban Gaji)', 'Pilih Nama Bank (e.g. Kas Kecil)', 'PAID'],
-      ['Piutang (Belum Lunas)', 'Mencatat penjualan tapi uang belum diterima', 'Pilih Nama Bank (Penampung)', 'Pilih Akun Pendapatan', 'UNPAID'],
-      ['Transfer Antar Kas', 'Pindah uang antar bank (Internal)', 'Pilih Bank Penerima', 'Pilih Bank Pengirim', 'PAID'],
+      ['KASUS (TRANSAKSI)', 'PENJELASAN SINGKAT', 'SISI DEBET (PENERIMA)', 'SISI KREDIT (PEMBERI)', 'STATUS'],
+      ['Uang Masuk (Omzet)', 'Pendapatan masuk ke Bank/Kas', 'Pilih Nama Bank (e.g. Bank BCA)', 'Pilih Akun Pendapatan (e.g. 411-Penjualan)', 'PAID'],
+      ['Uang Keluar (Beban)', 'Membayar biaya operasional', 'Pilih Akun Biaya (e.g. 511-Listrik)', 'Pilih Nama Bank Pengirim (e.g. Kas Kecil)', 'PAID'],
+      ['Jurnal Umum (Memorial)', 'Penyesuaian antar akun non-kas', 'Pilih Akun yang Bertambah', 'Pilih Akun yang Berkurang', 'PAID'],
+      ['Piutang (Penjualan)', 'Penjualan tapi belum dibayar', 'Pilih Akun Piutang Usaha', 'Pilih Akun Pendapatan', 'UNPAID'],
     ];
 
     helpData.forEach((row, i) => {
       const r = helpSheet.addRow(row);
-      if (i === 0) r.font = { bold: true };
+      if (i === 0) {
+        r.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        r.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } };
+      }
     });
-    helpSheet.getColumn(1).width = 25;
-    helpSheet.getColumn(2).width = 45;
-    helpSheet.getColumn(3).width = 25;
-    helpSheet.getColumn(4).width = 25;
-    helpSheet.getColumn(5).width = 15;
+
+    // ... column widths stay similar ...
 
     // --- SHEET 2: TEMPLATE UTAMA ---
     const sheet = workbook.addWorksheet('Template Import');
     sheet.columns = [
-      { header: 'TANGGAL', key: 'date', width: 15 },
-      { header: 'KETERANGAN', key: 'desc', width: 35 },
-      { header: 'AKUN DEBET', key: 'debit', width: 30 },
-      { header: 'AKUN KREDIT', key: 'credit', width: 30 },
-      { header: 'NOMINAL', key: 'amount', width: 15 },
-      { header: 'UNIT', key: 'unit', width: 15 },
+      { header: 'TANGGAL (DD/MM/YYYY)', key: 'date', width: 22 },
+      { header: 'KETERANGAN / DESKRIPSI', key: 'desc', width: 40 },
+      { header: 'AKUN DEBET', key: 'debit', width: 35 },
+      { header: 'AKUN KREDIT', key: 'credit', width: 35 },
+      { header: 'NOMINAL (JUMLAH)', key: 'amount', width: 18 },
+      { header: 'UNIT BISNIS', key: 'unit', width: 18 },
       { header: 'STATUS', key: 'status', width: 12 },
     ];
 

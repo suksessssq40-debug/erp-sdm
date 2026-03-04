@@ -341,18 +341,32 @@ const FinanceModule: React.FC<FinanceProps> = ({
       toast.success("Sedang mendownload laporan...");
 
     } else if (activeTab === 'MUTASI') {
-      const rows = filteredMutasi.map(t => [
-        new Date(t.date).toLocaleDateString('id-ID'),
-        t.account,
-        t.category,
-        t.description,
-        businessUnits.find(u => u.id === t.businessUnitId)?.name || '-',
-        t.type === 'IN' ? formatCurrency(t.amount) : '-',
-        t.type === 'OUT' ? formatCurrency(t.amount) : '-'
-      ]);
+      const rows = filteredMutasi.map(t => {
+        const isExpense = t.coa?.type === 'EXPENSE';
+        const isRevenue = t.coa?.type === 'REVENUE' || t.coa?.type === 'INCOME';
 
-      const title = `JURNAL TRANSAKSI`;
-      const columns = ['TANGGAL', 'AKUN', 'KATEGORI', 'DESKRIPSI', 'UNIT', 'PEMASUKAN', 'PENGELUARAN'];
+        // Determine what to show in the columns for the Journal View export
+        // In a true journal, we show the Debit and Credit amounts.
+        // If it's a cash transaction:
+        // IN: Debit = Bank(Account), Credit = Revenue(Category)
+        // OUT: Debit = Expense(Category), Credit = Bank(Account)
+
+        const dr = t.type === 'IN' ? t.amount : 0;
+        const cr = t.type === 'OUT' ? t.amount : 0;
+
+        return [
+          new Date(t.date).toLocaleDateString('id-ID'),
+          t.account || '-', // Debit Side Name
+          t.category || '-', // Credit Side Name/Category
+          t.description,
+          businessUnits.find(u => u.id === t.businessUnitId)?.name || 'Umum',
+          dr > 0 ? formatCurrency(dr) : '-',
+          cr > 0 ? formatCurrency(cr) : '-'
+        ];
+      });
+
+      const title = `JURNAL TRANSAKSI (UMUM & KAS)`;
+      const columns = ['TANGGAL', 'SISI DEBET', 'SISI KREDIT', 'DESKRIPSI', 'UNIT', 'JUMLAH DEBET', 'JUMLAH KREDIT'];
 
       if (type === 'pdf') {
         generateFinancePDF(title, `Periode: ${getPeriodLabel()}`, companyProfile, rows, columns);
@@ -603,9 +617,14 @@ const FinanceModule: React.FC<FinanceProps> = ({
             <button
               key={tab}
               onClick={() => setActiveTab(tab as any)}
-              className={`whitespace-nowrap pb-4 px-6 text-[11px] font-black uppercase tracking-widest transition-all ${activeTab === tab ? 'text-slate-900 border-b-4 border-slate-900' : 'text-slate-400 hover:text-slate-600'}`}
+              className={`px-8 py-5 text-[10px] font-black uppercase tracking-widest transition-all relative ${activeTab === tab ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
             >
-              {tab.replace('_', ' ')}
+              {tab === 'MUTASI' && 'Jurnal Umum'}
+              {tab === 'BUKU_BESAR' && 'Buku Besar'}
+              {tab === 'LAPORAN' && 'Laporan'}
+              {tab === 'DAFTAR_AKUN' && 'Daftar Akun'}
+              {tab === 'KBPOS' && 'Unit Bisnis'}
+              {activeTab === tab && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-600 rounded-full animate-in slide-in-from-bottom-2"></div>}
             </button>
           ))}
         </div>
@@ -733,11 +752,11 @@ const FinanceModule: React.FC<FinanceProps> = ({
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead>
-                <tr className="border-b border-slate-100 text-xs font-black text-slate-400 uppercase tracking-widest">
-                  <th className="pb-4 pl-4">KODE</th>
-                  <th className="pb-4">NAMA AKUN</th>
-                  <th className="pb-4">TIPE</th>
-                  <th className="pb-4 text-right">SALDO SAAT INI</th>
+                <tr className="border-b-2 border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                  <th className="pb-6 pl-6">KODE</th>
+                  <th className="pb-6">NAMA AKUN</th>
+                  <th className="pb-6">TIPE / POSISI</th>
+                  <th className="pb-6 text-right pr-6">SALDO BERJALAN</th>
                 </tr>
               </thead>
               <tbody className="text-sm">
@@ -750,20 +769,24 @@ const FinanceModule: React.FC<FinanceProps> = ({
                     return searchMatch && typeMatch;
                   })
                   .map((coa) => (
-                    <tr key={coa.id} className="border-b border-slate-50 hover:bg-slate-50 transition group">
-                      <td className="py-4 pl-4 font-mono font-bold text-slate-600">{coa.code}</td>
-                      <td className="py-4 font-bold text-slate-800 min-w-[200px]">
-                        {coa.name}
-                        {/* If system generated bank */}
-                        {(coa as any).isSystem && <span className="ml-2 text-[8px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded font-black uppercase">SYSTEM</span>}
+                    <tr key={coa.id} className="border-b border-slate-50 hover:bg-slate-50/80 transition-all group">
+                      <td className="py-6 pl-6 font-mono font-black text-slate-500 text-xs">{coa.code}</td>
+                      <td className="py-6">
+                        <div className="flex flex-col">
+                          <span className="font-black text-slate-800 tracking-tight">{coa.name}</span>
+                          {(coa as any).isSystem && <span className="text-[7px] text-blue-500 font-black uppercase mt-1 tracking-widest">REKENING TERHUBUNG</span>}
+                        </div>
                       </td>
-                      <td className="py-4">
-                        <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${['ASSET', 'EXPENSE'].includes(coa.type) ? 'bg-orange-50 text-orange-600' : 'bg-emerald-50 text-emerald-600'
-                          }`}>
-                          {coa.type}
-                        </span>
+                      <td className="py-6">
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${['ASSET', 'EXPENSE'].includes(coa.type) ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'
+                            }`}>
+                            {coa.type}
+                          </span>
+                          <span className="text-[9px] font-bold text-slate-400 uppercase">/ {coa.normalPos}</span>
+                        </div>
                       </td>
-                      <td className={`py-4 text-right font-black ${(coa as any).balance < 0 ? 'text-rose-500' : 'text-slate-700'}`}>
+                      <td className={`py-6 text-right pr-6 font-black tabular-nums transition-all ${(coa as any).balance < 0 ? 'text-rose-500' : 'text-slate-900 text-lg'}`}>
                         {(coa as any).balance !== undefined ? formatCurrency((coa as any).balance) : '-'}
                       </td>
                     </tr>

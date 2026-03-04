@@ -48,7 +48,6 @@ export async function GET(request: Request) {
       ];
     }
 
-    // Fetch transactions with pagination
     const [transactions, totalCount] = await Promise.all([
       prisma.transaction.findMany({
         where: whereClause,
@@ -60,26 +59,15 @@ export async function GET(request: Request) {
       prisma.transaction.count({ where: whereClause })
     ]);
 
-    // Map to safe format (Date to String)
     const safeTransactions = transactions.map((t: any) => ({
-      id: t.id,
-      date: t.date ? t.date.toISOString().split('T')[0] : '',
-      amount: Number(t.amount),
-      type: t.type,
-      category: t.coa ? `${t.coa.code} - ${t.coa.name}` : t.category,
-      description: t.description,
-      account: t.account,
-      businessUnitId: t.businessUnitId,
-      imageUrl: t.imageUrl,
-      tenantId: t.tenantId,
-      coaId: t.coaId,
+      ...t,
+      amount: Number(t.amount || 0),
+      // Ensure category matches the COA if possible for display consistency
+      category: t.coa ? `${t.coa.code} - ${t.coa.name}` : (t.category || t.account),
       coa: t.coa ? {
         ...t.coa,
         createdAt: t.coa.createdAt ? t.coa.createdAt.toString() : null
-      } : null,
-      contactName: t.contactName,
-      status: t.status,
-      dueDate: t.dueDate ? t.dueDate.toISOString().split('T')[0] : null
+      } : null
     }));
 
     return NextResponse.json({
@@ -101,128 +89,93 @@ export async function POST(request: Request) {
   try {
     const user = await authorize(['OWNER', 'FINANCE']);
     const { tenantId } = user;
-    const t = await request.json();
+    const body = await request.json();
 
-    // 1. Link Account by Name (Lookup ID) - MUST BE WITHIN SAME TENANT
-    let accountId: string | null = null;
-    let finalAccountName = t.account;
+    const {
+      date, amount, description, account, category, coaId: providedCoaId,
+      isNonCash, businessUnitId, imageUrl
+    } = body;
 
-    // Check if flagged as Non-Cash (General Journal) from Frontend
-    if (t.isNonCash) {
-      // Do NOT look up FinancialAccount. Keep accountId null.
-      // finalAccountName is just the COA string (e.g. "Debit Account")
-      accountId = null;
-    } else if (t.account) {
-      let acc = await prisma.financialAccount.findFirst({
-        where: {
-          tenantId,
-          name: { equals: t.account, mode: 'insensitive' }
-        }
-      });
+    const providedType = body.type || 'IN';
 
-      // AUTO-CREATE IF NOT EXISTS
-      if (!acc) {
-        console.log(`Auto-creating missing account: ${t.account}`);
-        acc = await prisma.financialAccount.create({
-          data: {
-            id: Math.random().toString(36).substr(2, 9),
-            tenantId,
-            name: t.account,
-            bankName: 'General / Tunai',
-            accountNumber: '-',
-            description: 'Dibuat otomatis dari input transaksi',
-            balance: 0,
-            isActive: true
-          }
-        });
-      }
+    // 1. Resolve sides based on provided type for Cash vs General
+    // For Cash mode, 'account' typically carries the Bank name (for compatibility)
+    let debitSideName = account;
+    let creditSideName = category;
 
-      if (acc) {
-        accountId = acc.id;
-        finalAccountName = acc.name;
-      }
+    if (!isNonCash && providedType === 'OUT') {
+      // Swap for 'OUT' so 'account' (Bank) is correctly identified as the Credit side
+      debitSideName = category;
+      creditSideName = account;
     }
 
-    // 2. Link or Auto-Create COA by Name
-    let coaId: string | null = t.coaId || null;
-    let finalCategory = t.category;
+    const [coaDebit, coaCredit] = await Promise.all([
+      prisma.chartOfAccount.findFirst({ where: { tenantId, OR: [{ name: debitSideName }, { code: debitSideName.split(' - ')[0] }] } }),
+      prisma.chartOfAccount.findFirst({ where: { tenantId, OR: [{ name: creditSideName }, { code: creditSideName.split(' - ')[0] }] } })
+    ]);
 
-    if (!coaId && t.category) {
-      // Try to find by code or name
-      let code = '';
-      let name = t.category;
-      if (t.category.includes(' - ')) {
-        [code, name] = t.category.split(' - ').map((s: string) => s.trim());
+    const result = await prisma.$transaction(async (tx) => {
+      let finalType = providedType;
+      let financialAccountId = null;
+      let finalCoaId = providedCoaId;
+
+      // Logic: CASH/BANK (Involves a real bank account)
+      if (!isNonCash) {
+        // In CASH mode, 'account' field in request always identifies the Bank for SDM ERP
+        const bankAcc = await tx.financialAccount.findFirst({ where: { tenantId, name: account } });
+        if (!bankAcc) throw new Error(`Akun Bank/Kas '${account}' tidak ditemukan.`);
+
+        financialAccountId = bankAcc.id;
+        finalType = providedType;
+        // Link coaId to the side that ISN'T the bank
+        finalCoaId = providedType === 'IN' ? coaCredit?.id : coaDebit?.id;
+      }
+      // Logic: GENERAL JOURNAL (Between COAs)
+      else {
+        // Determine type based on P&L impact (Expense on Debit = OUT, Revenue on Credit = IN)
+        if (coaDebit?.type === 'EXPENSE') finalType = 'OUT';
+        else if (coaCredit?.type === 'REVENUE' || coaCredit?.type === 'INCOME') finalType = 'IN';
+
+        finalCoaId = (coaCredit?.type === 'REVENUE' || coaCredit?.type === 'EXPENSE')
+          ? coaCredit.id
+          : coaDebit?.id || coaCredit?.id || null;
       }
 
-      let existingCoa = await prisma.chartOfAccount.findFirst({
-        where: {
-          tenantId,
-          OR: [
-            { name: { equals: name, mode: 'insensitive' } },
-            code ? { code: { equals: code, mode: 'insensitive' } } : undefined
-          ].filter(Boolean) as any
-        }
-      });
+      const transactionId = `TRX_${Date.now()}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 
-      if (!existingCoa) {
-        console.log(`Auto-creating missing COA: ${t.category}`);
-        existingCoa = await prisma.chartOfAccount.create({
-          data: {
-            id: Math.random().toString(36).substr(2, 9),
-            tenantId,
-            code: code || ('999' + Math.floor(Math.random() * 999)),
-            name: name,
-            type: (t.type === 'OUT' ? 'EXPENSE' : 'INCOME'),
-            isActive: true
-          }
-        });
-      }
-
-      if (existingCoa) {
-        coaId = existingCoa.id;
-        finalCategory = `${existingCoa.code} - ${existingCoa.name}`;
-      }
-    }
-
-    // 3. CREATE WITH ATOMIC BALANCE UPDATE
-    await prisma.$transaction(async (tx) => {
-      // A. Create Transaction
-      await tx.transaction.create({
+      const newTransaction = await (tx as any).transaction.create({
         data: {
-          id: t.id || Math.random().toString(36).substr(2, 9),
+          id: transactionId,
           tenantId,
-          date: new Date(t.date),
-          amount: t.amount,
-          type: t.type,
-          category: finalCategory,
-          description: t.description,
-          account: finalAccountName,
-          accountId: accountId,
-          businessUnitId: t.businessUnitId || null,
-          imageUrl: t.imageUrl || null,
-          coaId: coaId,
-          contactName: t.contactName || null,
-          status: t.status || 'PAID',
-          dueDate: t.dueDate ? new Date(t.dueDate) : null
-        } as any
+          date: new Date(date),
+          amount: parseFloat(amount),
+          type: finalType,
+          account: debitSideName,
+          category: creditSideName,
+          description,
+          accountId: financialAccountId,
+          coaId: finalCoaId,
+          businessUnitId,
+          imageUrl,
+          status: 'PAID'
+        }
       });
 
-      // B. Update Financial Account Balance (ALWAYS for all statuses including UNPAID/DP)
-      if (accountId) {
-        const amount = Number(t.amount);
-        const change = t.type === 'IN' ? amount : -amount;
-
-        await (tx.financialAccount as any).update({
-          where: { id: accountId, tenantId },
+      // Atomic Balance Update
+      if (financialAccountId) {
+        const change = finalType === 'IN' ? parseFloat(amount) : -parseFloat(amount);
+        await (tx as any).financialAccount.update({
+          where: { id: financialAccountId },
           data: { balance: { increment: change } }
         });
       }
+
+      return newTransaction;
     });
 
-    return NextResponse.json({ ...t, account: finalAccountName, accountId, category: finalCategory, coaId }, { status: 201 });
+    return NextResponse.json(result, { status: 201 });
   } catch (error: any) {
-    console.error('Create Transaction Error:', error);
-    return NextResponse.json({ error: 'Failed to create transaction', details: error.message }, { status: 500 });
+    console.error('TRX_CREATE_ERROR:', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
