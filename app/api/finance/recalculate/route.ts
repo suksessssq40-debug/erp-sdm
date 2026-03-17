@@ -13,29 +13,43 @@ export async function POST() {
       where: { tenantId }
     });
 
-    // 2. Lakukan Rekalkulasi (Optimasi: Grouped Aggregation)
+    // 2. Lakukan Rekalkulasi dengan Logic Akuntansi Double Entry Sejati
     // Gunakan timeout lebih lama karena proses ini melibatkan scan seluruh tabel transaksi
     await prisma.$transaction(async (tx) => {
-      // Ambil semua sum per accountId dalam satu query
-      const groupedResults = await tx.transaction.groupBy({
-        by: ['accountId', 'type'],
-        where: { tenantId },
-        _sum: { amount: true }
-      });
+      const debitBalances = await (tx as any).$queryRaw<any[]>`
+            SELECT 
+                fa.id as account_id,
+                SUM(t.amount) as total_debit
+            FROM transactions t
+            JOIN financial_accounts fa ON 
+                (t.account = fa.name AND t.type = 'IN') OR 
+                (t.category = fa.name AND t.type = 'OUT')
+            WHERE t.tenant_id = ${tenantId} AND fa.tenant_id = ${tenantId}
+            GROUP BY fa.id
+        `;
 
-      // Mapping hasil ke format Map [accountId]: { IN, OUT }
-      const balanceMap = new Map<string, { IN: number; OUT: number }>();
-      groupedResults.forEach(res => {
-        if (!res.accountId) return;
-        const current = balanceMap.get(res.accountId) || { IN: 0, OUT: 0 };
-        if (res.type === 'IN') current.IN = Number(res._sum.amount || 0);
-        else if (res.type === 'OUT') current.OUT = Number(res._sum.amount || 0);
-        balanceMap.set(res.accountId, current);
+      const creditBalances = await (tx as any).$queryRaw<any[]>`
+            SELECT 
+                fa.id as account_id,
+                SUM(t.amount) as total_credit
+            FROM transactions t
+            JOIN financial_accounts fa ON t.account = fa.name AND fa.tenant_id = ${tenantId}
+            WHERE t.tenant_id = ${tenantId} AND t.type = 'OUT'
+            GROUP BY fa.id
+        `;
+
+      const balanceMap = new Map<string, number>();
+      accounts.forEach(a => balanceMap.set(a.id, 0));
+
+      debitBalances.forEach((r: any) => {
+        balanceMap.set(r.account_id, (balanceMap.get(r.account_id) || 0) + Number(r.total_debit || 0));
+      });
+      creditBalances.forEach((r: any) => {
+        balanceMap.set(r.account_id, (balanceMap.get(r.account_id) || 0) - Number(r.total_credit || 0));
       });
 
       for (const acc of accounts) {
-        const totals = balanceMap.get(acc.id) || { IN: 0, OUT: 0 };
-        const newBalance = totals.IN - totals.OUT;
+        const newBalance = balanceMap.get(acc.id) || 0;
 
         // Update Saldo Akun
         await (tx as any).financialAccount.update({

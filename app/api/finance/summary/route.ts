@@ -21,8 +21,10 @@ export async function GET(request: Request) {
                 fa.name as account_name,
                 SUM(t.amount) as total_debit
             FROM transactions t
-            JOIN financial_accounts fa ON t.account = fa.name AND t.tenant_id = fa.tenant_id
-            WHERE t.tenant_id = ${tenantId} AND t.type = 'IN'
+            JOIN financial_accounts fa ON 
+                (t.account = fa.name AND t.type = 'IN') OR 
+                (t.category = fa.name AND t.type = 'OUT')
+            WHERE t.tenant_id = ${tenantId} AND fa.tenant_id = ${tenantId}
             ${hasUnitFilter ? Prisma.sql`AND t.business_unit_id = ${businessUnitId}` : Prisma.empty}
             GROUP BY fa.name
         `;
@@ -32,13 +34,17 @@ export async function GET(request: Request) {
                 fa.name as account_name,
                 SUM(t.amount) as total_credit
             FROM transactions t
-            JOIN financial_accounts fa ON t.category = fa.name AND t.tenant_id = fa.tenant_id
+            JOIN financial_accounts fa ON t.account = fa.name AND fa.tenant_id = ${tenantId}
             WHERE t.tenant_id = ${tenantId} AND t.type = 'OUT'
             ${hasUnitFilter ? Prisma.sql`AND t.business_unit_id = ${businessUnitId}` : Prisma.empty}
             GROUP BY fa.name
         `;
 
-        // 2. Calculate P&L Stats (Current Month)
+        // 2. Fetch Financial Accounts early for balances and exclusion
+        const financialAccounts = await prisma.financialAccount.findMany({ where: { tenantId, isActive: true } });
+        const bankNames = financialAccounts.map(fa => fa.name);
+
+        // 3. Calculate P&L Stats (Current Month)
         const now = new Date();
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
         const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
@@ -51,11 +57,12 @@ export async function GET(request: Request) {
 
         const [incomeAgg, expenseAgg] = await Promise.all([
             prisma.transaction.aggregate({
-                where: { ...plWhere, type: 'IN' },
+                where: { ...plWhere, type: 'IN' }, // Income logic handles IN
                 _sum: { amount: true }
             }),
             prisma.transaction.aggregate({
-                where: { ...plWhere, type: 'OUT' },
+                // Exclude transfers (where category is another Bank) from Expenses!
+                where: { ...plWhere, type: 'OUT', NOT: { category: { in: bankNames } } },
                 _sum: { amount: true }
             })
         ]);
@@ -65,7 +72,6 @@ export async function GET(request: Request) {
 
         // Merge Balances
         const accountBalances: Record<string, number> = {};
-        const financialAccounts = await prisma.financialAccount.findMany({ where: { tenantId, isActive: true } });
         financialAccounts.forEach(fa => { accountBalances[fa.name] = 0; });
 
         debitBalances.forEach(r => { accountBalances[r.account_name] = (accountBalances[r.account_name] || 0) + Number(r.total_debit); });
