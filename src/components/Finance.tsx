@@ -94,6 +94,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
 
   // Data State
   const [localTransactions, setLocalTransactions] = useState<Transaction[]>([]);
+  const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
   const [coaList, setCoaList] = useState<ChartOfAccount[]>([]);
   const [coaSearchTerm, setCoaSearchTerm] = useState('');
   const [coaTypeFilter, setCoaTypeFilter] = useState('ALL');
@@ -200,10 +201,17 @@ const FinanceModule: React.FC<FinanceProps> = ({
       if (filterAccount && filterAccount !== 'ALL') transUrl += `&accountName=${encodeURIComponent(filterAccount)}`;
       if (filterBusinessUnit && filterBusinessUnit !== 'ALL') transUrl += `&businessUnitId=${filterBusinessUnit}`;
 
+      // 2b. Fetch ALL transactions for exports and reports (bypass limit)
+      let allTransUrl = `/api/transactions?startDate=${filterStartDate}&endDate=${filterEndDate}&status=${journalStatus}&limit=9999999`;
+      if (journalSearch) allTransUrl += `&search=${encodeURIComponent(journalSearch)}`;
+      if (filterAccount && filterAccount !== 'ALL') allTransUrl += `&accountName=${encodeURIComponent(filterAccount)}`;
+      if (filterBusinessUnit && filterBusinessUnit !== 'ALL') allTransUrl += `&businessUnitId=${filterBusinessUnit}`;
+
       // Parallel Fetch with Abort Signal
-      const [resSum, resTrans] = await Promise.all([
+      const [resSum, resTrans, resAllTrans] = await Promise.all([
         fetch(sumUrl, { headers, cache: 'no-store', signal: controller.signal }),
-        fetch(transUrl, { headers, cache: 'no-store', signal: controller.signal })
+        fetch(transUrl, { headers, cache: 'no-store', signal: controller.signal }),
+        fetch(allTransUrl, { headers, cache: 'no-store', signal: controller.signal })
       ]);
 
       if (resSum.ok) setSummary(await resSum.json());
@@ -215,6 +223,11 @@ const FinanceModule: React.FC<FinanceProps> = ({
           total: json.pagination.total,
           totalPages: json.pagination.totalPages
         });
+      }
+
+      if (resAllTrans.ok) {
+        const jsonExp = await resAllTrans.json();
+        setAllTransactions(jsonExp.data);
       }
 
       // 3. Refresh COA Balances (Fix for "Saldo COA Tetap")
@@ -291,6 +304,19 @@ const FinanceModule: React.FC<FinanceProps> = ({
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [localTransactions, filterAccount, filterBusinessUnit, financialAccounts]);
 
+  const unpaginatedFilteredMutasi = useMemo(() => {
+    return allTransactions
+      .filter(t => {
+        if (filterAccount === 'ALL') return true;
+        if (filterAccount === 'GENERAL_JOURNAL') {
+          return !t.accountId || !financialAccounts.some(acc => acc.name === t.account);
+        }
+        return t.account === filterAccount;
+      })
+      .filter(t => filterBusinessUnit === 'ALL' || t.businessUnitId === filterBusinessUnit)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [allTransactions, filterAccount, filterBusinessUnit, financialAccounts]);
+
   // Helper for Month Name Display (if needed in titles)
   const getPeriodLabel = () => {
     const s = new Date(filterStartDate);
@@ -341,7 +367,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
       toast.success("Sedang mendownload laporan...");
 
     } else if (activeTab === 'MUTASI') {
-      const rows = filteredMutasi.map(t => {
+      const rows = unpaginatedFilteredMutasi.map(t => {
         const isExpense = t.coa?.type === 'EXPENSE';
         const isRevenue = t.coa?.type === 'REVENUE' || t.coa?.type === 'INCOME';
 
@@ -687,7 +713,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
 
       {activeTab === 'LAPORAN' && (
         <ReportView
-          transactions={filteredMutasi} // Uses general transaction pool (Respects Unit Filter)
+          transactions={unpaginatedFilteredMutasi} // Uses general transaction pool without limit (Respects Unit Filter)
           summary={summary}
           MONTHS={MONTHS_LABEL}
         />
