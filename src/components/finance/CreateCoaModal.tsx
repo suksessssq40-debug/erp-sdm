@@ -4,12 +4,14 @@ import { ChartOfAccount } from '../../types';
 
 interface CreateCoaModalProps {
     isOpen: boolean;
+    isEditing?: boolean;
+    initialData?: Partial<ChartOfAccount> | null;
     onClose: () => void;
     onSave: (data: Partial<ChartOfAccount>) => Promise<void>;
     toast: any;
 }
 
-export const CreateCoaModal: React.FC<CreateCoaModalProps> = ({ isOpen, onClose, onSave, toast }) => {
+export const CreateCoaModal: React.FC<CreateCoaModalProps> = ({ isOpen, isEditing = false, initialData, onClose, onSave, toast }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [formData, setFormData] = useState<Partial<ChartOfAccount>>({
         code: '',
@@ -18,6 +20,21 @@ export const CreateCoaModal: React.FC<CreateCoaModalProps> = ({ isOpen, onClose,
         normalPos: 'DEBIT',
         description: ''
     });
+
+    React.useEffect(() => {
+        if (isOpen && initialData) {
+            setFormData({
+                id: initialData.id,
+                code: initialData.code || '',
+                name: initialData.name || '',
+                type: initialData.type || 'EXPENSE',
+                normalPos: initialData.normalPos || 'DEBIT',
+                description: initialData.description || ''
+            });
+        } else if (isOpen && !isEditing) {
+            setFormData({ code: '', name: '', type: 'EXPENSE', normalPos: 'DEBIT', description: '' });
+        }
+    }, [isOpen, initialData, isEditing]);
 
     if (!isOpen) return null;
 
@@ -73,8 +90,10 @@ export const CreateCoaModal: React.FC<CreateCoaModalProps> = ({ isOpen, onClose,
                 {/* Header */}
                 <div className="bg-slate-50 px-8 py-6 border-b border-slate-100 flex justify-between items-center">
                     <div>
-                        <h2 className="text-xl font-black text-slate-800 uppercase italic tracking-tight">Tambah Akun Baru</h2>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Chart of Accounts</p>
+                        <h2 className="text-xl font-black text-slate-800 uppercase italic tracking-tight">{isEditing ? 'Edit Akun (COA)' : 'Tambah Akun Baru'}</h2>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">
+                            {isEditing ? 'Hati-hati: Perubahan akan menimpa laporan terkait' : 'Chart of Accounts'}
+                        </p>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition text-slate-400 hover:text-slate-600">
                         <X size={20} />
@@ -151,10 +170,10 @@ export const CreateCoaModal: React.FC<CreateCoaModalProps> = ({ isOpen, onClose,
                     <button
                         type="submit"
                         disabled={isLoading}
-                        className="w-full bg-slate-900 text-white py-4 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 active:scale-[0.98] transition shadow-xl shadow-slate-200 disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2"
+                        className={`w-full ${isEditing ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-200' : 'bg-slate-900 hover:bg-slate-800 shadow-slate-200'} text-white py-4 rounded-2xl text-xs font-black uppercase tracking-widest active:scale-[0.98] transition shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2`}
                     >
                         {isLoading ? <RefreshCw className="animate-spin" size={16} /> : <Save size={16} />}
-                        SIMPAN AKUN
+                        {isEditing ? 'SIMPAN PERUBAHAN AKUN' : 'SIMPAN AKUN'}
                     </button>
                 </form>
             </div>

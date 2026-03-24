@@ -167,8 +167,8 @@ const FinanceModule: React.FC<FinanceProps> = ({
   const [businessModal, setBusinessModal] = useState<{ isOpen: boolean; data: Partial<BusinessUnit> }>({
     isOpen: false, data: {}
   });
-  // NEW: Manual COA Creation
-  const [createCoaModal, setCreateCoaModal] = useState(false);
+  // NEW: Manual COA Creation & Edit
+  const [createCoaModal, setCreateCoaModal] = useState<{ isOpen: boolean, isEditing: boolean, data: Partial<ChartOfAccount> | null }>({ isOpen: false, isEditing: false, data: null });
   const [importModal, setImportModal] = useState(false); // Import Modal State
   const [importCoaModal, setImportCoaModal] = useState(false); // COA Import Modal State
 
@@ -725,7 +725,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
             <h3 className="text-xl font-black text-slate-800">DAFTAR AKUN (COA) / NERACA SALDO</h3>
             <div className="flex gap-2">
               <button
-                onClick={() => setCreateCoaModal(true)}
+                onClick={() => setCreateCoaModal({ isOpen: true, isEditing: false, data: null })}
                 className="bg-slate-900 text-white px-5 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-slate-800 transition"
               >
                 + TAMBAH AKUN MANUAL
@@ -812,8 +812,17 @@ const FinanceModule: React.FC<FinanceProps> = ({
                           <span className="text-[9px] font-bold text-slate-400 uppercase">/ {coa.normalPos}</span>
                         </div>
                       </td>
-                      <td className={`py-6 text-right pr-6 font-black tabular-nums transition-all ${(coa as any).balance < 0 ? 'text-rose-500' : 'text-slate-900 text-lg'}`}>
+                      <td className={`relative py-6 text-right pr-6 font-black tabular-nums transition-all ${(coa as any).balance < 0 ? 'text-rose-500' : 'text-slate-900 text-lg'}`}>
                         {(coa as any).balance !== undefined ? formatCurrency((coa as any).balance) : '-'}
+                        {!(coa as any).isSystem && (
+                          <button
+                            onClick={() => setCreateCoaModal({ isOpen: true, isEditing: true, data: coa as ChartOfAccount })}
+                            className="absolute top-1/2 -translate-y-1/2 right-[120px] p-2 bg-amber-100 text-amber-600 rounded-xl hover:bg-amber-200 transition opacity-0 group-hover:opacity-100 shadow-sm"
+                            title="Edit COA"
+                          >
+                            <Edit size={14} />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -886,29 +895,34 @@ const FinanceModule: React.FC<FinanceProps> = ({
         />
       )}
 
-      {createCoaModal && (
+      {createCoaModal.isOpen && (
         <CreateCoaModal
-          isOpen={createCoaModal}
-          onClose={() => setCreateCoaModal(false)}
+          isOpen={createCoaModal.isOpen}
+          isEditing={createCoaModal.isEditing}
+          initialData={createCoaModal.data}
+          onClose={() => setCreateCoaModal({ isOpen: false, isEditing: false, data: null })}
           onSave={async (data) => {
             const token = typeof window !== 'undefined' ? localStorage.getItem('sdm_erp_auth_token') : null;
             const headers: Record<string, string> = { 'Content-Type': 'application/json' };
             if (token) headers['Authorization'] = `Bearer ${token}`;
 
-            const res = await fetch('/api/finance/coa', {
-              method: 'POST',
+            const url = createCoaModal.isEditing ? `/api/finance/coa/${data.id}` : '/api/finance/coa';
+            const method = createCoaModal.isEditing ? 'PUT' : 'POST';
+
+            const res = await fetch(url, {
+              method,
               headers,
               body: JSON.stringify(data)
             });
 
             if (res.ok) {
-              toast.success("Akun berhasil dibuat!");
-              // Refresh COA List
+              toast.success(createCoaModal.isEditing ? "Akun berhasil diubah!" : "Akun berhasil dibuat!");
               const resList = await fetch('/api/finance/coa', { headers });
               if (resList.ok) setCoaList(await resList.json());
+              fetchData(); // Important: Cascade updates might change Transaction Strings, so we refresh data.
             } else {
               const err = await res.json();
-              toast.error(err.error || 'Gagal membuat akun');
+              toast.error(err.error || 'Gagal memproses akun');
             }
           }}
           toast={toast}

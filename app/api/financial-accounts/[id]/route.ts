@@ -35,11 +35,31 @@ export async function PUT(request: Request, { params }: { params: { id: string }
         }
       });
 
-      // Cascade update transaction 'account' name reference for backward compatibility
+      // ANTI-ERROR FEATURE: Cascade updates to Transactions
+      // Since Bank Names can appear in either Debit (account) or Credit (category) 
+      // during transferring or general cash operations, we MUST cascade thoroughly.
       if (existing.name !== body.name) {
+        // Direct links via accountId
         await tx.transaction.updateMany({
-          where: { accountId: id, tenantId },
+          where: { accountId: id, tenantId, account: existing.name },
           data: { account: body.name }
+        });
+
+        // Some bank logic saves it in category if it's the credit side of a transfer
+        await tx.transaction.updateMany({
+          where: { accountId: id, tenantId, category: existing.name },
+          data: { category: body.name }
+        });
+
+        // Fallback safetynet just for the name strings to heal disconnected transactions
+        await tx.transaction.updateMany({
+          where: { tenantId, account: existing.name },
+          data: { account: body.name }
+        });
+
+        await tx.transaction.updateMany({
+          where: { tenantId, category: existing.name },
+          data: { category: body.name }
         });
       }
 
