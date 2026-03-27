@@ -8,10 +8,11 @@ interface CreateCoaModalProps {
     initialData?: Partial<ChartOfAccount> | null;
     onClose: () => void;
     onSave: (data: Partial<ChartOfAccount>) => Promise<void>;
+    onSuccess?: () => Promise<void>;
     toast: any;
 }
 
-export const CreateCoaModal: React.FC<CreateCoaModalProps> = ({ isOpen, isEditing = false, initialData, onClose, onSave, toast }) => {
+export const CreateCoaModal: React.FC<CreateCoaModalProps> = ({ isOpen, isEditing = false, initialData, onClose, onSave, onSuccess, toast }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [formData, setFormData] = useState<Partial<ChartOfAccount>>({
         code: '',
@@ -99,8 +100,8 @@ export const CreateCoaModal: React.FC<CreateCoaModalProps> = ({ isOpen, isEditin
 
                 if (res.ok) {
                     toast.success("Akun dan mutasi berhasil dihapus permanen");
-                    onClose();
-                    // Optional: The parent Finance.tsx will handle the refresh if we call refresh handlers
+                    if (onSuccess) await onSuccess();
+                    else onClose();
                 } else {
                     const err = await res.json();
                     toast.error(err.error || "Gagal menghapus akun");

@@ -474,7 +474,12 @@ const FinanceModule: React.FC<FinanceProps> = ({
     toast.success("Berhasil simpan rekening");
     fetchData();
   }
-  const handleDeleteAccount = async (id: string) => { if (onDeleteAccount) await onDeleteAccount(id); }
+  const handleDeleteAccount = async (id: string) => {
+    if (onDeleteAccount) {
+      await onDeleteAccount(id);
+      await fetchData();
+    }
+  }
 
   const handleOpenCategory = (type: TransactionType, parentId?: string | null) => setCategoryModal({ isOpen: true, data: { name: '', type, parentId } });
   const handleSaveCategory = async (data: TransactionCategory) => { if (onAddCategory) await onAddCategory(data); toast.success("Kategori ditambah"); }
@@ -901,6 +906,11 @@ const FinanceModule: React.FC<FinanceProps> = ({
           isEditing={createCoaModal.isEditing}
           initialData={createCoaModal.data}
           onClose={() => setCreateCoaModal({ isOpen: false, isEditing: false, data: null })}
+          onSuccess={async () => {
+            await refreshCoa();
+            await fetchData();
+            setCreateCoaModal({ isOpen: false, isEditing: false, data: null });
+          }}
           onSave={async (data) => {
             const token = typeof window !== 'undefined' ? localStorage.getItem('sdm_erp_auth_token') : null;
             const headers: Record<string, string> = { 'Content-Type': 'application/json' };
