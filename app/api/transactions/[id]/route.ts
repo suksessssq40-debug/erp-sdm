@@ -18,16 +18,41 @@ export async function PUT(request: Request, { params }: { params: { id: string }
         const existingTx = await prisma.transaction.findFirst({ where: { id, tenantId } });
         if (!existingTx) return NextResponse.json({ error: 'Transaction not found or unauthorized' }, { status: 404 });
 
-        // Fix Data Integrity: Lookup Account ID based on name - MUST BE WITHIN TENANT
-        let accountId: string | null = null;
-        if (body.account) {
-            const acc = await prisma.financialAccount.findFirst({
+        // --- UNIVERSAL LOGIC: Redetermine Bank vs COA Context ---
+        const debitName = body.account;
+        const creditName = body.category;
+
+        const [bankDebit, bankCredit] = await Promise.all([
+            prisma.financialAccount.findFirst({
                 where: {
                     tenantId,
-                    name: { equals: body.account, mode: 'insensitive' }
+                    name: { equals: debitName, mode: 'insensitive' },
+                    isActive: true
                 }
-            });
-            if (acc) accountId = acc.id;
+            }),
+            prisma.financialAccount.findFirst({
+                where: {
+                    tenantId,
+                    name: { equals: creditName, mode: 'insensitive' },
+                    isActive: true
+                }
+            })
+        ]);
+
+        let finalType = body.type || 'IN';
+        let accountId: string | null = null;
+
+        // Determination Logic (Mirroring POST for consistency)
+        if (bankDebit && !bankCredit) {
+            finalType = 'IN';
+            accountId = bankDebit.id;
+        } else if (bankCredit && !bankDebit) {
+            finalType = 'OUT';
+            accountId = bankCredit.id;
+        } else if (bankDebit && bankCredit) {
+            // Internal Transfer (Bank to Bank) - Source is Credit Side
+            finalType = 'OUT';
+            accountId = bankCredit.id;
         }
 
         const updated = await prisma.$transaction(async (tx) => {
@@ -46,13 +71,13 @@ export async function PUT(request: Request, { params }: { params: { id: string }
                 } catch (e) { /* ignore */ }
             }
 
-            // 2. Perform Update
+            // 2. Perform Update (With Corrected type and accountId)
             const up = await tx.transaction.update({
                 where: { id },
                 data: {
                     date: new Date(body.date),
                     amount: body.amount,
-                    type: body.type,
+                    type: finalType,
                     category: body.category || null,
                     description: body.description,
                     account: body.account,
