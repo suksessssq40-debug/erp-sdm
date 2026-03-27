@@ -83,6 +83,36 @@ export const CreateCoaModal: React.FC<CreateCoaModalProps> = ({ isOpen, isEditin
         setFormData(prev => ({ ...prev, ...updates }));
     };
 
+    const handleDelete = async () => {
+        if (!isEditing || !formData.id) return;
+        if (confirm(`⚠️ PERINGATAN KRITIKAL: Menghapus akun ${formData.code} - ${formData.name} akan menghapus seluruh catatan transaksi (mutasi) yang berhubungan dengan akun ini secara PERMANEN. Data tidak bisa dikembalikan. Lanjutkan?`)) {
+            setIsLoading(true);
+            try {
+                const token = typeof window !== 'undefined' ? localStorage.getItem('sdm_erp_auth_token') : null;
+                const headers: Record<string, string> = {};
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+
+                const res = await fetch(`/api/finance/coa/${formData.id}`, {
+                    method: 'DELETE',
+                    headers
+                });
+
+                if (res.ok) {
+                    toast.success("Akun dan mutasi berhasil dihapus permanen");
+                    onClose();
+                    // Optional: The parent Finance.tsx will handle the refresh if we call refresh handlers
+                } else {
+                    const err = await res.json();
+                    toast.error(err.error || "Gagal menghapus akun");
+                }
+            } catch (error) {
+                toast.error("Terjadi kesalahan sistem");
+            } finally {
+                setIsLoading(false);
+            }
+        }
+    };
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100">
@@ -95,7 +125,7 @@ export const CreateCoaModal: React.FC<CreateCoaModalProps> = ({ isOpen, isEditin
                             {isEditing ? 'Hati-hati: Perubahan akan menimpa laporan terkait' : 'Chart of Accounts'}
                         </p>
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition text-slate-400 hover:text-slate-600">
+                    <button onClick={onClose} type="button" className="p-2 hover:bg-slate-200 rounded-full transition text-slate-400 hover:text-slate-600">
                         <X size={20} />
                     </button>
                 </div>
@@ -167,14 +197,27 @@ export const CreateCoaModal: React.FC<CreateCoaModalProps> = ({ isOpen, isEditin
                         ></textarea>
                     </div>
 
-                    <button
-                        type="submit"
-                        disabled={isLoading}
-                        className={`w-full ${isEditing ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-200' : 'bg-slate-900 hover:bg-slate-800 shadow-slate-200'} text-white py-4 rounded-2xl text-xs font-black uppercase tracking-widest active:scale-[0.98] transition shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2`}
-                    >
-                        {isLoading ? <RefreshCw className="animate-spin" size={16} /> : <Save size={16} />}
-                        {isEditing ? 'SIMPAN PERUBAHAN AKUN' : 'SIMPAN AKUN'}
-                    </button>
+                    <div className="flex gap-4">
+                        {isEditing && (
+                            <button
+                                type="button"
+                                onClick={handleDelete}
+                                disabled={isLoading}
+                                className="bg-rose-50 text-rose-500 p-4 rounded-2xl hover:bg-rose-500 hover:text-white transition shadow-sm disabled:opacity-50"
+                                title="Hapus Permanen"
+                            >
+                                <X size={20} />
+                            </button>
+                        )}
+                        <button
+                            type="submit"
+                            disabled={isLoading}
+                            className={`flex-1 ${isEditing ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-200' : 'bg-slate-900 hover:bg-slate-800 shadow-slate-200'} text-white py-4 rounded-2xl text-xs font-black uppercase tracking-widest active:scale-[0.98] transition shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2`}
+                        >
+                            {isLoading ? <RefreshCw className="animate-spin" size={16} /> : <Save size={16} />}
+                            {isEditing ? 'SIMPAN PERUBAHAN AKUN' : 'SIMPAN AKUN'}
+                        </button>
+                    </div>
                 </form>
             </div>
         </div>

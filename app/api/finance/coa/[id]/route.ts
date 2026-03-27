@@ -93,14 +93,35 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
             return NextResponse.json({ error: 'COA tidak ditemukan' }, { status: 404 });
         }
 
-        await prisma.chartOfAccount.update({
-            where: { id },
-            data: { isActive: false }
+        // PERMANENT CASCADE DELETE
+        await prisma.$transaction(async (tx) => {
+            const coaString = `${existing.code} - ${existing.name}`;
+
+            // 1. Delete all transactions linked via coaId
+            await tx.transaction.deleteMany({
+                where: { coaId: id, tenantId }
+            });
+
+            // 2. Delete all transactions linked via Name String (Safetynet)
+            await tx.transaction.deleteMany({
+                where: {
+                    tenantId,
+                    OR: [
+                        { account: coaString },
+                        { category: coaString }
+                    ]
+                }
+            });
+
+            // 3. Delete the COA itself
+            await tx.chartOfAccount.delete({
+                where: { id }
+            });
         });
 
-        return NextResponse.json({ success: true });
+        return NextResponse.json({ success: true, message: 'COA and associated transactions deleted permanently' });
     } catch (e: any) {
-        console.error(e);
-        return NextResponse.json({ error: 'Gagal menonaktifkan COA: ' + e.message }, { status: 500 });
+        console.error('DELETE_COA_ERROR:', e);
+        return NextResponse.json({ error: 'Gagal menghapus COA: ' + e.message }, { status: 500 });
     }
 }

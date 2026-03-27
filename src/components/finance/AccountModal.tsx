@@ -48,7 +48,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
 
     const handleDelete = async () => {
         if (!isEditing || !formData.id || !onDelete) return;
-        if (confirm(`Yakin ingin menghapus rekening ${formData.name}? Data akan dinonaktifkan.`)) {
+        if (confirm(`⚠️ PERINGATAN: Menghapus rekening ${formData.name} akan menghapus SELURUH data mutasi transaksi yang pernah dicatat menggunakan rekening ini secara PERMANEN. Tindakan ini tidak dapat dibatalkan. Lanjutkan?`)) {
             await onDelete(formData.id);
             onClose();
         }
