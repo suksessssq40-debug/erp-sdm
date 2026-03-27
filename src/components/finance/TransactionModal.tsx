@@ -167,10 +167,19 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">NOMINAL TRANSAKSI</label>
                         <div className="relative group">
                             <span className="absolute left-8 top-1/2 -translate-y-1/2 text-2xl font-black text-slate-300 group-focus-within:text-blue-500 transition-colors">Rp</span>
-                            <input type="number" className="w-full text-4xl font-black pl-20 pr-8 py-7 bg-slate-900 border-2 border-transparent focus:border-blue-500 rounded-[2.5rem] outline-none transition-all text-white shadow-2xl tabular-nums"
+                            <input
+                                type="text"
+                                inputMode="numeric"
+                                className="w-full text-4xl font-black pl-20 pr-8 py-7 bg-slate-900 border-2 border-transparent focus:border-blue-500 rounded-[2.5rem] outline-none transition-all text-white shadow-2xl tabular-nums placeholder:text-slate-800"
                                 placeholder="0"
-                                value={formData.amount || ''}
-                                onChange={e => setFormData({ ...formData, amount: parseFloat(e.target.value) })}
+                                value={formData.amount ? new Intl.NumberFormat('id-ID').format(Number(formData.amount)) : ''}
+                                onChange={e => {
+                                    // Remove formatting characters (like dot) to get raw numbers
+                                    const raw = e.target.value.replace(/[^0-9]/g, '');
+                                    const val = raw ? parseFloat(raw) : 0;
+                                    setFormData({ ...formData, amount: val });
+                                }}
+                                onWheel={(e) => (e.target as HTMLElement).blur()}
                             />
                         </div>
                     </div>
