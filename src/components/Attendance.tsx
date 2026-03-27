@@ -83,7 +83,7 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
     const syncTime = async () => {
       try {
         const start = Date.now();
-        const res = await fetch(`/api/chat/messages?roomId=ping`, { method: 'HEAD' });
+        const res = await fetch(`/api/ping`, { method: 'HEAD' });
         const end = Date.now();
         const latency = (end - start) / 2;
 

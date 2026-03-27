@@ -321,41 +321,7 @@ export interface SystemLog {
   metadata?: any;
 }
 
-export interface ChatRoom {
-  id: string;
-  name: string;
-  type: 'GROUP' | 'DM';
-  createdBy: string;
-  createdAt: number;
-  lastMessage?: {
-    content: string;
-    senderName: string;
-    timestamp: number;
-  };
-  memberIds: string[]; // For UI convenience
-  unreadCount?: number;
-  readStatus?: Record<string, number>;
-  isPinned?: boolean; // Pinned by current user (for rooms)
-}
 
-export interface ChatMessage {
-  id: string;
-  roomId: string;
-  senderId: string;
-  content: string;
-  attachmentUrl?: string; // Image or file
-  replyToId?: string;
-  replyToMessage?: {
-    id: string;
-    senderName: string;
-    content: string;
-  };
-  createdAt: number;
-  senderName?: string; // Populated on fetch
-  senderRole?: UserRole;
-  edited?: boolean;
-  isPinned?: boolean; // Global pin for the room
-}
 
 export interface TransactionCategory {
   id: string;

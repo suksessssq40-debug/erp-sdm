@@ -15,7 +15,7 @@ export const TenantManager: React.FC<{ store: ReturnType<typeof useStore> }> = (
         radiusTolerance: 50,
         lateGracePeriod: 15
     });
-    const [selectedFeatures, setSelectedFeatures] = useState<string[]>(['projects', 'chat', 'attendance', 'requests', 'daily_report']);
+    const [selectedFeatures, setSelectedFeatures] = useState<string[]>(['projects', 'attendance', 'requests', 'daily_report']);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [shifts, setShifts] = useState<any[]>([]);
     const [newShift, setNewShift] = useState({ name: '', startTime: '08:00', endTime: '17:00', isOvernight: false });
@@ -28,7 +28,7 @@ export const TenantManager: React.FC<{ store: ReturnType<typeof useStore> }> = (
     // ... moduleList ...
     const moduleList = [
         { id: 'projects', label: 'Project Kanban', icon: Zap },
-        { id: 'chat', label: 'Team Chat', icon: Zap },
+
         { id: 'attendance', label: 'Absensi', icon: Zap },
         { id: 'payroll', label: 'Gaji & Slip', icon: Shield },
         { id: 'requests', label: 'Permohonan', icon: Zap },
@@ -57,7 +57,7 @@ export const TenantManager: React.FC<{ store: ReturnType<typeof useStore> }> = (
             radiusTolerance: 50,
             lateGracePeriod: 15
         });
-        setSelectedFeatures(['projects', 'chat', 'attendance', 'requests', 'daily_report']);
+        setSelectedFeatures(['projects', 'attendance', 'requests', 'daily_report']);
         setEditingId(null);
         setShifts([]);
         setView('LIST');

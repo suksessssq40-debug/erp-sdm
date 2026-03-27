@@ -59,7 +59,7 @@ const Layout: React.FC<LayoutProps> = ({
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF] },
     { id: 'kanban', label: 'Project Kanban', icon: Trello, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF], feature: 'projects' },
-    { id: 'chat', label: 'Team Chat', icon: MessageSquare, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF], feature: 'chat' },
+
     { id: 'attendance', label: 'Absensi', icon: CalendarCheck, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF], feature: 'attendance' },
     { id: 'payroll', label: 'Gaji & Slip', icon: CreditCard, roles: [UserRole.OWNER, UserRole.FINANCE], feature: 'payroll' },
     { id: 'requests', label: 'Permohonan', icon: FileText, roles: [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE, UserRole.STAFF], feature: 'requests' },
@@ -138,11 +138,7 @@ const Layout: React.FC<LayoutProps> = ({
                 <item.icon size={20} className="shrink-0" />
                 <span className="font-bold text-xs uppercase tracking-widest">{item.label}</span>
               </div>
-              {item.id === 'chat' && unreadChatCount > 0 && (
-                <span className="bg-rose-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse shadow-rose-500/50 shadow-md">
-                  {unreadChatCount}
-                </span>
-              )}
+
               {item.id === 'requests' && pendingRequestCount > 0 && isManagement && (
                 <span className="bg-amber-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse shadow-amber-500/50 shadow-md">
                   {pendingRequestCount}

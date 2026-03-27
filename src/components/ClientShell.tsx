@@ -19,10 +19,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
   const tenantParam = params?.tenant as string;
   const roleParam = params?.role as string;
 
-  // Unread Chat Badge Logic
-  const [unreadCount, setUnreadCount] = React.useState(0);
-
-  // Notification Logic
+  // Notification Logic (Chat removed to improve performance)
   const lastUnreadRef = React.useRef(0);
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
 
@@ -31,53 +28,10 @@ export default function ClientShell({ children }: { children: React.ReactNode })
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
-    // Preload Audio
+    // Preload Audio (Keep for other notifications if needed, or remove)
     audioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
   }, []);
 
-  useEffect(() => {
-    if (!store.loaded || !store.authToken) return;
-
-    const fetchUnread = async () => {
-      try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE || ''}/api/chat/unread`, {
-          headers: { 'Authorization': `Bearer ${store.authToken}` }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const newCount = data.count;
-
-          // If unread count INCREASED, it means new message arrived
-          if (newCount > lastUnreadRef.current) {
-            // 1. Play Sound
-            try {
-              audioRef.current?.play().catch(() => { }); // User interaction might be required first, catch error
-            } catch (e) { }
-
-            // 2. Browser Notification (if background)
-            if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-              new Notification('Pesan Baru', {
-                body: `Anda memiliki ${newCount} pesan belum dibaca`,
-                icon: '/icon.png' // Optional fallback
-              });
-            }
-
-            // 3. Document Title Blink (optional, simple logic)
-            document.title = `(${newCount}) Pesan Baru! - SDM ERP`;
-          } else if (newCount === 0) {
-            document.title = 'SDM ERP'; // Reset
-          }
-
-          setUnreadCount(newCount);
-          lastUnreadRef.current = newCount;
-        }
-      } catch (e) { /* silent fail */ }
-    };
-
-    fetchUnread();
-    const interval = setInterval(fetchUnread, 3000); // Poll every 3s (Realtime feel)
-    return () => clearInterval(interval);
-  }, [store.loaded, store.authToken]);
 
   useEffect(() => {
     if (!store.loaded) return;
@@ -211,7 +165,7 @@ export default function ClientShell({ children }: { children: React.ReactNode })
         }}
         userName={store.currentUser.name || store.currentUser.username || 'User'}
         userAvatar={store.currentUser.avatarUrl || undefined}
-        unreadChatCount={unreadCount}
+        unreadChatCount={0}
         pendingRequestCount={pendingRequests}
       >
         {children}
