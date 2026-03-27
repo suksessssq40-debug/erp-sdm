@@ -107,6 +107,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
   // --- PAGINATION & STATUS FILTER ---
   const [journalStatus, setJournalStatus] = useState<string>('ALL');
   const [journalSearch, setJournalSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [journalPage, setJournalPage] = useState(1);
   const [journalPagination, setJournalPagination] = useState({ total: 0, totalPages: 1 });
 
@@ -275,10 +276,18 @@ const FinanceModule: React.FC<FinanceProps> = ({
 
   // --- EFFECTS ---
 
+  // Debounce Search Effect
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(journalSearch);
+    }, 500);
+    return () => clearTimeout(handler);
+  }, [journalSearch]);
+
   // 1. Main Data (Mutasi & Summary) triggers on Filter Change
   useEffect(() => {
     fetchData();
-  }, [filterStartDate, filterEndDate, filterBusinessUnit, filterAccount, journalStatus, journalPage, journalSearch]);
+  }, [filterStartDate, filterEndDate, filterBusinessUnit, filterAccount, journalStatus, journalPage, debouncedSearch]);
 
   // 2. Ledger Data triggers when Tab is Ledger OR Ledger Account/Filters change
   useEffect(() => {
