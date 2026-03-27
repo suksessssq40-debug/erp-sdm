@@ -198,13 +198,13 @@ const FinanceModule: React.FC<FinanceProps> = ({
       // 2. Fetch Transactions (With Status Filter, Global Search, and Account Filter)
       let transUrl = `/api/transactions?startDate=${filterStartDate}&endDate=${filterEndDate}&status=${journalStatus}&page=${journalPage}&limit=50`;
 
-      if (journalSearch) transUrl += `&search=${encodeURIComponent(journalSearch)}`;
+      if (debouncedSearch) transUrl += `&search=${encodeURIComponent(debouncedSearch)}`;
       if (filterAccount && filterAccount !== 'ALL') transUrl += `&accountName=${encodeURIComponent(filterAccount)}`;
       if (filterBusinessUnit && filterBusinessUnit !== 'ALL') transUrl += `&businessUnitId=${filterBusinessUnit}`;
 
       // 2b. Fetch ALL transactions for exports and reports (bypass limit)
       let allTransUrl = `/api/transactions?startDate=${filterStartDate}&endDate=${filterEndDate}&status=${journalStatus}&limit=9999999`;
-      if (journalSearch) allTransUrl += `&search=${encodeURIComponent(journalSearch)}`;
+      if (debouncedSearch) allTransUrl += `&search=${encodeURIComponent(debouncedSearch)}`;
       if (filterAccount && filterAccount !== 'ALL') allTransUrl += `&accountName=${encodeURIComponent(filterAccount)}`;
       if (filterBusinessUnit && filterBusinessUnit !== 'ALL') allTransUrl += `&businessUnitId=${filterBusinessUnit}`;
 
@@ -276,13 +276,12 @@ const FinanceModule: React.FC<FinanceProps> = ({
 
   // --- EFFECTS ---
 
-  // Debounce Search Effect
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedSearch(journalSearch);
-    }, 500);
-    return () => clearTimeout(handler);
-  }, [journalSearch]);
+  // No more auto-debounce effect on journalSearch
+  // We only update debouncedSearch (the active trigger) on explicit action
+  const handleSearchSubmit = () => {
+    setDebouncedSearch(journalSearch);
+    setJournalPage(1);
+  };
 
   // 1. Main Data (Mutasi & Summary) triggers on Filter Change
   useEffect(() => {
@@ -703,7 +702,8 @@ const FinanceModule: React.FC<FinanceProps> = ({
           statusFilter={journalStatus}
           onStatusChange={(s) => { setJournalStatus(s); setJournalPage(1); }}
           searchTerm={journalSearch}
-          onSearchChange={(val) => { setJournalSearch(val); setJournalPage(1); }}
+          onSearchChange={setJournalSearch}
+          onSearchSubmit={handleSearchSubmit}
           currentPage={journalPage}
           totalPages={journalPagination.totalPages}
           totalRecords={journalPagination.total}

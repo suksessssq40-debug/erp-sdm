@@ -17,6 +17,7 @@ interface JournalViewProps {
     onStatusChange: (s: string) => void;
     searchTerm: string;
     onSearchChange: (s: string) => void;
+    onSearchSubmit: () => void;
     currentPage: number;
     totalPages: number;
     totalRecords: number;
@@ -25,7 +26,7 @@ interface JournalViewProps {
 
 export const JournalView: React.FC<JournalViewProps> = ({
     transactions, financialAccounts = [], businessUnits, onEdit, onDelete,
-    statusFilter, onStatusChange, searchTerm, onSearchChange, currentPage, totalPages, totalRecords, onPageChange
+    statusFilter, onStatusChange, searchTerm, onSearchChange, onSearchSubmit, currentPage, totalPages, totalRecords, onPageChange
 }) => {
     const [previewImage, setPreviewImage] = useState<string | null>(null);
 
@@ -51,9 +52,14 @@ export const JournalView: React.FC<JournalViewProps> = ({
                             <Search size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" />
                             <input
                                 className="w-full pl-12 pr-6 py-4 bg-white border-2 border-slate-50 rounded-[1.5rem] text-xs font-bold focus:border-blue-600 outline-none transition shadow-sm"
-                                placeholder="Cari keterangan / akun / mitra..."
+                                placeholder="Ketik lalu Tekan ENTER untuk mencari..."
                                 value={searchTerm}
                                 onChange={e => onSearchChange(e.target.value)}
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter') {
+                                        onSearchSubmit();
+                                    }
+                                }}
                             />
                         </div>
                     </div>
