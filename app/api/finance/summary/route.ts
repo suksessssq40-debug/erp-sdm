@@ -15,15 +15,14 @@ export async function GET(request: Request) {
         const hasUnitFilter = businessUnitId && businessUnitId !== 'ALL';
 
         // 1. Calculate Balance per Financial Account (Bank/Kas)
-        // We must sum up both sides where the account might appear
         const debitBalances = await prisma.$queryRaw<any[]>`
             SELECT 
                 fa.name as account_name,
                 SUM(t.amount) as total_debit
             FROM transactions t
             JOIN financial_accounts fa ON 
-                (t.account = fa.name AND t.type = 'IN') OR 
-                (t.category = fa.name AND t.type = 'OUT')
+                (LOWER(t.account) = LOWER(fa.name) AND t.type = 'IN') OR 
+                (LOWER(t.category) = LOWER(fa.name) AND t.type = 'OUT')
             WHERE t.tenant_id = ${tenantId} AND fa.tenant_id = ${tenantId}
             ${hasUnitFilter ? Prisma.sql`AND t.business_unit_id = ${businessUnitId}` : Prisma.empty}
             GROUP BY fa.name
@@ -34,8 +33,10 @@ export async function GET(request: Request) {
                 fa.name as account_name,
                 SUM(t.amount) as total_credit
             FROM transactions t
-            JOIN financial_accounts fa ON t.account = fa.name AND fa.tenant_id = ${tenantId}
-            WHERE t.tenant_id = ${tenantId} AND t.type = 'OUT'
+            JOIN financial_accounts fa ON 
+                (LOWER(t.account) = LOWER(fa.name) AND t.type = 'OUT') OR
+                (LOWER(t.category) = LOWER(fa.name) AND t.type = 'IN')
+            WHERE t.tenant_id = ${tenantId} AND fa.tenant_id = ${tenantId}
             ${hasUnitFilter ? Prisma.sql`AND t.business_unit_id = ${businessUnitId}` : Prisma.empty}
             GROUP BY fa.name
         `;

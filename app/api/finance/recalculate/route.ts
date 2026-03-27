@@ -22,8 +22,8 @@ export async function POST() {
                 SUM(t.amount) as total_debit
             FROM transactions t
             JOIN financial_accounts fa ON 
-                (t.account = fa.name AND t.type = 'IN') OR 
-                (t.category = fa.name AND t.type = 'OUT')
+                (LOWER(t.account) = LOWER(fa.name) AND t.type = 'IN') OR 
+                (LOWER(t.category) = LOWER(fa.name) AND t.type = 'OUT')
             WHERE t.tenant_id = ${tenantId} AND fa.tenant_id = ${tenantId}
             GROUP BY fa.id
         `;
@@ -33,8 +33,10 @@ export async function POST() {
                 fa.id as account_id,
                 SUM(t.amount) as total_credit
             FROM transactions t
-            JOIN financial_accounts fa ON t.account = fa.name AND fa.tenant_id = ${tenantId}
-            WHERE t.tenant_id = ${tenantId} AND t.type = 'OUT'
+            JOIN financial_accounts fa ON 
+                (LOWER(t.account) = LOWER(fa.name) AND t.type = 'OUT') OR
+                (LOWER(t.category) = LOWER(fa.name) AND t.type = 'IN')
+            WHERE t.tenant_id = ${tenantId} AND fa.tenant_id = ${tenantId}
             GROUP BY fa.id
         `;
 

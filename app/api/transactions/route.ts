@@ -103,10 +103,38 @@ export async function POST(request: Request) {
 
     // 1. Audit both sides to identify Banks vs COAs
     const [bankDebit, bankCredit, coaDebit, coaCredit] = await Promise.all([
-      prisma.financialAccount.findFirst({ where: { tenantId, name: debitName, isActive: true } }),
-      prisma.financialAccount.findFirst({ where: { tenantId, name: creditName, isActive: true } }),
-      prisma.chartOfAccount.findFirst({ where: { tenantId, OR: [{ name: debitName }, { code: debitName.split(' - ')[0] }] } }),
-      prisma.chartOfAccount.findFirst({ where: { tenantId, OR: [{ name: creditName }, { code: creditName.split(' - ')[0] }] } })
+      prisma.financialAccount.findFirst({
+        where: {
+          tenantId,
+          name: { equals: debitName, mode: 'insensitive' },
+          isActive: true
+        }
+      }),
+      prisma.financialAccount.findFirst({
+        where: {
+          tenantId,
+          name: { equals: creditName, mode: 'insensitive' },
+          isActive: true
+        }
+      }),
+      prisma.chartOfAccount.findFirst({
+        where: {
+          tenantId,
+          OR: [
+            { name: { equals: debitName, mode: 'insensitive' } },
+            { code: { equals: debitName.split(' - ')[0], mode: 'insensitive' } }
+          ]
+        }
+      }),
+      prisma.chartOfAccount.findFirst({
+        where: {
+          tenantId,
+          OR: [
+            { name: { equals: creditName, mode: 'insensitive' } },
+            { code: { equals: creditName.split(' - ')[0], mode: 'insensitive' } }
+          ]
+        }
+      })
     ]);
 
     const result = await prisma.$transaction(async (tx) => {

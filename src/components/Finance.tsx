@@ -687,6 +687,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
       {activeTab === 'MUTASI' && (
         <JournalView
           transactions={localTransactions}
+          financialAccounts={financialAccounts}
           businessUnits={businessUnits}
           onEdit={(t) => handleOpenTransaction(true, t)}
           onDelete={handleDeleteTransaction}

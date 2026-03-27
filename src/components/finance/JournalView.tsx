@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Transaction, TransactionType, BusinessUnit } from '../../types';
+import { Transaction, TransactionType, BusinessUnit, FinancialAccountDef } from '../../types';
 import { formatCurrency } from '../../utils';
 import { Search, Landmark, Edit, Trash2, ImageIcon, Receipt, ArrowRight } from 'lucide-react';
 import { EmptyState } from '../EmptyState';
 
 interface JournalViewProps {
     transactions: Transaction[];
+    financialAccounts: FinancialAccountDef[];
     businessUnits: BusinessUnit[];
 
     onEdit: (t: Transaction) => void;
@@ -23,10 +24,12 @@ interface JournalViewProps {
 }
 
 export const JournalView: React.FC<JournalViewProps> = ({
-    transactions, businessUnits, onEdit, onDelete,
+    transactions, financialAccounts = [], businessUnits, onEdit, onDelete,
     statusFilter, onStatusChange, searchTerm, onSearchChange, currentPage, totalPages, totalRecords, onPageChange
 }) => {
     const [previewImage, setPreviewImage] = useState<string | null>(null);
+
+    const bankNames = financialAccounts.map(a => a.name.toLowerCase());
 
     return (
         <div className="flex flex-col gap-6 w-full">
@@ -81,6 +84,9 @@ export const JournalView: React.FC<JournalViewProps> = ({
                                     const debitAcc = isDebit ? t.account : t.category;
                                     const creditAcc = isDebit ? t.category : t.account;
 
+                                    const isDebitBank = t.accountId || (debitAcc && bankNames.includes(debitAcc.toLowerCase()));
+                                    const isCreditBank = t.accountId || (creditAcc && bankNames.includes(creditAcc.toLowerCase()));
+
                                     return (
                                         <tr key={t.id} className="hover:bg-blue-50/20 transition-colors group">
                                             <td className="px-8 py-6 align-top">
@@ -108,7 +114,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
                                                     <span className="text-[10px] font-black text-emerald-600 uppercase tracking-tight truncate max-w-[150px]" title={debitAcc}>
                                                         {debitAcc || '-'}
                                                     </span>
-                                                    {!t.accountId && isDebit && <span className="text-[7px] font-black text-slate-300 italic">NON-KAS</span>}
+                                                    {!isDebitBank && <span className="text-[7px] font-black text-slate-300 italic uppercase">JURNAL UMUM</span>}
                                                 </div>
                                             </td>
                                             <td className="px-8 py-6 align-top">
@@ -116,7 +122,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
                                                     <span className="text-[10px] font-black text-rose-600 uppercase tracking-tight truncate max-w-[150px]" title={creditAcc}>
                                                         {creditAcc || '-'}
                                                     </span>
-                                                    {!t.accountId && !isDebit && <span className="text-[7px] font-black text-slate-300 italic">NON-KAS</span>}
+                                                    {!isCreditBank && <span className="text-[7px] font-black text-slate-300 italic uppercase">JURNAL UMUM</span>}
                                                 </div>
                                             </td>
                                             <td className="px-8 py-6 align-top text-right">
