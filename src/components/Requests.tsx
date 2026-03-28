@@ -62,7 +62,10 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
     type: RequestType.IZIN,
     description: '',
     startDate: new Date().toISOString().split('T')[0],
-    endDate: new Date().toISOString().split('T')[0]
+    endDate: new Date().toISOString().split('T')[0],
+    startTime: '',
+    endTime: '',
+    isHourly: false
   });
   const [actionNote, setActionNote] = useState('');
 
@@ -109,6 +112,17 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
       return false;
     }
 
+    if (formData.isHourly) {
+      if (!formData.startTime || !formData.endTime) {
+        toast.warning("Harap tentukan jam mulai dan selesai.");
+        return false;
+      }
+      if (formData.startDate === formData.endDate && formData.startTime >= formData.endTime) {
+        toast.warning("Jam selesai harus setelah jam mulai.");
+        return false;
+      }
+    }
+
     return true;
   };
 
@@ -117,8 +131,11 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
     setFormData({
       type: req.type as RequestType,
       description: req.description || '',
-      startDate: (req.startDate as any).includes('T') ? (req.startDate as any).split('T')[0] : req.startDate as any,
-      endDate: (req.endDate as any).includes('T') ? (req.endDate as any).split('T')[0] : (req.endDate || req.startDate) as any
+      startDate: req.startDate.includes('T') ? req.startDate.split('T')[0] : req.startDate,
+      endDate: req.endDate?.includes('T') ? req.endDate.split('T')[0] : (req.endDate || req.startDate),
+      startTime: req.startTime || '',
+      endTime: req.endTime || '',
+      isHourly: !!(req.startTime || req.endTime)
     });
     setAttachment(req.attachmentUrl || null);
     setShowAdd(true);
@@ -146,6 +163,8 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
     if (isSubmitting || isUploading) return;
     if (!validateRequest()) return;
 
+    const { isHourly, ...submitData } = formData;
+
     setIsSubmitting(true);
     try {
       if (editId) {
@@ -153,7 +172,7 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
         if (original) {
           await onUpdateRequest({
             ...original,
-            ...formData,
+            ...submitData,
             attachmentUrl: attachment || undefined
           });
           toast.success("Perubahan disimpan.");
@@ -163,9 +182,9 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
           id: Math.random().toString(36).substr(2, 9),
           userId: currentUser.id,
           status: RequestStatus.PENDING,
-          createdAt: Date.now() as any,
+          createdAt: Date.now(),
           attachmentUrl: attachment || undefined,
-          ...formData
+          ...submitData
         };
         await onAddRequest(req);
         toast.success(`Permohonan dikirim.`);
@@ -188,7 +207,10 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
       type: RequestType.IZIN,
       description: '',
       startDate: new Date().toISOString().split('T')[0],
-      endDate: new Date().toISOString().split('T')[0]
+      endDate: new Date().toISOString().split('T')[0],
+      startTime: '',
+      endTime: '',
+      isHourly: false
     });
   };
 
@@ -208,7 +230,7 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
         approverId: currentUser.id,
         approverName: currentUser.name,
         actionNote: actionNote,
-        actionAt: Date.now() as any
+        actionAt: Date.now()
       });
       toast.success(`Permohonan ${status === RequestStatus.APPROVED ? 'DISETUJUI' : 'DITOLAK'}`);
       setSelectedRequest(null);
@@ -342,10 +364,12 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                       <div className="flex flex-col gap-1.5">
                         <span className="text-slate-800 font-black flex items-center gap-2">
                           {new Date(req.startDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
-                          {req.endDate !== req.startDate && (
+                          {req.startTime && <span className="text-[10px] text-blue-600">({req.startTime})</span>}
+                          {(req.endDate !== req.startDate || req.endTime) && (
                             <>
                               <ArrowRight size={10} className="text-slate-300" />
-                              {new Date(req.endDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
+                              {new Date(req.endDate || req.startDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
+                              {req.endTime && <span className="text-[10px] text-blue-600">({req.endTime})</span>}
                             </>
                           )}
                         </span>
@@ -382,9 +406,9 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                         )}
                         {!isResolved ? (
                           <>
-                            <button onClick={() => handleEdit(req)} disabled={isSubmitting} className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white flex items-center justify-center transition shadow-sm border border-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"><Edit size={18} /></button>
-                            {isManagement && (
-                              <button onClick={() => handleDelete(req.id)} disabled={isSubmitting} className="w-10 h-10 rounded-xl bg-slate-50 text-slate-400 hover:bg-rose-500 hover:text-white flex items-center justify-center transition shadow-sm border border-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"><Trash2 size={18} /></button>
+                            <button onClick={() => handleEdit(req)} disabled={isSubmitting} className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white flex items-center justify-center transition shadow-sm border border-blue-100 disabled:opacity-50 disabled:cursor-not-allowed" title="Ubah Data"><Edit size={18} /></button>
+                            {(isManagement || req.userId === currentUser.id) && (
+                              <button onClick={() => handleDelete(req.id)} disabled={isSubmitting} className="w-10 h-10 rounded-xl bg-slate-50 text-slate-400 hover:bg-rose-500 hover:text-white flex items-center justify-center transition shadow-sm border border-slate-100 disabled:opacity-50 disabled:cursor-not-allowed" title={req.userId === currentUser.id ? "Batalkan Permohonan" : "Hapus Data"}><Trash2 size={18} /></button>
                             )}
                           </>
                         ) : (
@@ -421,11 +445,14 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
             <div className="p-10 md:p-12 border-b border-slate-100 flex justify-between items-center shrink-0 bg-white rounded-t-[3.5rem] z-10 transition-all">
               <div className="flex items-center gap-6">
                 <div className="w-20 h-20 md:w-24 md:h-24 rounded-[2.5rem] bg-slate-100 flex items-center justify-center text-slate-400 font-black text-3xl overflow-hidden border-4 border-white shadow-2xl relative">
-                  {users.find(u => u.id === selectedRequest.userId)?.avatarUrl ? (
-                    <img src={users.find(u => u.id === selectedRequest.userId)?.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-                  ) : (
-                    <UserIcon size={40} className="text-slate-300" />
-                  )}
+                  {(() => {
+                    const applicant = users.find(u => u.id === selectedRequest.userId);
+                    return applicant?.avatarUrl ? (
+                      <img src={applicant.avatarUrl || undefined} alt="Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <UserIcon size={40} className="text-slate-300" />
+                    );
+                  })()}
                   <div className={`absolute bottom-0 right-0 w-8 h-8 rounded-full border-4 border-white ${selectedRequest.status === RequestStatus.APPROVED ? 'bg-emerald-500' :
                     selectedRequest.status === RequestStatus.REJECTED ? 'bg-rose-500' : 'bg-amber-500'
                     }`}></div>
@@ -460,14 +487,56 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                         <Calendar size={80} />
                       </div>
                       <p className="text-2xl font-black text-slate-800 relative z-10 italic">
-                        {new Date(selectedRequest.startDate).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                        {new Date(selectedRequest.startDate).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                        {selectedRequest.startTime && <span className="ml-3 text-blue-600">({selectedRequest.startTime})</span>}
                       </p>
-                      {selectedRequest.startDate !== selectedRequest.endDate && (
+                      {(selectedRequest.startDate !== selectedRequest.endDate || selectedRequest.endTime) && (
                         <div className="flex items-center gap-3 mt-2 relative z-10">
                           <div className="h-px w-10 bg-blue-200"></div>
-                          <p className="text-sm font-bold text-slate-500 uppercase tracking-widest italic">Hingga {new Date(selectedRequest.endDate).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
+                          <p className="text-sm font-bold text-slate-500 uppercase tracking-widest italic text-wrap">
+                            Hingga {new Date(selectedRequest.endDate || selectedRequest.startDate).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                            {selectedRequest.endTime && <span className="ml-2 text-blue-600">({selectedRequest.endTime})</span>}
+                          </p>
                         </div>
                       )}
+                    </div>
+                  </div>
+
+                  {/* New: Precise Duration Display */}
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] flex items-center gap-2">
+                      <Clock size={14} className="text-blue-600" /> DURASI PENGAJUAN
+                    </label>
+                    <div className="px-6 py-4 bg-slate-900 rounded-2xl text-white shadow-xl flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center">
+                        <History size={20} />
+                      </div>
+                      <div>
+                        <p className="text-xs font-black uppercase text-blue-400 leading-none mb-1">Total Estimasi:</p>
+                        <p className="text-lg font-black italic">
+                          {(() => {
+                            const start = new Date(selectedRequest.startDate);
+                            if (selectedRequest.startTime) {
+                              const [h, m] = selectedRequest.startTime.split(':');
+                              start.setHours(parseInt(h), parseInt(m));
+                            }
+                            const end = new Date(selectedRequest.endDate || selectedRequest.startDate);
+                            if (selectedRequest.endTime) {
+                              const [h, m] = selectedRequest.endTime.split(':');
+                              end.setHours(parseInt(h), parseInt(m));
+                            }
+                            const diffMs = end.getTime() - start.getTime();
+                            const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                            const diffHrs = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                            
+                            const parts = [];
+                            if (diffDays > 0) parts.push(`${diffDays} Hari`);
+                            if (diffHrs > 0) parts.push(`${diffHrs} Jam`);
+                            
+                            return parts.length > 0 ? parts.join(', ') : (selectedRequest.startTime ? 'Beberapa Menit' : '1 Hari');
+                          })()}
+                        </p>
+                      </div>
                     </div>
                   </div>
 
@@ -630,14 +699,54 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
 
               <div className="grid grid-cols-2 gap-5">
                 <div className="space-y-4">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-3">Mulai</label>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-3">Mulai Tanggal</label>
                   <input type="date" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-2xl font-black text-xs outline-none transition shadow-inner" value={formData.startDate} onChange={e => setFormData({ ...formData, startDate: e.target.value })} />
                 </div>
                 <div className="space-y-4">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-3">Sampai</label>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-3">Sampai Tanggal</label>
                   <input type="date" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-2xl font-black text-xs outline-none transition shadow-inner" value={formData.endDate || formData.startDate} onChange={e => setFormData({ ...formData, endDate: e.target.value })} />
                 </div>
               </div>
+
+              {formData.type === RequestType.IZIN && (
+                <div className="p-6 bg-blue-50/50 rounded-[2rem] border-2 border-dashed border-blue-200/50 space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Opsi Jam Spesifik</p>
+                      <p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5">Aktifkan untuk izin rentang waktu/jam</p>
+                    </div>
+                    <button
+                      onClick={() => setFormData({ ...formData, isHourly: !formData.isHourly })}
+                      className={`w-14 h-8 rounded-full relative transition-all duration-300 ${formData.isHourly ? 'bg-blue-600' : 'bg-slate-200'}`}
+                    >
+                      <div className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow-md transition-all duration-300 ${formData.isHourly ? 'left-7' : 'left-1'}`} />
+                    </button>
+                  </div>
+
+                  {formData.isHourly && (
+                    <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-4 duration-500">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-3">Jam Mulai</label>
+                        <input
+                          type="time"
+                          className="w-full p-4 bg-white border-2 border-slate-100 focus:border-blue-600 rounded-2xl font-black text-xs outline-none transition"
+                          value={formData.startTime}
+                          onChange={e => setFormData({ ...formData, startTime: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-3">Jam Selesai</label>
+                        <input
+                          type="time"
+                          className="w-full p-4 bg-white border-2 border-slate-100 focus:border-blue-600 rounded-2xl font-black text-xs outline-none transition"
+                          value={formData.endTime}
+                          onChange={e => setFormData({ ...formData, endTime: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="space-y-4">
                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-3">Penjelasan Alasan</label>

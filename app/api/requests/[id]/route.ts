@@ -41,6 +41,8 @@ export async function PUT(request: Request, { params }: { params: { id: string }
             description: r.description,
             startDate: new Date(r.startDate),
             endDate: r.endDate ? new Date(r.endDate) : new Date(r.startDate),
+            startTime: r.startTime || null,
+            endTime: r.endTime || null,
             attachmentUrl: r.attachmentUrl || null,
         };
 
@@ -75,13 +77,17 @@ export async function PUT(request: Request, { params }: { params: { id: string }
                     const sDate = existing.startDate ? new Date(existing.startDate) : new Date();
                     const eDate = existing.endDate ? new Date(existing.endDate) : sDate;
 
+                    const fmtD = (d: Date) => d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+                    const startInfo = `${fmtD(sDate)}${(existing as any).startTime ? ` (${(existing as any).startTime})` : ''}`;
+                    const endInfo = `${fmtD(eDate)}${(existing as any).endTime ? ` (${(existing as any).endTime})` : ''}`;
+
                     const message = [
                         `🏢 <b>${tenantId.toUpperCase()} - UPDATE STATUS</b>`,
                         `${statusIcon} <b><u>PERMOHONAN ${statusText}</u></b>`,
                         ``,
                         `👤 <b>Karyawan:</b> ${existing.user?.name || 'User'}`,
                         `📌 <b>Jenis:</b> ${existing.type}`,
-                        `📅 <b>Waktu:</b> ${sDate.toLocaleDateString('id-ID')} s/d ${eDate.toLocaleDateString('id-ID')}`,
+                        `📅 <b>Waktu:</b> ${startInfo} s/d ${endInfo}`,
                         ``,
                         `⚖️ <b>Keputusan:</b> ${statusText}`,
                         `✍️ <b>Oleh:</b> ${dataToUpdate.approverName}`,
@@ -185,17 +191,105 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 // DELETE Request
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
     try {
-        const user = await authorize(['OWNER', 'MANAGER', 'FINANCE']);
-        const { tenantId } = user;
+        const user = await authorize();
+        const { tenantId, role, id: authUserId } = user;
         const id = params.id;
 
-        const existing = await prisma.leaveRequest.findFirst({
-            where: { id, tenantId }
+        const existing = await prisma.leaveRequest.findUnique({
+            where: { id },
+            include: { user: true }
         });
 
-        if (!existing) {
+        if (!existing || existing.tenantId !== tenantId) {
             return NextResponse.json({ error: 'Data tidak ditemukan' }, { status: 404 });
         }
+
+        const isAdmin = ['OWNER', 'MANAGER', 'FINANCE'].includes(role);
+        const isApplicant = existing.userId === authUserId;
+
+        if (!isAdmin) {
+            if (!isApplicant) {
+                return NextResponse.json({ error: 'Akses ditolak' }, { status: 403 });
+            }
+            if (existing.status !== 'PENDING') {
+                return NextResponse.json({ error: 'Hanya permohonan yang berstatus PENDING yang bisa dibatalkan' }, { status: 403 });
+            }
+        }
+
+        // --- TELEGRAM NOTIFICATION FOR DELETE/CANCEL ---
+        try {
+            const telegramSettings = await prisma.settings.findUnique({ where: { tenantId } });
+            if (telegramSettings?.telegramBotToken && telegramSettings?.telegramGroupId) {
+                const isAdminAction = isAdmin && !isApplicant;
+                const statusIcon = isAdminAction ? '🗑️' : '🚫';
+                const actionText = isAdminAction ? 'DIPERINTAHKAN HAPUS OLEH ADMIN' : 'DIBATALKAN OLEH KARYAWAN';
+
+                const sDate = existing.startDate ? new Date(existing.startDate) : new Date();
+                const eDate = existing.endDate ? new Date(existing.endDate) : sDate;
+
+                const fmtD = (d: Date) => d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+                const startInfo = `${fmtD(sDate)}${(existing as any).startTime ? ` (${(existing as any).startTime})` : ''}`;
+                const endInfo = `${fmtD(eDate)}${(existing as any).endTime ? ` (${(existing as any).endTime})` : ''}`;
+
+                const message = [
+                    `🏢 <b>${tenantId.toUpperCase()} - UPDATE STATUS</b>`,
+                    `${statusIcon} <b><u>IZIN ${actionText}</u></b>`,
+                    ``,
+                    `👤 <b>Karyawan:</b> ${(existing as any).user?.name || 'User'}`,
+                    `📌 <b>Jenis:</b> ${existing.type}`,
+                    `📅 <b>Waktu:</b> ${startInfo} s/d ${endInfo}`,
+                    ``,
+                    `✍️ <b>Oleh:</b> ${user.name} (${user.role})`,
+                    isAdminAction ? `📝 <b>Alasan:</b> <i>Data telah dihapus dari sistem oleh Manajemen.</i>` : `📝 <b>Alasan:</b> <i>Karyawan memutuskan untuk membatalkan pengajuan ini.</i>`,
+                    ``,
+                    `🚀 <i>Data permohonan telah dihapus secara permanen dari Dashboard.</i>`
+                ].join('\n');
+
+                const sendTele = async (targetId: string) => {
+                    await fetch(`https://api.telegram.org/bot${telegramSettings.telegramBotToken}/sendMessage`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ chat_id: targetId, text: message, parse_mode: 'HTML' })
+                    });
+                };
+
+                const fullDest = telegramSettings.telegramGroupId;
+                const delimiter = fullDest.includes('/') ? '/' : (fullDest.includes('_') ? '_' : null);
+                if (delimiter) {
+                    const [chatId, topicId] = fullDest.split(delimiter);
+                    let targetChat = chatId.trim();
+                    if (targetChat.startsWith('-') && !targetChat.startsWith('-100')) {
+                        targetChat = '-100' + targetChat.substring(1);
+                    } else if (!targetChat.startsWith('-') && !targetChat.startsWith('@')) {
+                        targetChat = '-100' + targetChat;
+                    }
+                    const topicBody: any = {
+                        chat_id: targetChat,
+                        text: message,
+                        parse_mode: 'HTML'
+                    };
+                    if (topicId && topicId.trim()) topicBody.message_thread_id = parseInt(topicId.trim());
+
+                    const res = await fetch(`https://api.telegram.org/bot${telegramSettings.telegramBotToken}/sendMessage`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(topicBody)
+                    });
+                    if (!res.ok && topicBody.message_thread_id) {
+                        delete topicBody.message_thread_id;
+                        await sendTele(targetChat);
+                    }
+                } else {
+                    let targetChat = fullDest.trim();
+                    if (targetChat.startsWith('-') && !targetChat.startsWith('-100')) {
+                        targetChat = '-100' + targetChat.substring(1);
+                    } else if (!targetChat.startsWith('-') && !targetChat.startsWith('@')) {
+                        targetChat = '-100' + targetChat;
+                    }
+                    await sendTele(targetChat);
+                }
+            }
+        } catch (err) { console.error("Telegram Delete Notify Error:", err); }
 
         await prisma.leaveRequest.delete({
             where: { id }

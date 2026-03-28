@@ -197,6 +197,8 @@ model LeaveRequest {
   description   String?
   startDate     DateTime? @map("start_date") @db.Date
   endDate       DateTime? @map("end_date") @db.Date
+  startTime     String?   @map("start_time") // Format: HH:mm
+  endTime       String?   @map("end_time")   // Format: HH:mm
   attachmentUrl String?   @map("attachment_url")
   status        String?
   approverId    String?   @map("approver_id")

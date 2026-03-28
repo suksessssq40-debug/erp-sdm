@@ -59,6 +59,10 @@ export async function POST(request: Request) {
                 description: r.description,
                 startDate: new Date(r.startDate),
                 endDate: r.endDate ? new Date(r.endDate) : new Date(r.startDate),
+                ...({
+                    startTime: r.startTime || null,
+                    endTime: r.endTime || null,
+                } as any),
                 attachmentUrl: r.attachmentUrl || null,
                 status: r.status,
                 createdAt: r.createdAt ? BigInt(r.createdAt) : BigInt(Date.now())
@@ -80,8 +84,28 @@ export async function POST(request: Request) {
 
                 const startDate = new Date(r.startDate);
                 const endDate = new Date(r.endDate || r.startDate);
-                const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
-                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+                
+                // Enhanced Duration Calculation
+                const startCalc = new Date(startDate);
+                if (r.startTime) {
+                    const [h, m] = r.startTime.split(':');
+                    startCalc.setHours(parseInt(h), parseInt(m));
+                }
+                const endCalc = new Date(endDate);
+                if (r.endTime) {
+                    const [h, m] = r.endTime.split(':');
+                    endCalc.setHours(parseInt(h), parseInt(m));
+                }
+
+                const diffTime = Math.abs(endCalc.getTime() - startCalc.getTime());
+                const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                const diffHrs = Math.floor((diffTime % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+
+                let durationStr = "";
+                if (diffDays > 0) durationStr += `${diffDays} Hari `;
+                if (diffHrs > 0) durationStr += `${diffHrs} Jam`;
+                if (!durationStr) durationStr = r.startTime ? "Beberapa Menit" : "1 Hari";
+
                 const fmtDate = (d: Date) => d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
                 let companyName = tenantId.toUpperCase();
@@ -92,6 +116,8 @@ export async function POST(request: Request) {
                     }
                 } catch (e) { }
 
+                const timeStr = r.startTime && r.endTime ? ` (${r.startTime} - ${r.endTime})` : (r.startTime ? ` (${r.startTime})` : '');
+
                 const message = [
                     `🏢 <b>${companyName.toUpperCase()}</b>`,
                     `✨ <b><u>PENGAJUAN ${r.type.toUpperCase()}</u></b> ✨`,
@@ -100,8 +126,8 @@ export async function POST(request: Request) {
                     `💼 <b>Jabatan:</b> ${user.jobTitle || 'Staff'}`,
                     ``,
                     `📌 <b>Jenis:</b> ${r.type}`,
-                    `📅 <b>Waktu:</b> ${fmtDate(startDate)}${r.endDate && r.endDate !== r.startDate ? ` s/d ${fmtDate(endDate)}` : ''}`,
-                    `⏳ <b>Durasi:</b> ${diffDays} Hari`,
+                    `📅 <b>Waktu:</b> ${fmtDate(startDate)}${r.startTime ? ` (Jam: ${r.startTime})` : ''}${r.endDate && r.endDate !== r.startDate ? ` s/d ${fmtDate(endDate)}${r.endTime ? ` (Jam: ${r.endTime})` : ''}` : (r.endTime ? ` s/d Jam ${r.endTime}` : '')}`,
+                    `⏳ <b>Durasi:</b> ${durationStr}`,
                     `📝 <b>Alasan:</b> <i>"${r.description}"</i>`,
                     ``,
                     `📎 <b>Lampiran:</b> ${r.attachmentUrl ? '✅ Tersedia' : '❌ Tidak Ada'}`,
