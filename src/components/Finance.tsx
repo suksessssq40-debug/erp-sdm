@@ -32,8 +32,8 @@ interface FinanceProps {
   categories: TransactionCategory[];
   companyProfile: CompanyProfile; // NEW: For Report Header
 
-  onAddTransaction: (t: Transaction) => Promise<void>;
-  onUpdateTransaction: (t: Transaction) => Promise<void>;
+  onAddTransaction: (t: Transaction) => Promise<Transaction | void>;
+  onUpdateTransaction: (t: Transaction) => Promise<Transaction | void>;
   onDeleteTransaction: (id: string, detail: string) => Promise<void>;
 
   onAddAccount?: (acc: FinancialAccountDef) => Promise<void>;
@@ -435,25 +435,17 @@ const FinanceModule: React.FC<FinanceProps> = ({
   const handleSaveTransaction = async (data: Transaction) => {
     try {
       if (transactionModal.isEditing) {
-        await onUpdateTransaction(data);
-        // Manual Local Update
-        setLocalTransactions(prev => prev.map(t => t.id === data.id ? data : t));
+        const updated = await onUpdateTransaction(data);
+        const finalObj = updated || data;
+        // Manual Local Update with SERVER DATA
+        setLocalTransactions(prev => prev.map(t => t.id === finalObj.id ? finalObj : t));
         toast.success('Transaksi diperbarui');
       } else {
-        await onAddTransaction(data);
-        // Manual Local Update (Optimistic-like, but after success to ensure ID)
-        // Note: data might not have ID if not returned from onAddTransaction, 
-        // but typically onAddTransaction updates the store. 
-        // Ideally we should receive the created object.
-        // For now, we rely on the fact that store.transactions IS updated, 
-        // but localTransactions is separate. 
-        // Better: trigger fetchData immediately but dont block UI if possible.
-        // Even Better: We simply append 'data' with a temp ID if needed, 
-        // BUT 'onAddTransaction' is async and returns void in props, 
-        // so we can't easily get the REAL ID unless we change the interface.
-        // HOWEVER, 'fetchData' below will fix it. The issue was caching.
-        // With cache: 'no-store' added to fetchData, it should be fast enough.
-        // But to be super safe, let's force a delay-less fetch.
+        const created = await onAddTransaction(data);
+        // If created exists, we could optimistic update localTransactions too
+        if (created) {
+           setLocalTransactions(prev => [created, ...prev]);
+        }
         toast.success('Transaksi disimpan');
       }
 
