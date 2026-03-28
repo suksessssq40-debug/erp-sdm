@@ -43,13 +43,6 @@ export const createFinancialActions = (
   };
 
   const updateTransaction = async (t: Transaction) => {
-    setState(prev => {
-      const currentTransactions = Array.isArray(prev.transactions) ? prev.transactions : [];
-      return {
-        ...prev,
-        transactions: currentTransactions.map(tr => tr.id === t.id ? t : tr)
-      };
-    });
     try {
       const res = await fetch(`${API_BASE}/api/transactions/${t.id}`, {
         method: 'PUT',
@@ -57,7 +50,18 @@ export const createFinancialActions = (
         body: JSON.stringify(t)
       });
       if (!res.ok) throw new Error('Failed to update transaction');
-      addLog(SystemActionType.FINANCE_UPDATE, `Updated transaction: ${t.amount} (${t.type})`, t.id);
+      
+      const updated: Transaction = await res.json();
+      
+      setState(prev => {
+        const currentTransactions = Array.isArray(prev.transactions) ? prev.transactions : [];
+        return {
+          ...prev,
+          transactions: currentTransactions.map(tr => tr.id === updated.id ? updated : tr)
+        };
+      });
+
+      addLog(SystemActionType.FINANCE_UPDATE, `Updated transaction: ${updated.amount} (${updated.type})`, updated.id);
     } catch (e) {
       console.error(e);
       throw e;
