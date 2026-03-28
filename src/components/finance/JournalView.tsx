@@ -86,12 +86,12 @@ export const JournalView: React.FC<JournalViewProps> = ({
                             </thead>
                             <tbody className="divide-y divide-slate-50">
                                 {transactions.map(t => {
-                                    const debitAcc = t.account;
-                                    const creditAcc = t.category;
+                                    const isDebit = t.type === TransactionType.IN;
+                                    const debitAcc = isDebit ? t.account : t.category;
+                                    const creditAcc = isDebit ? t.category : t.account;
 
-                                    // Correct Bank Labeling: Check if the name in that column exists in financialAccounts
-                                    const isDebitBank = financialAccounts.some(acc => acc.name === debitAcc);
-                                    const isCreditBank = financialAccounts.some(acc => acc.name === creditAcc);
+                                    const isDebitBank = t.accountId || (debitAcc && bankNames.includes(debitAcc.toLowerCase()));
+                                    const isCreditBank = t.accountId || (creditAcc && bankNames.includes(creditAcc.toLowerCase()));
 
                                     return (
                                         <tr key={t.id} className="hover:bg-blue-50/20 transition-colors group">

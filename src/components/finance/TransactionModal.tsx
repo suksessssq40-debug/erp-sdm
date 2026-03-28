@@ -48,10 +48,13 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 date: initialData.date ? initialData.date : new Date().toISOString()
             });
 
-            // Universal Loading: Debit is always 'account', Credit is always 'category'
+            // Initialize search fields based on existing data with Debit/Credit awareness
             if (isEditing) {
-                setDebitSearch(initialData.account || '');
-                setCreditSearch(initialData.category || '');
+                const isDebit = initialData.type === TransactionType.IN;
+                // For legacy consistency: IN means account is Debit, category is Credit.
+                // OUT means account is Credit, category is Debit.
+                setDebitSearch(isDebit ? initialData.account || '' : initialData.category || '');
+                setCreditSearch(isDebit ? initialData.category || '' : initialData.account || '');
             } else {
                 setDebitSearch('');
                 setCreditSearch('');
@@ -108,14 +111,14 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
         // Banks
         financialAccounts.forEach(acc => {
-            if (acc.isActive !== false && acc.name.toLowerCase().includes(query)) {
+            if (acc.name.toLowerCase().includes(query)) {
                 results.push({ id: acc.id, name: acc.name, type: 'BANK', icon: <Landmark size={14} /> });
             }
         });
 
         // COAs
         coaList.forEach(coa => {
-            if (coa.isActive !== false && (coa.name.toLowerCase().includes(query) || coa.code.includes(query))) {
+            if (coa.name.toLowerCase().includes(query) || coa.code.includes(query)) {
                 results.push({ id: coa.id, name: `${coa.code} - ${coa.name}`, type: coa.type, isCoa: true, icon: <BookOpen size={14} /> });
             }
         });

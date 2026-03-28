@@ -36,7 +36,6 @@ export const createFinancialActions = (
         return { ...prev, transactions: [...currentTransactions, created] };
       });
       addLog(SystemActionType.FINANCE_CREATE, `Created transaction: ${created.amount} (${created.type})`, created.id);
-      return created;
     } catch (e) {
       console.error(e);
       throw e;
@@ -63,7 +62,6 @@ export const createFinancialActions = (
       });
 
       addLog(SystemActionType.FINANCE_UPDATE, `Updated transaction: ${updated.amount} (${updated.type})`, updated.id);
-      return updated;
     } catch (e) {
       console.error(e);
       throw e;

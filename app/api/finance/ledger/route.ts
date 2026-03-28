@@ -22,118 +22,85 @@ export async function GET(request: Request) {
 
         const client = await pool.connect();
         try {
-            // --- 1. Identify Account Details ---
-            let targetAccountId: string | null = null;
-            let targetCoaId: string | null = null;
-            let coaCode: string | null = null;
-            let normalPos: 'DEBIT' | 'CREDIT' = 'DEBIT'; // Default for Bank
+            // --- 1. Identify Account Details (Robust Case-Insensitive) ---
+            const accountRes = await client.query(`
+                SELECT name, 'BANK' as source, 'DEBIT' as normal_pos FROM financial_accounts WHERE tenant_id = $1 AND LOWER(name) = LOWER($2)
+                UNION ALL
+                SELECT name, 'COA' as source, normal_pos FROM chart_of_accounts WHERE tenant_id = $1 AND (LOWER(name) = LOWER($2) OR code = $2)
+                LIMIT 1
+            `, [tenantId, accountName]);
 
-            // Check if it's a Bank Account
-            const bankRes = await client.query(
-                'SELECT id FROM financial_accounts WHERE tenant_id = $1 AND name = $2',
-                [tenantId, accountName]
-            );
-
-            if (bankRes.rows.length > 0) {
-                targetAccountId = bankRes.rows[0].id;
-                normalPos = 'DEBIT';
-            } else {
-                // If not bank, find COA
-                const match = accountName.match(/^(\d+)\s*[-]\s*(.*)$/);
-                const searchCode = match ? match[1] : null;
-
-                const coaRes = await client.query(
-                    `SELECT id, code, type, normal_pos FROM chart_of_accounts 
-                     WHERE tenant_id = $1 AND (code = $2 OR name ILIKE $3)`,
-                    [tenantId, searchCode, `%${accountName}%`]
-                );
-
-                if (coaRes.rows.length > 0) {
-                    targetCoaId = coaRes.rows[0].id;
-                    coaCode = coaRes.rows[0].code;
-                    normalPos = coaRes.rows[0].normal_pos; // Use DB's normal position
-                }
+            if (accountRes.rows.length === 0) {
+                return NextResponse.json({ openingBalance: 0, transactions: [], normalPos: 'DEBIT' });
             }
 
-            // --- 2. Build Query Filters ---
-            let sideAClause = `(t.coa_id = $2 OR t.category ILIKE $3)`;
-            let sideBClause = `(t.account_id = $4 OR t.account ILIKE $5)`;
-            let params: any[] = [tenantId, targetCoaId, `%${coaCode}%`, targetAccountId, `%${accountName}%`];
+            const acc = accountRes.rows[0];
+            const name = acc.name;
+            const normalPos = acc.normal_pos;
 
-            let filterClause = `(${sideAClause} OR ${sideBClause})`;
-            let paramIdx = 6;
-
-            if (businessUnitId && businessUnitId !== 'ALL') {
-                filterClause += ` AND t.business_unit_id = $${paramIdx}`;
-                params.push(businessUnitId);
-                paramIdx++;
-            }
-
-            // --- 3. Opening Balance Logic ---
+            // --- 2. Opening Balance Calculation (Universal) ---
             const openingQuery = `
                 SELECT 
-                    t.type,
-                    t.amount,
-                    (t.coa_id = $2 OR t.category ILIKE $3) as is_side_a,
-                    (t.account_id = $4 OR t.account ILIKE $5) as is_side_b
-                FROM transactions t
-                WHERE t.tenant_id = $1 AND ${filterClause} AND t.date < $${paramIdx}
+                    SUM(CASE 
+                        WHEN (LOWER(account) = LOWER($2) AND type = 'IN') OR (LOWER(category) = LOWER($2) AND type = 'OUT') THEN amount 
+                        ELSE 0 
+                    END) as total_debit,
+                    SUM(CASE 
+                        WHEN (LOWER(account) = LOWER($2) AND type = 'OUT') OR (LOWER(category) = LOWER($2) AND type = 'IN') THEN amount 
+                        ELSE 0 
+                    END) as total_credit
+                FROM transactions 
+                WHERE tenant_id = $1 AND date < $3
+                ${businessUnitId && businessUnitId !== 'ALL' ? `AND business_unit_id = $4` : ''}
             `;
-            const openingRes = await client.query(openingQuery, [...params, startDate]);
+            
+            const openingParams = [tenantId, name, startDate];
+            if (businessUnitId && businessUnitId !== 'ALL') openingParams.push(businessUnitId);
 
-            let openingDebit = 0;
-            let openingCredit = 0;
+            const openingRes = await client.query(openingQuery, openingParams);
+            const op = openingRes.rows[0];
+            const opDr = Number(op.total_debit || 0);
+            const opCr = Number(op.total_credit || 0);
+            const openingBalance = normalPos === 'DEBIT' ? (opDr - opCr) : (opCr - opDr);
 
-            openingRes.rows.forEach(row => {
-                const amt = Number(row.amount);
-                if (row.is_side_b) {
-                    if (row.type === 'IN') openingDebit += amt;
-                    else openingCredit += amt;
-                } else if (row.is_side_a) {
-                    if (row.type === 'IN') openingCredit += amt;
-                    else openingDebit += amt;
-                }
-            });
-
-            const openingBalance = normalPos === 'DEBIT' ? (openingDebit - openingCredit) : (openingCredit - openingDebit);
-
-            // --- 4. Fetch Transactions ---
+            // --- 3. Transaction Rows (Universal) ---
             const transQuery = `
-                SELECT 
-                    t.*, 
-                    fa.name as linked_account_name,
-                    (t.coa_id = $2 OR t.category ILIKE $3) as is_side_a,
-                    (t.account_id = $4 OR t.account ILIKE $5) as is_side_b
-                FROM transactions t
-                LEFT JOIN financial_accounts fa ON t.account_id = fa.id
-                WHERE t.tenant_id = $1 AND ${filterClause} AND t.date >= $${paramIdx} AND t.date <= $${paramIdx + 1}
-                ORDER BY t.date ASC, t.created_at ASC
+                SELECT * FROM transactions 
+                WHERE tenant_id = $1 
+                AND (LOWER(account) = LOWER($2) OR LOWER(category) = LOWER($2))
+                AND date >= $3 AND date <= $4
+                ${businessUnitId && businessUnitId !== 'ALL' ? `AND business_unit_id = $5` : ''}
+                ORDER BY date ASC, created_at ASC
             `;
-            const transRes = await client.query(transQuery, [...params, startDate, endDate]);
+
+            const transParams = [tenantId, name, startDate, endDate];
+            if (businessUnitId && businessUnitId !== 'ALL') transParams.push(businessUnitId);
+
+            const transRes = await client.query(transQuery, transParams);
 
             const transactions = transRes.rows.map(t => {
                 const amt = Number(t.amount);
                 let debit = 0;
                 let credit = 0;
 
-                if (t.is_side_b) {
-                    if (t.type === 'IN') debit = amt;
-                    else credit = amt;
-                } else if (t.is_side_a) {
-                    if (t.type === 'IN') credit = amt;
-                    else debit = amt;
+                // Universal Debit Logic: If it matches Account while IN, or Category while OUT
+                if ((t.account.toLowerCase() === name.toLowerCase() && t.type === 'IN') || 
+                    (t.category.toLowerCase() === name.toLowerCase() && t.type === 'OUT')) {
+                    debit = amt;
+                } else {
+                    credit = amt;
                 }
 
                 return {
                     id: t.id,
                     date: t.date.toISOString().split('T')[0],
                     amount: amt,
-                    debit: debit,
-                    credit: credit,
+                    debit,
+                    credit,
                     type: t.type,
-                    category: t.category,
                     description: t.description,
-                    account: t.linked_account_name || t.account,
+                    account: t.account,
+                    category: t.category,
                     businessUnitId: t.business_unit_id,
                     imageUrl: t.image_url
                 };
