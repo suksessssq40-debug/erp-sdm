@@ -21,9 +21,11 @@ export async function GET(request: Request) {
     const whereClause: any = { tenantId };
     if (startDate) whereClause.date = { gte: new Date(startDate) };
     if (endDate) {
+      const endOfDay = new Date(endDate);
+      endOfDay.setUTCHours(23, 59, 59, 999);
       whereClause.date = {
         ...whereClause.date,
-        lte: new Date(endDate)
+        lte: endOfDay
       };
     }
     if (status && status !== 'ALL') {

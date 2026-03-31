@@ -59,16 +59,23 @@ export async function PUT(request: Request, { params }: { params: { id: string }
             const old = await tx.transaction.findUnique({ where: { id } });
             if (!old) throw new Error('Transaction not found');
 
-            // 1. Undo Old Impact (Operational Basis - Always Undo)
-            if (old.accountId) {
-                try {
-                    const oldAmount = Number(old.amount);
-                    const undoChange = old.type === 'IN' ? -oldAmount : oldAmount;
-                    await (tx.financialAccount as any).update({
-                        where: { id: old.accountId, tenantId },
-                        data: { balance: { increment: undoChange } }
-                    });
-                } catch (e) { /* ignore */ }
+            // 1. Undo Old Impact (Universal Debit/Credit Reversal)
+            const [oldBankDebit, oldBankCredit] = await Promise.all([
+                (tx.financialAccount as any).findFirst({ where: { tenantId, name: { equals: old.account, mode: 'insensitive' } } }),
+                (tx.financialAccount as any).findFirst({ where: { tenantId, name: { equals: old.category, mode: 'insensitive' } } })
+            ]);
+
+            if (oldBankDebit) {
+                await (tx.financialAccount as any).update({
+                    where: { id: oldBankDebit.id, tenantId },
+                    data: { balance: { decrement: Number(old.amount) } }
+                });
+            }
+            if (oldBankCredit) {
+                await (tx.financialAccount as any).update({
+                    where: { id: oldBankCredit.id, tenantId },
+                    data: { balance: { increment: Number(old.amount) } }
+                });
             }
 
             // 2. Perform Update (With Corrected type and accountId)
@@ -91,16 +98,18 @@ export async function PUT(request: Request, { params }: { params: { id: string }
                 } as any
             });
 
-            // 3. Apply New Impact (Operational Basis - Always Apply)
-            if (accountId) {
-                try {
-                    const newAmount = Number(body.amount);
-                    const applyChange = body.type === 'IN' ? newAmount : -newAmount;
-                    await (tx.financialAccount as any).update({
-                        where: { id: accountId, tenantId },
-                        data: { balance: { increment: applyChange } }
-                    });
-                } catch (e) { /* ignore */ }
+            // 3. Apply New Impact (Universal Debit/Credit Application)
+            if (bankDebit) {
+                await (tx.financialAccount as any).update({
+                    where: { id: bankDebit.id, tenantId },
+                    data: { balance: { increment: Number(body.amount) } }
+                });
+            }
+            if (bankCredit) {
+                await (tx.financialAccount as any).update({
+                    where: { id: bankCredit.id, tenantId },
+                    data: { balance: { decrement: Number(body.amount) } }
+                });
             }
 
             return up;
@@ -127,15 +136,23 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
             const old = await tx.transaction.findUnique({ where: { id } });
             if (!old) return;
 
-            if (old.accountId) {
-                try {
-                    const oldAmount = Number(old.amount);
-                    const undoChange = old.type === 'IN' ? -oldAmount : oldAmount;
-                    await (tx.financialAccount as any).update({
-                        where: { id: old.accountId, tenantId },
-                        data: { balance: { increment: undoChange } }
-                    });
-                } catch (e) { /* ignore */ }
+            // Undo Old Impact (Universal Debit/Credit Reversal)
+            const [oldBankDebit, oldBankCredit] = await Promise.all([
+                (tx.financialAccount as any).findFirst({ where: { tenantId, name: { equals: old.account, mode: 'insensitive' } } }),
+                (tx.financialAccount as any).findFirst({ where: { tenantId, name: { equals: old.category, mode: 'insensitive' } } })
+            ]);
+
+            if (oldBankDebit) {
+                await (tx.financialAccount as any).update({
+                    where: { id: oldBankDebit.id, tenantId },
+                    data: { balance: { decrement: Number(old.amount) } }
+                });
+            }
+            if (oldBankCredit) {
+                await (tx.financialAccount as any).update({
+                    where: { id: oldBankCredit.id, tenantId },
+                    data: { balance: { increment: Number(old.amount) } }
+                });
             }
 
             await tx.transaction.delete({ where: { id } });

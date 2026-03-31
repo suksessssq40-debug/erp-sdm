@@ -63,6 +63,10 @@ export async function GET(request: Request) {
             const opCr = Number(op.total_credit || 0);
             const openingBalance = normalPos === 'DEBIT' ? (opDr - opCr) : (opCr - opDr);
 
+            const startD = new Date(startDate).toISOString();
+            const endD = new Date(endDate);
+            endD.setUTCHours(23, 59, 59, 999);
+            
             // --- 3. Transaction Rows (Universal) ---
             const transQuery = `
                 SELECT * FROM transactions 
@@ -73,7 +77,7 @@ export async function GET(request: Request) {
                 ORDER BY date ASC, created_at ASC
             `;
 
-            const transParams = [tenantId, name, startDate, endDate];
+            const transParams = [tenantId, name, startD, endD.toISOString()];
             if (businessUnitId && businessUnitId !== 'ALL') transParams.push(businessUnitId);
 
             const transRes = await client.query(transQuery, transParams);

@@ -49,6 +49,7 @@ export async function GET(request: Request) {
         const now = new Date();
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
         const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        endOfMonth.setUTCHours(23, 59, 59, 999);
 
         const plWhere: Prisma.TransactionWhereInput = {
             tenantId: tenantId,
