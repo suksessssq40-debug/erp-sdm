@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { User, SystemLog, SystemActionType, Project } from './types';
 import { supabase } from './lib/supabaseClient';
 import { AppState } from './store/types';
@@ -23,7 +23,7 @@ export const useStore = () => {
     : {};
 
   // --- CENTRALIZED LOGGING FUNCTION ---
-  const addLog = async (actionType: SystemActionType, details: string, target?: string, metadata?: any) => {
+  const addLog = useCallback(async (actionType: SystemActionType, details: string, target?: string, metadata?: any) => {
     if (!state.currentUser) return;
 
     const newLog: SystemLog = {
@@ -43,22 +43,22 @@ export const useStore = () => {
     try {
       fetch(`${API_BASE}/api/system-logs`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        headers: { 'Content-Type': 'application/json', Authorization: state.authToken ? `Bearer ${state.authToken}` : '' },
         body: JSON.stringify(newLog)
       });
     } catch (e) {
       console.error('Failed to persist log', e);
     }
-  };
+  }, [state.currentUser?.id, state.authToken]);
 
-  // Re-compose actions from fragments
-  const attendanceActions = createAttendanceActions(state, setState, authHeaders, addLog);
-  const financialActions = createFinancialActions(state, setState, authHeaders, addLog);
-  const userActions = createUserActions(state, setState, authHeaders, addLog);
-  const projectActions = createProjectActions(state, setState, authHeaders, addLog);
-  const tenantActions = createTenantActions(state, setState, authHeaders, addLog);
-  const miscActions = createMiscActions(state, setState, authHeaders, addLog);
-  const otherActions = createOtherActions(state, setState, authHeaders, addLog);
+  // Re-compose actions from fragments - Memoized to prevent infinite loops
+  const attendanceActions = useMemo(() => createAttendanceActions(state, setState, authHeaders, addLog), [state.authToken, addLog]);
+  const financialActions = useMemo(() => createFinancialActions(state, setState, authHeaders, addLog), [state.authToken, addLog]);
+  const userActions = useMemo(() => createUserActions(state, setState, authHeaders, addLog), [state.authToken, addLog]);
+  const projectActions = useMemo(() => createProjectActions(state, setState, authHeaders, addLog), [state.authToken, addLog]);
+  const tenantActions = useMemo(() => createTenantActions(state, setState, authHeaders, addLog), [state.authToken, addLog]);
+  const miscActions = useMemo(() => createMiscActions(state, setState, authHeaders, addLog), [state.authToken, addLog]);
+  const otherActions = useMemo(() => createOtherActions(state, setState, authHeaders, addLog), [state.authToken, addLog]);
 
   useEffect(() => {
     const initializeApp = async () => {
@@ -240,6 +240,7 @@ export const useStore = () => {
     fetchTransactions: financialActions.fetchTransactions,
     fetchAttendance: attendanceActions.fetchAttendance,
     fetchRequests: otherActions.fetchRequests,
+    fetchLeaveQuotas: otherActions.fetchLeaveQuotas,
     fetchTenants: tenantActions.fetchTenants,
     fetchDailyReports: miscActions.fetchDailyReports,
     fetchLogs: otherActions.fetchLogs,

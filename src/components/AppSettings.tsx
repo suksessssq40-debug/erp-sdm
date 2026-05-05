@@ -376,6 +376,7 @@ export const AppSettings = ({ store, toast }: any) => {
         </div>
       </div>
 
+
       <div className="bg-white p-12 rounded-[3rem] shadow-xl border border-slate-100 space-y-10 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-50 blur-3xl rounded-full -mr-16 -mt-16"></div>
         <div className="flex items-center space-x-6 relative z-10">

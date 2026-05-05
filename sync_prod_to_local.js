@@ -7,6 +7,15 @@ const LOCAL_URL = 'postgresql://postgres.euxinsbjfukszxzejbop:082139063266@aws-1
 const prodPool = new Pool({ connectionString: PROD_URL, ssl: { rejectUnauthorized: false } });
 const localPool = new Pool({ connectionString: LOCAL_URL, ssl: { rejectUnauthorized: false } });
 
+// Mencegah crash jika Supabase mematikan koneksi idle
+prodPool.on('error', (err) => console.warn('Prod pool idle error:', err.message));
+localPool.on('error', (err) => console.warn('Local pool idle error:', err.message));
+
+// Tabel yang sengaja di-SKIP dari sinkronisasi:
+//   system_logs → terlalu besar (23k+ baris), menyebabkan timeout pooler Supabase.
+//                 Log tidak dibutuhkan secara lokal; gunakan prisma studio untuk debug.
+const SKIP_TABLES = new Set(['system_logs']);
+
 const TABLES = [
     'tenants', // Critical first
     'users',
@@ -28,7 +37,8 @@ const TABLES = [
     'chat_members',
     'chat_messages',
     'push_subscriptions',
-    'system_logs'
+    'leave_quotas',    // NEW: Leave quota tracking
+    // system_logs  ← INTENTIONALLY EXCLUDED (see SKIP_TABLES above)
 ];
 
 async function sync() {
@@ -41,6 +51,9 @@ async function sync() {
         await localPool.query('SET session_replication_role = \'replica\';');
 
         for (const table of TABLES) {
+            if (SKIP_TABLES.has(table)) {
+                console.log(`\n⏭️  Skip tabel: [${table}] (excluded)`); continue;
+            }
             console.log(`\n📦 Memproses tabel: [${table}]`);
 
             // A. Ambil Data dari Production
@@ -54,7 +67,7 @@ async function sync() {
             // C. Insert Data ke Lokal
             if (prodData.rows.length > 0) {
                 const columns = Object.keys(prodData.rows[0]);
-                const chunkSize = 40; // Smaller chunks for large JSON safely
+                const chunkSize = 50; // Balanced chunk size — fast but safe for Supabase pooler
 
                 for (let i = 0; i < prodData.rows.length; i += chunkSize) {
                     const chunk = prodData.rows.slice(i, i + chunkSize);
@@ -64,7 +77,17 @@ async function sync() {
                     });
 
                     const values = chunk.flatMap(row => columns.map(col => {
-                        const val = row[col];
+                        let val = row[col];
+                        
+                        // CRITICAL: Handle BigInt to Date conversion for leave_requests
+                        // Prod uses BigInt timestamps, Local uses Timestamptz
+                        if (table === 'leave_requests' && (col === 'created_at' || col === 'action_at') && val !== null) {
+                            if (typeof val === 'string' || typeof val === 'number' || typeof val === 'bigint') {
+                                // Supabase BigInt usually comes as string in JS pg driver
+                                val = new Date(Number(val));
+                            }
+                        }
+
                         // CRITICAL: Handle JSONB and objects
                         if (val !== null && typeof val === 'object' && !(val instanceof Date)) {
                             return JSON.stringify(val);
@@ -86,7 +109,11 @@ async function sync() {
             }
         }
 
-        // 2. Aktifkan kembali Trigger
+        // 2. Reset Sequence untuk tabel yang menggunakan auto-increment (settings)
+        console.log('🔄 Mereset sequence auto-increment...');
+        await localPool.query("SELECT setval(pg_get_serial_sequence('settings', 'id'), coalesce(max(id), 1)) FROM settings;");
+
+        // 3. Aktifkan kembali Trigger
         await localPool.query('SET session_replication_role = \'origin\';');
         console.log('\n--------------------------------------------------');
         console.log('✅ SINKRONISASI SELESAI!');

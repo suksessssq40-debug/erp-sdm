@@ -28,6 +28,19 @@ export const createOtherActions = (
     }
   };
 
+  const fetchLeaveQuotas = async (userId?: string) => {
+    try {
+      let url = `${API_BASE}/api/requests/quota`;
+      if (userId) url += `?userId=${userId}`;
+      const res = await fetch(url, { headers: authHeaders });
+      if (res.ok) {
+        const data = await res.json();
+        const quotaArray = Array.isArray(data) ? data : [data];
+        setState(prev => ({ ...prev, leaveQuotas: quotaArray }));
+      }
+    } catch (e) { console.error("Fetch Quotas Failed", e); }
+  };
+
   const addRequest = async (req: LeaveRequest) => {
     try {
       const res = await fetch(`${API_BASE}/api/requests`, {
@@ -35,12 +48,16 @@ export const createOtherActions = (
         headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify(req)
       });
-      if (!res.ok) throw new Error('Failed to create request');
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || err.error || 'Gagal mengirim permohonan.');
+      }
       const created: LeaveRequest = await res.json();
       setState(prev => ({ ...prev, requests: [...prev.requests, created] }));
       addLog(SystemActionType.REQUEST_CREATE, `Submitted request: ${created.type}`, created.id);
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      throw e;
     }
   };
 
@@ -256,7 +273,7 @@ export const createOtherActions = (
   };
 
   return {
-    fetchRequests, addRequest, updateRequest, deleteRequest,
+    fetchRequests, fetchLeaveQuotas, addRequest, updateRequest, deleteRequest,
     addFinancialAccount, updateFinancialAccount, deleteFinancialAccount,
     addCategory, updateCategory, deleteCategory,
     addBusinessUnit, updateBusinessUnit, deleteBusinessUnit,

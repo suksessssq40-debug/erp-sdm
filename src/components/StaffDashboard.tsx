@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAppStore } from '../context/StoreContext';
 import {
     Clock,
@@ -13,10 +13,11 @@ import {
     AlertTriangle
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { Project, RequestStatus } from '../types';
+import { Project, RequestStatus, LeaveQuota } from '../types';
 
 export const StaffDashboard = () => {
-    const { currentUser, attendance, projects, dailyReports, requests } = useAppStore();
+    const store = useAppStore();
+    const { currentUser, attendance, projects, dailyReports, requests } = store;
     const router = useRouter();
 
     // 1. Time & Attendance Logic (FIXED: Consistent Jakarta Timezone)
@@ -179,8 +180,45 @@ export const StaffDashboard = () => {
     // 4. Daily Report Check
     const hasReportedToday = dailyReports.some(r => r.userId === currentUser?.id && r.date === new Date().toISOString().split('T')[0]);
 
-    // 5. Recent Request Status
-    const latestRequest = requests.filter(r => r.userId === currentUser?.id).sort((a, b) => b.createdAt - a.createdAt)[0];
+    // 5. Latest Request
+    const latestRequest = useMemo(() => {
+        const myRequests = requests.filter(r => r.userId === currentUser?.id);
+        return [...myRequests].sort((a, b) => {
+            const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return dateB - dateA;
+        })[0];
+    }, [requests, currentUser?.id]);
+
+    // 6. Leave & Policy Status
+    const myQuota = useMemo(() => store.leaveQuotas?.find((q: LeaveQuota) => q.userId === currentUser?.id), [store.leaveQuotas, currentUser?.id]);
+    
+    const weeklyLimitReached = useMemo(() => {
+        const limit = store.settings?.leaveWeeklyLimit ?? 1;
+        if (limit === 99) return false;
+
+        const now = new Date();
+        const jktNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+        const startOfWeek = new Date(jktNow);
+        const d = startOfWeek.getDay();
+        const diff = startOfWeek.getDate() - d + (d === 0 ? -6 : 1); // Monday
+        startOfWeek.setDate(diff);
+        startOfWeek.setHours(0, 0, 0, 0);
+
+        const count = requests.filter(r => {
+            const isMe = r.userId === currentUser?.id;
+            const isResolved = r.status === 'APPROVED' || r.status === 'PENDING';
+            const isInWeek = new Date(r.startDate) >= startOfWeek;
+            const isNotSickWithNote = !(r.type === 'SAKIT' && r.hasDoctorNote);
+            return isMe && isResolved && isInWeek && isNotSickWithNote;
+        }).length;
+
+        return count >= limit;
+    }, [requests, currentUser?.id, store.settings?.leaveWeeklyLimit]);
+
+    useEffect(() => {
+        if (store.fetchLeaveQuotas) store.fetchLeaveQuotas(currentUser?.id);
+    }, [currentUser?.id, store.fetchLeaveQuotas]);
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500 pb-20">
@@ -190,7 +228,7 @@ export const StaffDashboard = () => {
                 {/* Work Timer Card */}
                 <div className="lg:col-span-2 bg-gradient-to-r from-slate-900 to-slate-800 rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-2xl">
                     <div className="absolute right-0 top-0 w-64 h-64 bg-blue-500/20 rounded-full blur-3xl translate-x-10 -translate-y-10"></div>
-
+                    
                     <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                         <div>
                             <div className="flex items-center gap-2 mb-2">
@@ -200,12 +238,19 @@ export const StaffDashboard = () => {
                             <h1 className="text-4xl md:text-5xl font-black tracking-tight font-mono">
                                 {isCheckedIn ? elapsedTime : '--:--:--'}
                             </h1>
-                            <p className="text-slate-400 text-sm font-medium mt-2 flex items-center gap-2">
-                                <Timer size={16} />
-                                {isCheckedIn
-                                    ? (isCheckedOut ? 'Sesi kerja selesai hari ini.' : 'Durasi kerja berjalan...')
-                                    : 'Anda belum absen masuk hari ini.'}
-                            </p>
+                            <div className="flex flex-wrap items-center gap-4 mt-3">
+                                <p className="text-slate-400 text-xs font-medium flex items-center gap-2">
+                                    <Timer size={14} />
+                                    {isCheckedIn
+                                        ? (isCheckedOut ? 'Sesi kerja selesai hari ini.' : 'Durasi kerja berjalan...')
+                                        : 'Anda belum absen masuk hari ini.'}
+                                </p>
+                                {weeklyLimitReached && (
+                                    <div className="bg-rose-500/20 text-rose-400 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter border border-rose-500/30 flex items-center gap-1.5">
+                                        <AlertTriangle size={10} /> Limit Izin Minggu Ini Tercapai
+                                    </div>
+                                )}
+                            </div>
                         </div>
 
                         <div>
@@ -230,20 +275,31 @@ export const StaffDashboard = () => {
 
                 {/* Stats Mini Cards */}
                 <div className="grid grid-cols-2 lg:grid-cols-1 gap-4">
-                    {/* Late Counter */}
-                    <div className={`p-6 rounded-[2rem] border ${totalLate > 0 ? 'bg-rose-50 border-rose-100' : 'bg-emerald-50 border-emerald-100'} flex flex-col justify-center`}>
-                        <div className={`mb-2 font-black text-xs uppercase tracking-widest ${totalLate > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>Keterlambatan</div>
-                        <div className={`text-3xl font-black ${totalLate > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                            {totalLate} <span className="text-sm text-slate-400 font-medium">x Bulan Ini</span>
+                    {/* Leave Quota Card */}
+                    <div className="p-6 rounded-[2rem] bg-white border border-slate-100 shadow-sm flex flex-col justify-center relative overflow-hidden group hover:border-blue-200 transition-all">
+                        <div className="absolute right-0 top-0 w-16 h-16 bg-blue-50 rounded-full blur-2xl -translate-y-6 translate-x-6"></div>
+                        <div className="mb-2 font-black text-[10px] uppercase tracking-widest text-slate-400">Sisa Jatah Cuti</div>
+                        <div className="text-3xl font-black text-blue-600 relative z-10 italic">
+                            {myQuota?.remainingQuota ?? store.settings?.leaveAnnualQuota ?? 12} <span className="text-xs text-slate-400 font-bold tracking-normal not-italic uppercase">Hari</span>
+                        </div>
+                        <div className="mt-2 h-1 w-full bg-slate-50 rounded-full overflow-hidden">
+                            <div 
+                                className="bg-blue-500 h-full transition-all duration-1000" 
+                                style={{ width: `${Math.min(100, ((myQuota?.remainingQuota ?? 12) / (store.settings?.leaveAnnualQuota ?? 12)) * 100)}%` }}
+                            ></div>
                         </div>
                     </div>
 
-                    {/* Attendance Counter (Replaced Leave Quota) */}
-                    <div className="p-6 rounded-[2rem] bg-indigo-50 border border-indigo-100 flex flex-col justify-center">
-                        <div className="mb-2 font-black text-xs uppercase tracking-widest text-indigo-400">Total Kehadiran</div>
-                        <div className="text-3xl font-black text-indigo-600">
-                            {totalPresent} <span className="text-sm text-indigo-400 font-medium">Hari</span>
-                        </div>
+                    {/* Attendance Highlights */}
+                    <div className={`p-6 rounded-[2rem] border ${totalLate > 0 ? 'bg-rose-50 border-rose-100' : 'bg-emerald-50 border-emerald-100'} flex items-center justify-between group`}>
+                       <div>
+                            <div className={`mb-1 font-black text-[10px] uppercase tracking-widest ${totalLate > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>Keterlambatan</div>
+                            <div className={`text-2xl font-black ${totalLate > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{totalLate}x</div>
+                       </div>
+                       <div className="text-right">
+                            <div className="mb-1 font-black text-[10px] uppercase tracking-widest text-slate-400">Hadir Bln Ini</div>
+                            <div className="text-2xl font-black text-slate-800">{totalPresent} Hari</div>
+                       </div>
                     </div>
                 </div>
             </div>

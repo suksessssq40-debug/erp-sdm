@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
 import { serialize } from '@/lib/serverUtils';
+import { validateAndCalculateRequest } from '@/lib/leaveLogic';
 
 export async function GET(request: Request) {
     try {
@@ -31,6 +32,7 @@ export async function GET(request: Request) {
 
         const requests = await prisma.leaveRequest.findMany({
             where,
+            include: { user: { select: { id: true, name: true, role: true, avatarUrl: true, jobTitle: true } } },
             orderBy: { createdAt: 'desc' },
             take: startDate ? undefined : 150 // Limit 150 if no filter to prevent overload
         });
@@ -49,12 +51,22 @@ export async function POST(request: Request) {
         const { tenantId } = user;
         const r = await request.json();
 
+        // 1. Validate & Calculate Metadata
+        const metadata = await validateAndCalculateRequest({
+            userId: r.userId || user.id,
+            tenantId,
+            type: r.type,
+            startDate: new Date(r.startDate),
+            endDate: r.endDate ? new Date(r.endDate) : new Date(r.startDate),
+            hasAttachment: !!r.attachmentUrl
+        });
+
         // 1. Create Data
         const newRequest = await prisma.leaveRequest.create({
             data: {
                 id: r.id,
                 tenantId,
-                userId: r.userId,
+                userId: r.userId || user.id,
                 type: r.type,
                 description: r.description,
                 startDate: new Date(r.startDate),
@@ -64,8 +76,11 @@ export async function POST(request: Request) {
                     endTime: r.endTime || null,
                 } as any),
                 attachmentUrl: r.attachmentUrl || null,
-                status: r.status,
-                createdAt: r.createdAt ? BigInt(r.createdAt) : BigInt(Date.now())
+                status: r.status || 'PENDING',
+                isSudden: metadata.isSudden,
+                hasDoctorNote: metadata.hasDoctorNote,
+                penaltyWeight: metadata.penaltyWeight,
+                createdAt: new Date()
             }
         });
 

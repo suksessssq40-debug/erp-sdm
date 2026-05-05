@@ -19,6 +19,14 @@ export interface Tenant {
   radiusTolerance?: number;
   lateGracePeriod?: number;
 
+  // New: Leave Policy Configuration
+  leaveWeeklyLimit?: number;
+  leaveAnnualQuota?: number;
+  leaveSuddenPenalty?: number;
+  leaveNoticeThreshold?: number;
+  leaveNoticeRequired?: number;
+  leaveSuddenHourCutoff?: number;
+
   _count?: {
     users: number;
     projects: number;
@@ -146,6 +154,22 @@ export interface LeaveRequest {
   approverName?: string;
   actionNote?: string;
   actionAt?: number;
+  
+  // Rule Enforcement Fields
+  isSudden?: boolean;
+  hasDoctorNote?: boolean;
+  penaltyWeight?: number;
+  user?: User;
+}
+
+export interface LeaveQuota {
+  id: string;
+  userId: string;
+  year: number;
+  totalQuota: number;
+  usedQuota: number;
+  remainingQuota: number;
+  tenantId?: string;
 }
 
 export interface Attendance {
@@ -261,6 +285,13 @@ export interface AppSettings {
   dailyRecapTime: string;
   dailyRecapModules: string[];
   companyProfile: CompanyProfile;
+  // Leave Policy
+  leaveWeeklyLimit?: number;
+  leaveAnnualQuota?: number;
+  leaveSuddenPenalty?: number;
+  leaveNoticeThreshold?: number;
+  leaveNoticeRequired?: number;
+  leaveSuddenHourCutoff?: number;
 }
 
 export interface DailyReport {

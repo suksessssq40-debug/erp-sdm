@@ -8,10 +8,16 @@ export const createAttendanceActions = (
   authHeaders: Record<string, string>,
   addLog: (actionType: SystemActionType, details: string, target?: string, metadata?: any) => Promise<void>
 ) => {
-  const fetchAttendance = async (userId?: string) => {
+  const fetchAttendance = async (userId?: string, start?: string, end?: string) => {
     try {
       let url = `${API_BASE}/api/attendance`;
-      if (userId) url += `?userId=${userId}`;
+      const params = new URLSearchParams();
+      if (userId) params.append('userId', userId);
+      if (start) params.append('start', start);
+      if (end) params.append('end', end);
+      
+      const queryString = params.toString();
+      if (queryString) url += `?${queryString}`;
 
       const res = await fetch(url, { headers: authHeaders });
       if (res.ok) {
@@ -36,6 +42,7 @@ export const createAttendanceActions = (
       addLog(SystemActionType.ATTENDANCE_CLOCK_IN, `Clock In at ${created.timeIn} ${created.isLate ? '(LATE)' : ''}`, created.id);
     } catch (e) {
       console.error(e);
+      throw e;
     }
   };
 
@@ -57,6 +64,7 @@ export const createAttendanceActions = (
       }
     } catch (e) {
       console.error(e);
+      throw e;
     }
   };
 

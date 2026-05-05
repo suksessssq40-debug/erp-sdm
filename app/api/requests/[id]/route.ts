@@ -57,7 +57,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
                 dataToUpdate.approverId = user.id;
                 dataToUpdate.approverName = activeUser?.name || 'Manager';
                 dataToUpdate.actionNote = r.actionNote || null;
-                dataToUpdate.actionAt = BigInt(Date.now());
+                dataToUpdate.actionAt = new Date();
             }
         }
 
@@ -65,6 +65,50 @@ export async function PUT(request: Request, { params }: { params: { id: string }
             where: { id },
             data: dataToUpdate
         });
+
+        // --- QUOTA DEDUCTION LOGIC ---
+        if (isApprovalAction) {
+            const year = new Date(existing.startDate || new Date()).getFullYear();
+            const weight = existing.penaltyWeight || 1;
+            const diffTime = Math.abs(new Date(existing.endDate || existing.startDate || new Date()).getTime() - new Date(existing.startDate || new Date()).getTime());
+            const days = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+            const totalDeduct = weight * days;
+            
+            const tenant = await prisma.tenant.findUnique({
+                where: { id: tenantId },
+                select: { leaveAnnualQuota: true }
+            });
+            const total = tenant?.leaveAnnualQuota || 12;
+
+            if (r.status === 'APPROVED' && totalDeduct > 0) {
+                // Deduct from quota
+                await prisma.leaveQuota.upsert({
+                    where: { userId_year: { userId: existing.userId!, year } },
+                    update: {
+                        usedQuota: { increment: totalDeduct },
+                        remainingQuota: { decrement: totalDeduct }
+                    },
+                    create: {
+                        id: Math.random().toString(36).substr(2, 9),
+                        userId: existing.userId!,
+                        year,
+                        totalQuota: total,
+                        usedQuota: totalDeduct,
+                        remainingQuota: total - totalDeduct,
+                        tenantId: tenantId
+                    }
+                });
+            } else if (r.status === 'REJECTED' && existing.status === 'APPROVED' && totalDeduct > 0) {
+                // Reverse deduction if it was previously approved
+                await prisma.leaveQuota.update({
+                    where: { userId_year: { userId: existing.userId!, year } },
+                    data: {
+                        usedQuota: { decrement: totalDeduct },
+                        remainingQuota: { increment: totalDeduct }
+                    }
+                });
+            }
+        }
 
         // --- TELEGRAM NOTIFICATION FOR APPROVAL/REJECTION ---
         if (isApprovalAction) {

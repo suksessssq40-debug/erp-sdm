@@ -111,6 +111,7 @@ export async function GET(request: Request) {
             let hasData = false;
 
             if (targetModules.includes("omset")) {
+               // 1. Fetch all active Bank/Kas accounts for this tenant (needed to detect transfers)
                const cashAccounts = await prisma.financialAccount.findMany({
                   where: {
                      tenantId,
@@ -123,7 +124,12 @@ export async function GET(request: Request) {
                });
                const cashAccountIds = cashAccounts.map(a => a.id);
                const accountMap: Record<string, string> = {};
-               cashAccounts.forEach(a => { accountMap[a.id] = a.name; });
+               // Build lookup: id → name  AND  name(lower) → name
+               cashAccounts.forEach(a => {
+                  accountMap[a.id] = a.name;
+               });
+               // Set of bank names in lowercase for fast transfer detection
+               const bankNameSet = new Set(cashAccounts.map(a => a.name.toLowerCase()));
 
                const dailyTransactions = await prisma.transaction.findMany({
                   where: {
@@ -137,14 +143,27 @@ export async function GET(request: Request) {
 
                let dailyIn = 0;
                let dailyOut = 0;
-               let dailyInDetails = "";
-               let dailyOutDetails = "";
+               let dailyInDetails = '';
+               let dailyOutDetails = '';
+               let mutasiDetails = '';  // Internal transfers & cash movements
 
                dailyTransactions.forEach(t => {
                   const amt = Number(t.amount);
-                  const desc = t.description || t.category || "Tanpa Keterangan";
-                  const accName = accountMap[t.accountId!] || "Kas/Bank";
-                  const line = `   ⁃ Rp ${amt.toLocaleString('id-ID')} | <i>${escapeHtml(desc)}</i> (${escapeHtml(accName)})\n`;
+                  const desc = escapeHtml(t.description || t.category || 'Tanpa Keterangan');
+                  const accName = escapeHtml(accountMap[t.accountId!] || 'Kas/Bank');
+
+                  // --- Detect inter-bank transfer ---
+                  // By write convention: transfers are stored as OUT where category = another bank name
+                  const isTransfer = t.type === 'OUT' && !!t.category && bankNameSet.has(t.category.toLowerCase());
+
+                  if (isTransfer) {
+                     // Do NOT count in income/expense — just log as mutasi
+                     const destName = escapeHtml(t.category || '');
+                     mutasiDetails += `   ⁃ Rp ${amt.toLocaleString('id-ID')} | ${desc} (${accName} → ${destName})\n`;
+                     return; // Skip to next transaction
+                  }
+
+                  const line = `   ⁃ Rp ${amt.toLocaleString('id-ID')} | <i>${desc}</i> (${accName})\n`;
 
                   if (t.type === 'IN') {
                      dailyIn += amt;
@@ -155,16 +174,25 @@ export async function GET(request: Request) {
                   }
                });
 
+               // Build the Telegram message sections
                message += `💰 <b>ALIRAN KAS HARIAN</b>\n`;
                message += `📥 <b>MASUK: Rp ${dailyIn.toLocaleString('id-ID')}</b>\n`;
                message += dailyInDetails || `   ⁃ <i>(Tidak ada pemasukan)</i>\n`;
 
                message += `📤 <b>KELUAR: Rp ${dailyOut.toLocaleString('id-ID')}</b>\n`;
                message += dailyOutDetails || `   ⁃ <i>(Tidak ada pengeluaran)</i>\n`;
-               message += `💵 <b>NET HARI INI: Rp ${(dailyIn - dailyOut).toLocaleString('id-ID')}</b>\n\n`;
 
+               message += `💵 <b>NET HARI INI: Rp ${(dailyIn - dailyOut).toLocaleString('id-ID')}</b>\n`;
 
+               // Show internal transfers in a dedicated block if any exist
+               if (mutasiDetails) {
+                  message += `\n🔄 <b>MUTASI KAS INTERNAL (Tidak Mempengaruhi Omset)</b>\n`;
+                  message += mutasiDetails;
+               }
 
+               message += `\n`;
+
+               // --- Saldo Posisi ---
                message += `🏦 <b>POSISI SALDO KAS & BANK</b>\n`;
                let totalAll = 0;
                cashAccounts.sort((a, b) => a.name.localeCompare(b.name)).forEach(acc => {

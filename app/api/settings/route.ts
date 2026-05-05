@@ -36,21 +36,35 @@ export async function PUT(request: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    await prisma.settings.update({
-      where: { id: existing.id },
-      data: {
-        officeLat: s.officeLocation?.lat,
-        officeLng: s.officeLocation?.lng,
-        officeStartTime: s.officeHours?.start,
-        officeEndTime: s.officeHours?.end,
-        telegramBotToken: s.telegramBotToken || '',
-        telegramGroupId: s.telegramGroupId || '',
-        telegramOwnerChatId: s.telegramOwnerChatId || '',
-        companyProfileJson: JSON.stringify(s.companyProfile),
-        dailyRecapTime: s.dailyRecapTime,
-        dailyRecapContent: JSON.stringify(s.dailyRecapModules)
-      }
-    });
+    await Promise.all([
+      prisma.settings.update({
+        where: { id: existing.id },
+        data: {
+          officeLat: s.officeLocation?.lat,
+          officeLng: s.officeLocation?.lng,
+          officeStartTime: s.officeHours?.start,
+          officeEndTime: s.officeHours?.end,
+          telegramBotToken: s.telegramBotToken || '',
+          telegramGroupId: s.telegramGroupId || '',
+          telegramOwnerChatId: s.telegramOwnerChatId || '',
+          companyProfileJson: JSON.stringify(s.companyProfile),
+          dailyRecapTime: s.dailyRecapTime,
+          dailyRecapContent: JSON.stringify(s.dailyRecapModules)
+        }
+      }),
+      // Update tenant policy as well
+      prisma.tenant.update({
+        where: { id: user.tenantId },
+        data: {
+          leaveWeeklyLimit: s.leaveWeeklyLimit,
+          leaveAnnualQuota: s.leaveAnnualQuota,
+          leaveSuddenPenalty: s.leaveSuddenPenalty,
+          leaveNoticeThreshold: s.leaveNoticeThreshold,
+          leaveNoticeRequired: s.leaveNoticeRequired,
+          leaveSuddenHourCutoff: s.leaveSuddenHourCutoff
+        }
+      })
+    ]);
 
     return NextResponse.json({ ok: true });
   } catch (error) {

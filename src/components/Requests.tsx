@@ -19,7 +19,9 @@ import {
   Filter,
   User as UserIcon,
   ChevronRight,
-  ArrowRight
+  ArrowRight,
+  AlertTriangle,
+  Settings
 } from 'lucide-react';
 import { useToast } from './Toast';
 import { useAppStore } from '../context/StoreContext';
@@ -32,6 +34,7 @@ interface RequestsProps {
   onUpdateRequest: (req: LeaveRequest) => void;
   toast: ReturnType<typeof useToast>;
   uploadFile?: (file: File) => Promise<string>;
+  leaveQuota?: any;
 }
 
 const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests, onAddRequest, onUpdateRequest, toast, uploadFile }) => {
@@ -43,6 +46,20 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
   const [attachment, setAttachment] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [quota, setQuota] = useState<any>(null);
+
+  // Fetch Quota
+  useEffect(() => {
+    const fetchQuota = async () => {
+      try {
+        const res = await fetch(`/api/requests/quota?userId=${currentUser.id}`, {
+          headers: { 'Authorization': `Bearer ${store.authToken}` }
+        });
+        if (res.ok) setQuota(await res.json());
+      } catch (e) { console.error("Quota fetch error", e); }
+    };
+    fetchQuota();
+  }, [currentUser.id, store.authToken]);
 
   // Date filter initialized to empty to show all history by default
   const [filterStart, setFilterStart] = useState('');
@@ -92,6 +109,47 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
   const sortedRequests = useMemo(() => {
     return [...visibleRequests].sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
   }, [visibleRequests]);
+
+  // SOP Settings Logic
+  const [showSopSettings, setShowSopSettings] = useState(false);
+  const [leaveWeeklyLimit, setLeaveWeeklyLimit] = useState(store.settings?.leaveWeeklyLimit ?? 1);
+  const [leaveAnnualQuota, setLeaveAnnualQuota] = useState(store.settings?.leaveAnnualQuota ?? 12);
+  const [leaveSuddenPenalty, setLeaveSuddenPenalty] = useState(store.settings?.leaveSuddenPenalty ?? 2);
+  const [leaveNoticeThreshold, setLeaveNoticeThreshold] = useState(store.settings?.leaveNoticeThreshold ?? 2);
+  const [leaveNoticeRequired, setLeaveNoticeRequired] = useState(store.settings?.leaveNoticeRequired ?? 7);
+  const [leaveSuddenHourCutoff, setLeaveSuddenHourCutoff] = useState(store.settings?.leaveSuddenHourCutoff ?? 16);
+
+  useEffect(() => {
+    if (store.settings) {
+      setLeaveWeeklyLimit(store.settings.leaveWeeklyLimit ?? 1);
+      setLeaveAnnualQuota(store.settings.leaveAnnualQuota ?? 12);
+      setLeaveSuddenPenalty(store.settings.leaveSuddenPenalty ?? 2);
+      setLeaveNoticeThreshold(store.settings.leaveNoticeThreshold ?? 2);
+      setLeaveNoticeRequired(store.settings.leaveNoticeRequired ?? 7);
+      setLeaveSuddenHourCutoff(store.settings.leaveSuddenHourCutoff ?? 16);
+    }
+  }, [store.settings]);
+
+  const handleSaveSop = async () => {
+    setIsSubmitting(true);
+    try {
+      await store.updateSettings({
+        ...store.settings,
+        leaveWeeklyLimit,
+        leaveAnnualQuota,
+        leaveSuddenPenalty,
+        leaveNoticeThreshold,
+        leaveNoticeRequired,
+        leaveSuddenHourCutoff
+      });
+      toast.success("Kebijakan SOP Berhasil Diperbarui!");
+      setShowSopSettings(false);
+    } catch (err: any) {
+      toast.error("Gagal menyimpan kebijakan.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const validateRequest = () => {
     if (!formData.description.trim()) {
@@ -193,7 +251,7 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
       if (store.fetchRequests) store.fetchRequests(filterStart, filterEnd);
     } catch (err: any) {
       console.error(err);
-      toast.error("Gagal memproses permohonan.");
+      toast.error(err.message || "Gagal memproses permohonan.");
     } finally {
       setIsSubmitting(false);
     }
@@ -309,11 +367,52 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
             )}
           </div>
         </div>
-        {canCreate && (
-          <button onClick={() => setShowAdd(true)} className="bg-slate-900 text-white px-10 py-5 rounded-[1.8rem] flex items-center gap-3 font-black text-[10px] uppercase tracking-[0.2em] hover:bg-blue-600 hover:scale-105 active:scale-95 transition-all shadow-2xl shadow-slate-200 border-b-4 border-slate-700 hover:border-blue-800">
-            <Plus size={18} /> <span>Ajukan Permohonan</span>
-          </button>
+        {isManagement && (
+          <div className="flex flex-col items-end gap-3 order-first md:order-last">
+            <button 
+              onClick={() => setShowSopSettings(true)} 
+              className="px-8 py-5 bg-white border-2 border-slate-200 text-slate-700 font-black text-[10px] uppercase rounded-[1.8rem] hover:border-blue-500 hover:text-blue-600 hover:shadow-lg transition flex items-center gap-3 active:scale-95 shadow-sm"
+            >
+              <Settings size={18} className="text-blue-600" />
+              <span>Setting Kebijakan SOP</span>
+            </button>
+            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest italic px-4">Khusus Akses Manajemen</p>
+          </div>
         )}
+        {canCreate && (
+          <div className="flex flex-col items-end gap-3">
+            {quota && (
+              <div className="bg-white px-6 py-3 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-6 animate-in slide-in-from-right duration-500">
+                <div className="text-right">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Sisa Cuti {quota.year}</p>
+                  <p className="text-xl font-black text-blue-600 italic">{quota.remainingQuota} <span className="text-[10px] text-slate-400 font-bold tracking-normal not-italic">HARI</span></p>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-500">
+                  <History size={20} />
+                </div>
+              </div>
+            )}
+            <button onClick={() => setShowAdd(true)} className="bg-slate-900 text-white px-10 py-5 rounded-[1.8rem] flex items-center gap-3 font-black text-[10px] uppercase tracking-[0.2em] hover:bg-blue-600 hover:scale-105 active:scale-95 transition-all shadow-2xl shadow-slate-200 border-b-4 border-slate-700 hover:border-blue-800">
+              <Plus size={18} /> <span>Ajukan Permohonan</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Rules Notice */}
+      <div className="bg-amber-50 border border-amber-100 p-6 rounded-[2rem] flex items-start gap-4">
+        <div className="p-3 bg-amber-100 text-amber-600 rounded-xl">
+          <AlertCircle size={20} />
+        </div>
+        <div className="space-y-1">
+          <p className="text-xs font-black text-amber-900 uppercase tracking-widest">Aturan Perizinan & Cuti (SOP {new Date().getFullYear()})</p>
+          <ul className="text-[10px] font-bold text-amber-700 space-y-1 list-disc ml-4">
+            <li>Maksimal izin/cuti adalah <b>{(store.settings.leaveWeeklyLimit || 1) === 99 ? 'Tidak Terbatas' : `${store.settings.leaveWeeklyLimit || 1}x`} per minggu</b> (Senin-Minggu).</li>
+            <li>Cuti mendadak (diajukan H-0 atau lewat jam {store.settings.leaveSuddenHourCutoff || 16}:00 H-1) dikenakan <b>Pinalti Potong {store.settings.leaveSuddenPenalty || 2} Hari Cuti</b>.</li>
+            <li>Pengajuan cuti ≥ {store.settings.leaveNoticeThreshold || 2} hari wajib dilakukan minimal <b>{store.settings.leaveNoticeRequired || 7} hari sebelumnya</b>.</li>
+            <li>Sakit wajib melampirkan <b>Surat Dokter</b> agar tidak memotong jatah cuti.</li>
+          </ul>
+        </div>
       </div>
 
       {/* Main Table Container */}
@@ -349,13 +448,13 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                             req.type === RequestType.CUTI ? <Calendar size={24} /> : <Clock size={24} />}
                         </div>
                         <div>
-                          <p className="text-slate-800 font-black text-base italic">{applicant?.name || 'Unknown'}</p>
+                          <p className="text-slate-800 font-black text-base italic">{req.user?.name || applicant?.name || 'Unknown'}</p>
                           <div className="flex items-center gap-2 mt-1">
                             <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-wider ${req.type === RequestType.SAKIT ? 'bg-rose-50 text-rose-500' :
                               req.type === RequestType.CUTI ? 'bg-blue-50 text-blue-500' : 'bg-amber-50 text-amber-500'
                               }`}>{req.type}</span>
                             <span className="text-slate-300">•</span>
-                            <span className="text-[9px] font-black text-slate-400 uppercase">{applicant?.role}</span>
+                            <span className="text-[9px] font-black text-slate-400 uppercase">{req.user?.jobTitle || applicant?.role}</span>
                           </div>
                         </div>
                       </div>
@@ -373,9 +472,21 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                             </>
                           )}
                         </span>
-                        <span className="text-[10px] text-slate-400 font-bold truncate max-w-[250px] italic">
-                          "{req.description}"
-                        </span>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[10px] text-slate-400 font-bold truncate max-w-[200px] italic">
+                            "{req.description}"
+                          </span>
+                          {req.penaltyWeight && req.penaltyWeight > 1 && (
+                            <span className="bg-rose-50 text-rose-600 text-[8px] font-black px-1.5 py-0.5 rounded border border-rose-100 flex items-center gap-1 uppercase">
+                              <AlertTriangle size={8} /> Pinalti {req.penaltyWeight}x
+                            </span>
+                          )}
+                          {req.hasDoctorNote && (
+                            <span className="bg-emerald-50 text-emerald-600 text-[8px] font-black px-1.5 py-0.5 rounded border border-emerald-100 flex items-center gap-1 uppercase">
+                              <Check size={8} /> Surat Dokter
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td className="px-10 py-7 text-center">
@@ -447,8 +558,9 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                 <div className="w-20 h-20 md:w-24 md:h-24 rounded-[2.5rem] bg-slate-100 flex items-center justify-center text-slate-400 font-black text-3xl overflow-hidden border-4 border-white shadow-2xl relative">
                   {(() => {
                     const applicant = users.find(u => u.id === selectedRequest.userId);
-                    return applicant?.avatarUrl ? (
-                      <img src={applicant.avatarUrl || undefined} alt="Avatar" className="w-full h-full object-cover" />
+                    const avatar = selectedRequest.user?.avatarUrl || applicant?.avatarUrl;
+                    return avatar ? (
+                      <img src={avatar} alt="Avatar" className="w-full h-full object-cover" />
                     ) : (
                       <UserIcon size={40} className="text-slate-300" />
                     );
@@ -459,7 +571,7 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                 </div>
                 <div>
                   <h3 className="text-3xl md:text-4xl font-black text-slate-800 italic uppercase leading-none tracking-tighter">
-                    {users.find(u => u.id === selectedRequest.userId)?.name}
+                    {selectedRequest.user?.name || users.find(u => u.id === selectedRequest.userId)?.name || 'Unknown'}
                   </h3>
                   <div className="flex items-center gap-4 mt-3">
                     <span className="px-4 py-1.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-500/20">{selectedRequest.type}</span>
@@ -633,35 +745,41 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                 )}
 
                 {/* Admin Approval Form */}
-                {isManagement && selectedRequest.status === RequestStatus.PENDING && (
+                {isManagement && (
                   <div className="mt-12 space-y-6 animate-in slide-in-from-bottom-8 duration-700 bg-slate-900 p-12 rounded-[3.5rem] shadow-2xl relative overflow-hidden">
                     <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/10 blur-[100px] rounded-full -mr-32 -mt-32"></div>
                     <div className="relative z-10">
-                      <label className="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em] mb-4 block">Formulir Keputusan Manajemen</label>
+                      <label className="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em] mb-4 block">
+                        {selectedRequest.status === RequestStatus.PENDING ? 'Formulir Keputusan Manajemen' : 'Revisi Keputusan Manajemen'}
+                      </label>
                       <textarea
                         className="w-full p-8 bg-white/5 rounded-[2rem] font-bold text-sm text-white outline-none border-2 border-white/10 focus:border-blue-500 focus:bg-white/10 transition-all resize-none h-32 placeholder:text-slate-600"
-                        placeholder="Berikan catatan persetujuan atau alasan jika pengajuan ini ditolak..."
+                        placeholder={selectedRequest.status === RequestStatus.PENDING ? "Berikan catatan persetujuan atau alasan jika pengajuan ini ditolak..." : "Catatan revisi status (wajib jika membatalkan)..."}
                         value={actionNote}
                         onChange={e => setActionNote(e.target.value)}
                       />
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
-                      <button
-                        onClick={() => handleAction(selectedRequest, RequestStatus.REJECTED)}
-                        disabled={isSubmitting}
-                        className="py-6 bg-rose-500/10 border-2 border-rose-500/20 text-rose-500 font-black uppercase tracking-[0.2em] rounded-[1.8rem] hover:bg-rose-500 hover:text-white transition-all text-[11px] shadow-xl flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isSubmitting ? <div className="w-4 h-4 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" /> : null}
-                        Tolak Permanen
-                      </button>
-                      <button
-                        onClick={() => handleAction(selectedRequest, RequestStatus.APPROVED)}
-                        disabled={isSubmitting}
-                        className="py-6 bg-blue-600 text-white font-black uppercase tracking-[0.2em] rounded-[1.8rem] hover:bg-white hover:text-blue-600 transition-all text-[11px] shadow-2xl shadow-blue-500/30 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isSubmitting ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : null}
-                        Setujui Sekarang
-                      </button>
+                      {selectedRequest.status !== RequestStatus.REJECTED && (
+                        <button
+                          onClick={() => handleAction(selectedRequest, RequestStatus.REJECTED)}
+                          disabled={isSubmitting}
+                          className="py-6 bg-rose-500/10 border-2 border-rose-500/20 text-rose-500 font-black uppercase tracking-[0.2em] rounded-[1.8rem] hover:bg-rose-500 hover:text-white transition-all text-[11px] shadow-xl flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isSubmitting ? <div className="w-4 h-4 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" /> : null}
+                          {selectedRequest.status === RequestStatus.PENDING ? 'Tolak Permanen' : 'Batalkan (Ubah ke Ditolak)'}
+                        </button>
+                      )}
+                      {selectedRequest.status !== RequestStatus.APPROVED && (
+                        <button
+                          onClick={() => handleAction(selectedRequest, RequestStatus.APPROVED)}
+                          disabled={isSubmitting}
+                          className="py-6 bg-blue-600 text-white font-black uppercase tracking-[0.2em] rounded-[1.8rem] hover:bg-white hover:text-blue-600 transition-all text-[11px] shadow-2xl shadow-blue-500/30 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isSubmitting ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : null}
+                          {selectedRequest.status === RequestStatus.PENDING ? 'Setujui Sekarang' : 'Revisi Menjadi Disetujui'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -679,7 +797,15 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/90 p-4 backdrop-blur-md overflow-hidden" onClick={handleCloseModal}>
           <div className="bg-white rounded-[3.5rem] w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
             <div className="p-10 md:p-12 border-b border-slate-100 flex justify-between items-center shrink-0">
-              <h3 className="text-2xl font-black text-slate-800 uppercase italic tracking-tighter">{editId ? 'Ubah Data' : 'Pengajuan Baru'}</h3>
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600">
+                  <FileText size={24} />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black text-slate-800 uppercase italic tracking-tighter">{editId ? 'Ubah Data' : 'Pengajuan Baru'}</h3>
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mt-1">Lengkapi data sesuai SOP berlaku</p>
+                </div>
+              </div>
               <button onClick={handleCloseModal} className="p-3 bg-slate-50 text-slate-400 rounded-2xl hover:bg-rose-500 hover:text-white transition">
                 <X size={20} />
               </button>
@@ -753,6 +879,35 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                 <textarea className="w-full p-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-3xl font-bold text-xs outline-none h-32 resize-none transition shadow-inner" placeholder="Jelaskan secara detail alasan permohonan Anda..." value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} />
               </div>
 
+              {/* Penalty Preview */}
+              {(() => {
+                const start = new Date(formData.startDate);
+                const now = new Date();
+                const jktNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+                const startStr = start.toISOString().split('T')[0];
+                const todayStr = jktNow.toISOString().split('T')[0];
+                const tomorrowStr = new Date(jktNow.getTime() + 86400000).toISOString().split('T')[0];
+                
+                let isSudden = false;
+                if (startStr === todayStr) isSudden = true;
+                else if (startStr === tomorrowStr && jktNow.getHours() >= (store.settings.leaveSuddenHourCutoff ?? 16)) isSudden = true;
+                
+                if (isSudden && formData.type !== RequestType.SAKIT) {
+                  return (
+                    <div className="p-5 bg-rose-50 border-2 border-rose-100 rounded-[2rem] flex items-center gap-4 animate-in shake duration-500">
+                      <div className="w-12 h-12 rounded-2xl bg-rose-500 text-white flex items-center justify-center shrink-0 shadow-lg">
+                        <AlertTriangle size={24} />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black text-rose-600 uppercase tracking-widest">Peringatan Cuti Mendadak</p>
+                        <p className="text-[11px] font-bold text-rose-800 leading-tight">Pengajuan ini akan dikenakan pinalti <b>potong {store.settings.leaveSuddenPenalty ?? 2} hari cuti</b> per hari izin.</p>
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
               <div className="space-y-4">
                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-3">Unggah Bukti (Format Gambar)</label>
                 {!attachment ? (
@@ -801,6 +956,136 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                 ) : (
                   editId ? 'SIMPAN PERUBAHAN' : 'KIRIM PERMOHONAN'
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SOP SETTINGS MODAL */}
+      {showSopSettings && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/90 p-4 backdrop-blur-md overflow-hidden" onClick={() => setShowSopSettings(false)}>
+          <div className="bg-white rounded-[3.5rem] w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
+            <div className="p-10 md:p-12 border-b border-slate-100 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600">
+                  <Settings size={24} />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black text-slate-800 uppercase italic tracking-tighter">Konfigurasi SOP Cuti</h3>
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mt-1">Atur Parameter Validasi & Pinalti</p>
+                </div>
+              </div>
+              <button onClick={() => setShowSopSettings(false)} className="p-3 bg-slate-50 text-slate-400 rounded-2xl hover:bg-rose-500 hover:text-white transition">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-10 md:p-12 space-y-10">
+              {/* Quota & Limit */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-3">Jatah Cuti Tahunan (Default)</label>
+                  <div className="relative group">
+                    <input 
+                      type="number" 
+                      value={leaveAnnualQuota}
+                      onChange={e => setLeaveAnnualQuota(Number(e.target.value))}
+                      className="w-full p-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-3xl font-black text-sm outline-none transition shadow-inner pr-16" 
+                    />
+                    <div className="absolute right-5 top-5 text-[10px] font-black text-slate-300 group-focus-within:text-blue-500">HARI / TAHUN</div>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-3">Limit Izin Per Minggu</label>
+                  <div className="relative group">
+                    <input 
+                      type="number" 
+                      value={leaveWeeklyLimit}
+                      onChange={e => setLeaveWeeklyLimit(Number(e.target.value))}
+                      className="w-full p-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-3xl font-black text-sm outline-none transition shadow-inner pr-16" 
+                    />
+                    <div className="absolute right-5 top-5 text-[10px] font-black text-slate-300 group-focus-within:text-blue-500">X / MINGGU</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sudden Leave Policy */}
+              <div className="p-8 bg-amber-50 rounded-[2.5rem] border-2 border-dashed border-amber-200/50 space-y-8">
+                <div className="flex items-start gap-4">
+                  <div className="p-2 bg-amber-200 text-amber-700 rounded-lg"><AlertTriangle size={20} /></div>
+                  <div>
+                    <h4 className="text-xs font-black text-amber-900 uppercase">KEBIJAKAN IZIN MENDADAK</h4>
+                    <p className="text-[10px] font-bold text-amber-700 opacity-70">Mengatur pinalti dan batas waktu pengiriman izin.</p>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black text-amber-800 uppercase tracking-widest ml-3">Jam Cut-Off (H-1)</label>
+                    <div className="relative">
+                      <input 
+                        type="number" 
+                        min="0" max="23"
+                        value={leaveSuddenHourCutoff}
+                        onChange={e => setLeaveSuddenHourCutoff(Number(e.target.value))}
+                        className="w-full p-4 bg-white border-2 border-amber-200/50 focus:border-amber-500 rounded-2xl font-black text-sm outline-none transition pr-16" 
+                      />
+                      <div className="absolute right-4 top-4 text-[10px] font-black text-amber-400">:00 WIB</div>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black text-amber-800 uppercase tracking-widest ml-3">Pinalti Potong Cuti (Multiplier)</label>
+                    <div className="relative">
+                      <input 
+                        type="number" 
+                        step="0.1"
+                        value={leaveSuddenPenalty}
+                        onChange={e => setLeaveSuddenPenalty(Number(e.target.value))}
+                        className="w-full p-4 bg-white border-2 border-amber-200/50 focus:border-amber-500 rounded-2xl font-black text-sm outline-none transition pr-16" 
+                      />
+                      <div className="absolute right-4 top-4 text-[10px] font-black text-amber-400">X LIPAT</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Threshold Notification */}
+              <div className="space-y-6">
+                <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-3">ATURAN PEMBERITAHUAN (NOTICE)</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="space-y-4">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-3">Jika Izin Lebih Dari (HARI)</label>
+                    <input 
+                      type="number" 
+                      value={leaveNoticeThreshold}
+                      onChange={e => setLeaveNoticeThreshold(Number(e.target.value))}
+                      className="w-full p-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-3xl font-black text-sm outline-none transition shadow-inner" 
+                    />
+                  </div>
+                  <div className="space-y-4">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-3">Wajib Ajukan Minimal (HARI SEBELUM)</label>
+                    <input 
+                      type="number" 
+                      value={leaveNoticeRequired}
+                      onChange={e => setLeaveNoticeRequired(Number(e.target.value))}
+                      className="w-full p-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-3xl font-black text-sm outline-none transition shadow-inner" 
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-10 shrink-0 border-t border-slate-100 bg-slate-50/50 rounded-b-[3.5rem] flex gap-4">
+               <button onClick={() => setShowSopSettings(false)} className="flex-1 py-5 bg-white border-2 border-slate-200 text-slate-500 rounded-[1.8rem] font-black uppercase text-[10px] tracking-widest hover:bg-slate-100 transition shadow-sm">
+                Batal
+              </button>
+              <button
+                onClick={handleSaveSop}
+                disabled={isSubmitting}
+                className="flex-[2] py-5 bg-blue-600 text-white rounded-[1.8rem] font-black uppercase text-[10px] tracking-[0.3em] hover:bg-slate-900 hover:scale-[1.02] active:scale-95 transition-all shadow-xl shadow-blue-500/30 disabled:opacity-50 border-b-4 border-blue-800"
+              >
+                {isSubmitting ? 'MEMPROSES...' : 'PERBARUI KEBIJAKAN SOP'}
               </button>
             </div>
           </div>

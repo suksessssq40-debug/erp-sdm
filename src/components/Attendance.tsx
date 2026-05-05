@@ -65,6 +65,20 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
   const [lateReason, setLateReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successQuote, setSuccessQuote] = useState('');
+  const [leaveQuota, setLeaveQuota] = useState<any>(null);
+
+  // Fetch Leave Quota
+  useEffect(() => {
+    const fetchQuota = async () => {
+      try {
+        const res = await fetch(`/api/requests/quota?userId=${currentUser.id}`);
+        if (res.ok) setLeaveQuota(await res.json());
+      } catch (e) {
+        console.warn("Failed to fetch leave quota", e);
+      }
+    };
+    fetchQuota();
+  }, [currentUser.id]);
 
   // Strategy Config
   const strategy = currentTenant?.workStrategy || 'FIXED';
@@ -122,41 +136,28 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
   // ACTIVE SESSION TRACKING (New Robust Logic from Dashboard)
   const myAttendanceToday = React.useMemo(() => {
     if (!currentUser?.id) return undefined;
-
-    // Get all my attendance records
     const myLogs = attendanceLog.filter(a => a.userId === currentUser.id);
-
-    // 1. Find today's record (exact date match)
     const todayRecord = myLogs.find(a => a.date === todayStr);
-
     if (todayRecord) return todayRecord;
 
-    // 2. Fallback: Check if there's an active session from yesterday (night shift)
-    // This handles case where user checked in at 23:00 yesterday, now it's 01:00 today
-    const yesterdayLogs = myLogs.filter(a => {
-      if (!a.date) return false;
-      const logDate = new Date(a.date + 'T00:00:00');
-      const today = new Date(todayStr + 'T00:00:00');
-      const diffDays = Math.floor((today.getTime() - logDate.getTime()) / (1000 * 60 * 60 * 24));
-      return diffDays === 1; // Exactly 1 day ago
-    });
-
-    // Find the most recent one that's still open (no checkout)
-    const activeSession = yesterdayLogs.find(a => !a.timeOut);
-
+    // NIGHT SHIFT/OPEN SESSION LOGIC
+    // Check if there is an OPEN session from yesterday (within 24 hours)
+    const yesterday = new Date(todayStr);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yestStr = yesterday.toISOString().split('T')[0];
+    
+    const activeSession = myLogs.find(a => a.date === yestStr && !a.timeOut);
     if (activeSession) {
-      // Verify it's really recent (within 24 hours) check validity
       const checkInTime = activeSession.createdAt
         ? new Date(activeSession.createdAt).getTime()
         : new Date(activeSession.date + 'T' + (activeSession.timeIn || '00:00:00')).getTime();
-
       const hoursSinceCheckIn = (Date.now() - checkInTime) / (1000 * 60 * 60);
 
+      // If it's an open session from yesterday and it's been less than 24h
       if (hoursSinceCheckIn < 24) {
-        return activeSession; // Valid active session
+        return { ...activeSession, isFromYesterday: true }; // Mark it!
       }
     }
-
     return undefined;
   }, [attendanceLog, currentUser.id, todayStr]);
 
@@ -381,6 +382,7 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
               handleStartCheckIn={handleStartCheckIn}
               handleStartCheckOut={handleStartCheckOut}
               onViewReport={() => window.location.href = `/${currentUser.tenantId || 'sdm'}/${currentUser.role.toLowerCase()}/attendance/report`}
+              leaveQuota={leaveQuota}
             />
           )}
 

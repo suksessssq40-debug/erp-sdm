@@ -17,16 +17,22 @@ export default function AttendanceReportPage() {
     const [searchUser, setSearchUser] = useState('');
     const [selectedRecord, setSelectedRecord] = useState<Attendance | null>(null);
 
-    // Initial Security Check (Allow All Authenticated Users)
+    // Effect: Re-fetch from server when dates change (SERVER-SIDE FILTERING)
     useEffect(() => {
-        if (store.currentUser) {
-            store.fetchAttendance();
-            // Fetch users only if allowed (Owner/Manager/Finance) to populate names
-            if ([UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(store.currentUser.role)) {
-                if (store.fetchUsers) store.fetchUsers();
-            }
-        }
-    }, [store.currentUser]);
+        if (!store.currentUser) return;
+        
+        const fetchData = async () => {
+            // If it's a staff member looking for their own report, always restrict by userId
+            const targetId = isStaff ? store.currentUser?.id : (searchUser.length > 3 ? undefined : undefined); 
+            // Better: just fetch for the whole tenant if admin to allow local search for all.
+            // But if there's a date range, send it to the server.
+            store.fetchAttendance(isStaff ? store.currentUser?.id : undefined, startDate, endDate);
+        };
+        fetchData();
+        
+        if (!isStaff && store.fetchUsers) store.fetchUsers();
+        if (store.fetchShifts && store.currentTenant?.id) store.fetchShifts(store.currentTenant.id);
+    }, [store.currentUser?.id, startDate, endDate]);
 
     if (!store.currentUser) {
         if (typeof window !== 'undefined') router.replace('/login');
@@ -56,7 +62,7 @@ export default function AttendanceReportPage() {
             data = data.filter(d => new Date(d.date).getTime() <= end.getTime());
         }
 
-        // 2. User Search (Only for Non-Staff)
+        // 2. User Search (Only for Non-Staff) - Client-side search within the results
         if (!isStaff && searchUser) {
             const lowerQuery = searchUser.toLowerCase();
             data = data.filter(d => {

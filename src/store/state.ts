@@ -20,6 +20,7 @@ export const initialState: AppState = {
   tenants: [],
   currentTenant: null,
   shifts: [],
+  leaveQuotas: [],
   settings: {
     officeLocation: INITIAL_OFFICE_LOCATION,
     officeHours: { start: '08:00', end: '17:00' },

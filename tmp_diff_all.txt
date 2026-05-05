@@ -1,0 +1,2731 @@
+﻿diff --git a/app/[tenant]/[role]/attendance/report/page.tsx b/app/[tenant]/[role]/attendance/report/page.tsx
+index 4cf2406c..c285cc1e 100644
+--- a/app/[tenant]/[role]/attendance/report/page.tsx
++++ b/app/[tenant]/[role]/attendance/report/page.tsx
+@@ -17,16 +17,22 @@ export default function AttendanceReportPage() {
+     const [searchUser, setSearchUser] = useState('');
+     const [selectedRecord, setSelectedRecord] = useState<Attendance | null>(null);
+ 
+-    // Initial Security Check (Allow All Authenticated Users)
++    // Effect: Re-fetch from server when dates change (SERVER-SIDE FILTERING)
+     useEffect(() => {
+-        if (store.currentUser) {
+-            store.fetchAttendance();
+-            // Fetch users only if allowed (Owner/Manager/Finance) to populate names
+-            if ([UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(store.currentUser.role)) {
+-                if (store.fetchUsers) store.fetchUsers();
+-            }
+-        }
+-    }, [store.currentUser]);
++        if (!store.currentUser) return;
++        
++        const fetchData = async () => {
++            // If it's a staff member looking for their own report, always restrict by userId
++            const targetId = isStaff ? store.currentUser?.id : (searchUser.length > 3 ? undefined : undefined); 
++            // Better: just fetch for the whole tenant if admin to allow local search for all.
++            // But if there's a date range, send it to the server.
++            store.fetchAttendance(isStaff ? store.currentUser?.id : undefined, startDate, endDate);
++        };
++        fetchData();
++        
++        if (!isStaff && store.fetchUsers) store.fetchUsers();
++        if (store.fetchShifts && store.currentTenant?.id) store.fetchShifts(store.currentTenant.id);
++    }, [store.currentUser?.id, startDate, endDate]);
+ 
+     if (!store.currentUser) {
+         if (typeof window !== 'undefined') router.replace('/login');
+@@ -56,7 +62,7 @@ export default function AttendanceReportPage() {
+             data = data.filter(d => new Date(d.date).getTime() <= end.getTime());
+         }
+ 
+-        // 2. User Search (Only for Non-Staff)
++        // 2. User Search (Only for Non-Staff) - Client-side search within the results
+         if (!isStaff && searchUser) {
+             const lowerQuery = searchUser.toLowerCase();
+             data = data.filter(d => {
+diff --git a/app/api/attendance/route.ts b/app/api/attendance/route.ts
+index 9344d18a..70970c5f 100644
+--- a/app/api/attendance/route.ts
++++ b/app/api/attendance/route.ts
+@@ -35,7 +35,10 @@ export async function GET(request: Request) {
+     }
+ 
+     if (startDate && endDate) {
+-      where.date = { gte: startDate, lte: endDate };
++      // Ensure we are comparing plain YYYY-MM-DD strings
++      const s = startDate.split('T')[0];
++      const e = endDate.split('T')[0];
++      where.date = { gte: s, lte: e };
+     }
+ 
+     const records = await prisma.attendance.findMany({
+@@ -45,7 +48,7 @@ export async function GET(request: Request) {
+         { date: 'desc' },      // Priority 2: Legacy fallback
+         { timeIn: 'desc' }
+       ],
+-      take: 200
++      take: 5000 // Increased from 1000 to handle larger reports without truncation
+     });
+ 
+     const formatted = records.map(r => ({
+diff --git a/app/api/bootstrap/route.ts b/app/api/bootstrap/route.ts
+index ee5b1639..506d1838 100644
+--- a/app/api/bootstrap/route.ts
++++ b/app/api/bootstrap/route.ts
+@@ -12,12 +12,13 @@ export async function GET() {
+     let users: any[] = [];
+     let settingsData: any = null;
+     let financialAccounts: any[] = [];
++    let tenantRes: any = null;
+     let tenantFeatures: string | null = null;
+     let logs: any[] = [];
+ 
+     // 2. Fetch Users who have access to this tenant (via TenantAccess table)
+     try {
+-      const [tenantAccessList, settingsRes, accountsRes, tenantRes, logsRes] = await Promise.all([
++      const [tenantAccessList, settingsRes, accountsRes, tenantResData, logsRes] = await Promise.all([
+         prisma.tenantAccess.findMany({
+           where: { tenantId },
+           include: { user: true }
+@@ -26,7 +27,7 @@ export async function GET() {
+         prisma.financialAccount.findMany({
+           where: { tenantId, isActive: true } as any
+         }),
+-        prisma.tenant.findUnique({ where: { id: tenantId }, select: { featuresJson: true } }),
++        prisma.tenant.findUnique({ where: { id: tenantId } }),
+         prisma.systemLog.findMany({
+           where: { tenantId },
+           orderBy: { timestamp: 'desc' },
+@@ -34,6 +35,8 @@ export async function GET() {
+         })
+       ]);
+ 
++      tenantRes = tenantResData;
++
+       // Flatten and transform to match previous structure
+       users = tenantAccessList
+         .map(ta => ({
+@@ -81,7 +84,14 @@ export async function GET() {
+         : (settingsData.dailyRecapContent || []),
+       companyProfile: typeof settingsData.companyProfileJson === 'string'
+         ? JSON.parse(settingsData.companyProfileJson)
+-        : (settingsData.companyProfileJson || {})
++        : (settingsData.companyProfileJson || {}),
++      // Leave Policy Configuration from Tenant Model
++      leaveWeeklyLimit: tenantRes?.leaveWeeklyLimit ?? 1,
++      leaveAnnualQuota: tenantRes?.leaveAnnualQuota ?? 12,
++      leaveSuddenPenalty: tenantRes?.leaveSuddenPenalty ?? 2,
++      leaveNoticeThreshold: tenantRes?.leaveNoticeThreshold ?? 2,
++      leaveNoticeRequired: tenantRes?.leaveNoticeRequired ?? 7,
++      leaveSuddenHourCutoff: tenantRes?.leaveSuddenHourCutoff ?? 16
+     } : {};
+ 
+     const data = {
+@@ -114,6 +124,7 @@ export async function GET() {
+       dailyReports: [], // Lazy Loaded
+       salaryConfigs: [], // Fetched on demand in Payroll
+       payrollRecords: [], // Fetched on demand in Payroll
++      leaveQuotas: [],    // Lazy Loaded
+       logs: logs
+     };
+ 
+diff --git a/app/api/cron/daily-recap/route.ts b/app/api/cron/daily-recap/route.ts
+index ec1cfe58..fbe92a90 100644
+--- a/app/api/cron/daily-recap/route.ts
++++ b/app/api/cron/daily-recap/route.ts
+@@ -111,6 +111,7 @@ export async function GET(request: Request) {
+             let hasData = false;
+ 
+             if (targetModules.includes("omset")) {
++               // 1. Fetch all active Bank/Kas accounts for this tenant (needed to detect transfers)
+                const cashAccounts = await prisma.financialAccount.findMany({
+                   where: {
+                      tenantId,
+@@ -123,7 +124,12 @@ export async function GET(request: Request) {
+                });
+                const cashAccountIds = cashAccounts.map(a => a.id);
+                const accountMap: Record<string, string> = {};
+-               cashAccounts.forEach(a => { accountMap[a.id] = a.name; });
++               // Build lookup: id ÔåÆ name  AND  name(lower) ÔåÆ name
++               cashAccounts.forEach(a => {
++                  accountMap[a.id] = a.name;
++               });
++               // Set of bank names in lowercase for fast transfer detection
++               const bankNameSet = new Set(cashAccounts.map(a => a.name.toLowerCase()));
+ 
+                const dailyTransactions = await prisma.transaction.findMany({
+                   where: {
+@@ -137,14 +143,27 @@ export async function GET(request: Request) {
+ 
+                let dailyIn = 0;
+                let dailyOut = 0;
+-               let dailyInDetails = "";
+-               let dailyOutDetails = "";
++               let dailyInDetails = '';
++               let dailyOutDetails = '';
++               let mutasiDetails = '';  // Internal transfers & cash movements
+ 
+                dailyTransactions.forEach(t => {
+                   const amt = Number(t.amount);
+-                  const desc = t.description || t.category || "Tanpa Keterangan";
+-                  const accName = accountMap[t.accountId!] || "Kas/Bank";
+-                  const line = `   Ôüâ Rp ${amt.toLocaleString('id-ID')} | <i>${escapeHtml(desc)}</i> (${escapeHtml(accName)})\n`;
++                  const desc = escapeHtml(t.description || t.category || 'Tanpa Keterangan');
++                  const accName = escapeHtml(accountMap[t.accountId!] || 'Kas/Bank');
++
++                  // --- Detect inter-bank transfer ---
++                  // By write convention: transfers are stored as OUT where category = another bank name
++                  const isTransfer = t.type === 'OUT' && !!t.category && bankNameSet.has(t.category.toLowerCase());
++
++                  if (isTransfer) {
++                     // Do NOT count in income/expense ÔÇö just log as mutasi
++                     const destName = escapeHtml(t.category || '');
++                     mutasiDetails += `   Ôüâ Rp ${amt.toLocaleString('id-ID')} | ${desc} (${accName} ÔåÆ ${destName})\n`;
++                     return; // Skip to next transaction
++                  }
++
++                  const line = `   Ôüâ Rp ${amt.toLocaleString('id-ID')} | <i>${desc}</i> (${accName})\n`;
+ 
+                   if (t.type === 'IN') {
+                      dailyIn += amt;
+@@ -155,16 +174,25 @@ export async function GET(request: Request) {
+                   }
+                });
+ 
++               // Build the Telegram message sections
+                message += `­ƒÆ░ <b>ALIRAN KAS HARIAN</b>\n`;
+                message += `­ƒôÑ <b>MASUK: Rp ${dailyIn.toLocaleString('id-ID')}</b>\n`;
+                message += dailyInDetails || `   Ôüâ <i>(Tidak ada pemasukan)</i>\n`;
+ 
+                message += `­ƒôñ <b>KELUAR: Rp ${dailyOut.toLocaleString('id-ID')}</b>\n`;
+                message += dailyOutDetails || `   Ôüâ <i>(Tidak ada pengeluaran)</i>\n`;
+-               message += `­ƒÆÁ <b>NET HARI INI: Rp ${(dailyIn - dailyOut).toLocaleString('id-ID')}</b>\n\n`;
+ 
++               message += `­ƒÆÁ <b>NET HARI INI: Rp ${(dailyIn - dailyOut).toLocaleString('id-ID')}</b>\n`;
+ 
++               // Show internal transfers in a dedicated block if any exist
++               if (mutasiDetails) {
++                  message += `\n­ƒöä <b>MUTASI KAS INTERNAL (Tidak Mempengaruhi Omset)</b>\n`;
++                  message += mutasiDetails;
++               }
++
++               message += `\n`;
+ 
++               // --- Saldo Posisi ---
+                message += `­ƒÅª <b>POSISI SALDO KAS & BANK</b>\n`;
+                let totalAll = 0;
+                cashAccounts.sort((a, b) => a.name.localeCompare(b.name)).forEach(acc => {
+diff --git a/app/api/finance/ledger/route.ts b/app/api/finance/ledger/route.ts
+index 361780f0..2360dc2e 100644
+--- a/app/api/finance/ledger/route.ts
++++ b/app/api/finance/ledger/route.ts
+@@ -5,122 +5,173 @@ import { authorize } from '@/lib/auth';
+ 
+ export const dynamic = 'force-dynamic';
+ 
++/**
++ * GET /api/finance/ledger
++ *
++ * Returns a ledger (buku besar) view for a single account over a date range.
++ *
++ * Write convention (from POST /api/transactions):
++ *   IN  ÔåÆ `account` field = bank name; `category` = revenue/expense label
++ *          Effect: bank.balance += amount  (money enters bank)
++ *
++ *   OUT ÔåÆ `account` field = bank name (credit side, SWAPPED on write);
++ *          `category` = expense label   (for plain expense)
++ *       OR `category` = another bank    (for inter-bank transfer: dest bank)
++ *          Effect: source bank.balance -= amount
++ *                  dest   bank.balance += amount  (transfer only)
++ *
++ * Therefore, for any given account name in the ledger:
++ *
++ *   ROW IS DEBIT  (increases the account's balance) when:
++ *     ÔåÆ type='IN'  AND LOWER(account) = thisName   (money enters ÔÇö bank receives)
++ *     ÔåÆ type='OUT' AND LOWER(category)= thisName   (transfer destination ÔÇö bank receives)
++ *
++ *   ROW IS CREDIT (decreases the account's balance) when:
++ *     ÔåÆ type='OUT' AND LOWER(account) = thisName   (money leaves ÔÇö bank pays out)
++ *     ÔåÆ type='IN'  AND LOWER(category)= thisName   (edge: safety net, shouldn't occur in practice)
++ *
++ * Opening Balance uses the same debit/credit rule but scoped to date < startDate.
++ */
+ export async function GET(request: Request) {
+     try {
+         const user = await authorize(['OWNER', 'FINANCE', 'MANAGER']);
+         const { tenantId } = user;
+ 
+         const { searchParams } = new URL(request.url);
+-        const accountName = searchParams.get('accountName');
+-        const startDate = searchParams.get('startDate');
+-        const endDate = searchParams.get('endDate');
++        const accountName   = searchParams.get('accountName');
++        const startDate     = searchParams.get('startDate');
++        const endDate       = searchParams.get('endDate');
+         const businessUnitId = searchParams.get('businessUnitId');
+ 
+         if (!startDate || !endDate || !accountName) {
+-            return NextResponse.json({ error: 'Start date, End date, and Account Name are required' }, { status: 400 });
++            return NextResponse.json(
++                { error: 'startDate, endDate, and accountName are required' },
++                { status: 400 }
++            );
+         }
+ 
+         const client = await pool.connect();
+         try {
+-            // --- 1. Identify Account Details (Robust Case-Insensitive) ---
+-            const accountRes = await client.query(`
+-                SELECT name, 'BANK' as source, 'DEBIT' as normal_pos FROM financial_accounts WHERE tenant_id = $1 AND LOWER(name) = LOWER($2)
++            // ÔöÇÔöÇ 1. Resolve the account (Bank or COA) and its normal balance position ÔöÇÔöÇ
++            const accountRes = await client.query<{
++                name: string;
++                source: string;
++                normal_pos: string;
++            }>(`
++                SELECT name, 'BANK' AS source, 'DEBIT' AS normal_pos
++                FROM   financial_accounts
++                WHERE  tenant_id = $1 AND LOWER(name) = LOWER($2) AND is_active = true
+                 UNION ALL
+-                SELECT name, 'COA' as source, normal_pos FROM chart_of_accounts WHERE tenant_id = $1 AND (LOWER(name) = LOWER($2) OR code = $2)
+-                LIMIT 1
++                SELECT name, 'COA' AS source, COALESCE(normal_pos, 'DEBIT') AS normal_pos
++                FROM   chart_of_accounts
++                WHERE  tenant_id = $1 AND (LOWER(name) = LOWER($2) OR code = $2)
++                LIMIT  1
+             `, [tenantId, accountName]);
+ 
+             if (accountRes.rows.length === 0) {
+                 return NextResponse.json({ openingBalance: 0, transactions: [], normalPos: 'DEBIT' });
+             }
+ 
+-            const acc = accountRes.rows[0];
+-            const name = acc.name;
+-            const normalPos = acc.normal_pos;
+-
+-            // --- 2. Opening Balance Calculation (Universal) ---
+-            const openingQuery = `
+-                SELECT 
+-                    SUM(CASE 
+-                        WHEN (LOWER(account) = LOWER($2) AND type = 'IN') OR (LOWER(category) = LOWER($2) AND type = 'OUT') THEN amount 
+-                        ELSE 0 
+-                    END) as total_debit,
+-                    SUM(CASE 
+-                        WHEN (LOWER(account) = LOWER($2) AND type = 'OUT') OR (LOWER(category) = LOWER($2) AND type = 'IN') THEN amount 
+-                        ELSE 0 
+-                    END) as total_credit
+-                FROM transactions 
+-                WHERE tenant_id = $1 AND date < $3
+-                ${businessUnitId && businessUnitId !== 'ALL' ? `AND business_unit_id = $4` : ''}
+-            `;
+-            
+-            const openingParams = [tenantId, name, startDate];
+-            if (businessUnitId && businessUnitId !== 'ALL') openingParams.push(businessUnitId);
+-
+-            const openingRes = await client.query(openingQuery, openingParams);
+-            const op = openingRes.rows[0];
+-            const opDr = Number(op.total_debit || 0);
+-            const opCr = Number(op.total_credit || 0);
+-            const openingBalance = normalPos === 'DEBIT' ? (opDr - opCr) : (opCr - opDr);
+-
+-            const startD = new Date(startDate).toISOString();
+-            const endD = new Date(endDate);
++            const { name, normal_pos: normalPos } = accountRes.rows[0];
++
++            // ÔöÇÔöÇ 2. Opening Balance ÔÇö all transactions BEFORE startDate ÔöÇÔöÇ
++            //    Using the canonical debit/credit rule for this account.
++            const unitParam      = (businessUnitId && businessUnitId !== 'ALL') ? businessUnitId : null;
++            const openingParams: any[] = [tenantId, name, startDate];
++            if (unitParam) openingParams.push(unitParam);
++
++            const openingRes = await client.query<{
++                total_debit: string | null;
++                total_credit: string | null;
++            }>(`
++                SELECT
++                    SUM(CASE
++                        WHEN LOWER(account)  = LOWER($2) AND type = 'IN'  THEN amount
++                        WHEN LOWER(category) = LOWER($2) AND type = 'OUT' THEN amount
++                        ELSE 0
++                    END) AS total_debit,
++
++                    SUM(CASE
++                        WHEN LOWER(account)  = LOWER($2) AND type = 'OUT' THEN amount
++                        WHEN LOWER(category) = LOWER($2) AND type = 'IN'  THEN amount
++                        ELSE 0
++                    END) AS total_credit
++
++                FROM  transactions
++                WHERE tenant_id = $1
++                  AND date < $3
++                  ${unitParam ? 'AND business_unit_id = $4' : ''}
++            `, openingParams);
++
++            const opRow         = openingRes.rows[0];
++            const opDebit       = Number(opRow?.total_debit  ?? 0);
++            const opCredit      = Number(opRow?.total_credit ?? 0);
++            // For DEBIT-normal accounts (Asset/Bank): balance = Debit ÔêÆ Credit
++            // For CREDIT-normal accounts (Liability/Equity/Revenue): balance = Credit ÔêÆ Debit
++            const openingBalance = normalPos === 'DEBIT' ? (opDebit - opCredit) : (opCredit - opDebit);
++
++            // ÔöÇÔöÇ 3. Transaction rows within the selected date range ÔöÇÔöÇ
++            const startISO = new Date(startDate + 'T00:00:00.000Z').toISOString();
++            const endD     = new Date(endDate);
+             endD.setUTCHours(23, 59, 59, 999);
+-            
+-            // --- 3. Transaction Rows (Universal) ---
+-            const transQuery = `
+-                SELECT * FROM transactions 
+-                WHERE tenant_id = $1 
+-                AND (LOWER(account) = LOWER($2) OR LOWER(category) = LOWER($2))
+-                AND date >= $3 AND date <= $4
+-                ${businessUnitId && businessUnitId !== 'ALL' ? `AND business_unit_id = $5` : ''}
++            const endISO   = endD.toISOString();
++
++            const transParams: any[] = [tenantId, name, startISO, endISO];
++            if (unitParam) transParams.push(unitParam);
++
++            const transRes = await client.query(`
++                SELECT
++                    id,
++                    date,
++                    amount,
++                    type,
++                    account,
++                    category,
++                    description,
++                    business_unit_id,
++                    image_url,
++                    created_at
++                FROM  transactions
++                WHERE tenant_id = $1
++                  AND (LOWER(account) = LOWER($2) OR LOWER(category) = LOWER($2))
++                  AND date >= $3 AND date <= $4
++                  ${unitParam ? 'AND business_unit_id = $5' : ''}
+                 ORDER BY date ASC, created_at ASC
+-            `;
+-
+-            const transParams = [tenantId, name, startD, endD.toISOString()];
+-            if (businessUnitId && businessUnitId !== 'ALL') transParams.push(businessUnitId);
+-
+-            const transRes = await client.query(transQuery, transParams);
++            `, transParams);
+ 
+             const transactions = transRes.rows.map(t => {
+-                const amt = Number(t.amount);
+-                let debit = 0;
+-                let credit = 0;
+-
+-                // Universal Debit Logic: If it matches Account while IN, or Category while OUT
+-                if ((t.account.toLowerCase() === name.toLowerCase() && t.type === 'IN') || 
+-                    (t.category.toLowerCase() === name.toLowerCase() && t.type === 'OUT')) {
+-                    debit = amt;
+-                } else {
+-                    credit = amt;
+-                }
++                const amt = Number(t.amount ?? 0);
++
++                // Same debit/credit rule as the opening balance above
++                const isDebit =
++                    (t.account  && t.account.toLowerCase()  === name.toLowerCase() && t.type === 'IN')  ||
++                    (t.category && t.category.toLowerCase() === name.toLowerCase() && t.type === 'OUT');
+ 
+                 return {
+-                    id: t.id,
+-                    date: t.date.toISOString().split('T')[0],
+-                    amount: amt,
+-                    debit,
+-                    credit,
+-                    type: t.type,
+-                    description: t.description,
+-                    account: t.account,
+-                    category: t.category,
+-                    businessUnitId: t.business_unit_id,
+-                    imageUrl: t.image_url
++                    id:             t.id,
++                    date:           t.date instanceof Date
++                                        ? t.date.toISOString().split('T')[0]
++                                        : String(t.date).substring(0, 10),
++                    amount:         amt,
++                    debit:          isDebit ? amt : 0,
++                    credit:         isDebit ? 0   : amt,
++                    type:           t.type,
++                    description:    t.description   ?? '',
++                    account:        t.account       ?? '',
++                    category:       t.category      ?? '',
++                    businessUnitId: t.business_unit_id ?? null,
++                    imageUrl:       t.image_url     ?? null,
+                 };
+             });
+ 
+-            return NextResponse.json({
+-                openingBalance,
+-                normalPos,
+-                transactions
+-            });
++            return NextResponse.json({ openingBalance, normalPos, transactions });
+ 
+         } finally {
+             client.release();
+         }
++
+     } catch (error) {
+-        console.error("Ledger Fetch Error:", error);
++        console.error('[LEDGER] Error:', error);
+         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+     }
+ }
+diff --git a/app/api/finance/recalculate/route.ts b/app/api/finance/recalculate/route.ts
+index e3803b4d..a78988a1 100644
+--- a/app/api/finance/recalculate/route.ts
++++ b/app/api/finance/recalculate/route.ts
+@@ -2,76 +2,99 @@
+ import { NextResponse } from 'next/server';
+ import { prisma } from '@/lib/prisma';
+ import { authorize } from '@/lib/auth';
++import { Prisma } from '@prisma/client';
+ 
++export const dynamic = 'force-dynamic';
++
++/**
++ * POST /api/finance/recalculate
++ *
++ * Recalculates and "heals" the cached `balance` column in `financial_accounts`
++ * by re-deriving it from scratch using the transactions table as the single
++ * source of truth.
++ *
++ * Convention (from POST /api/transactions):
++ *   IN  ÔåÆ account = bank (debit side).  bank.balance  += amount
++ *   OUT ÔåÆ account = bank (credit side). bank.balance  -= amount  (expense OR transfer-source)
++ *   Transfer (type=OUT, both sides are banks):
++ *         account  = SOURCE bank  ÔåÆ SOURCE.balance -= amount
++ *         category = DEST bank    ÔåÆ DEST.balance   += amount
++ *
++ * Therefore, for any given bank account (fa.name):
++ *   Net contribution from each transaction row:
++ *     +amount  if  type='IN'  AND LOWER(account) = bankName
++ *     -amount  if  type='OUT' AND LOWER(account) = bankName  (expense OR transfer-source)
++ *     +amount  if  type='OUT' AND LOWER(category) = bankName (transfer-destination)
++ *
++ * This is a single CASE expression ÔÇö no double-counting possible.
++ */
+ export async function POST() {
+-  try {
+-    const user = await authorize(['OWNER', 'FINANCE']);
+-    const { tenantId } = user;
++    try {
++        const user = await authorize(['OWNER', 'FINANCE']);
++        const { tenantId } = user;
+ 
+-    // 1. Ambil Semua Akun
+-    const accounts = await prisma.financialAccount.findMany({
+-      where: { tenantId }
+-    });
++        // ÔöÇÔöÇ 1. Compute the correct balance for every financial account in one query ÔöÇÔöÇ
++        const balanceRows = await prisma.$queryRaw<{ account_id: string; net_balance: number }[]>`
++            SELECT
++                fa.id                            AS account_id,
++                COALESCE(SUM(
++                    CASE
++                        -- Money ENTERS this bank (IN, bank is debit/account side)
++                        WHEN LOWER(t.account) = LOWER(fa.name) AND t.type = 'IN'
++                            THEN  t.amount
+ 
+-    // 2. Lakukan Rekalkulasi dengan Logic Akuntansi Double Entry Sejati
+-    // Gunakan timeout lebih lama karena proses ini melibatkan scan seluruh tabel transaksi
+-    await prisma.$transaction(async (tx) => {
+-      const debitBalances = await (tx as any).$queryRaw<any[]>`
+-            SELECT 
+-                fa.id as account_id,
+-                SUM(t.amount) as total_debit
+-            FROM transactions t
+-            JOIN financial_accounts fa ON 
+-                (LOWER(t.account) = LOWER(fa.name) AND t.type = 'IN') OR 
+-                (LOWER(t.category) = LOWER(fa.name) AND t.type = 'OUT')
+-            WHERE t.tenant_id = ${tenantId} AND fa.tenant_id = ${tenantId}
+-            GROUP BY fa.id
+-        `;
++                        -- Money LEAVES this bank (OUT, bank is credit/account side)
++                        -- Covers both expense payments AND transfer-out
++                        WHEN LOWER(t.account) = LOWER(fa.name) AND t.type = 'OUT'
++                            THEN -t.amount
++
++                        -- Transfer ARRIVES at this bank (OUT, bank is category/destination side)
++                        WHEN LOWER(t.category) = LOWER(fa.name) AND t.type = 'OUT'
++                            THEN  t.amount
+ 
+-      const creditBalances = await (tx as any).$queryRaw<any[]>`
+-            SELECT 
+-                fa.id as account_id,
+-                SUM(t.amount) as total_credit
+-            FROM transactions t
+-            JOIN financial_accounts fa ON 
+-                (LOWER(t.account) = LOWER(fa.name) AND t.type = 'OUT') OR
+-                (LOWER(t.category) = LOWER(fa.name) AND t.type = 'IN')
+-            WHERE t.tenant_id = ${tenantId} AND fa.tenant_id = ${tenantId}
++                        ELSE 0
++                    END
++                ), 0)                            AS net_balance
++            FROM financial_accounts fa
++            LEFT JOIN transactions t
++                ON  t.tenant_id = ${tenantId}
++                AND fa.tenant_id = ${tenantId}
++                AND (
++                    LOWER(t.account)  = LOWER(fa.name) OR
++                    LOWER(t.category) = LOWER(fa.name)
++                )
++            WHERE fa.tenant_id = ${tenantId}
+             GROUP BY fa.id
+         `;
+ 
+-      const balanceMap = new Map<string, number>();
+-      accounts.forEach(a => balanceMap.set(a.id, 0));
++        if (balanceRows.length === 0) {
++            return NextResponse.json({ success: true, updated: 0, message: 'No financial accounts found.' });
++        }
+ 
+-      debitBalances.forEach((r: any) => {
+-        balanceMap.set(r.account_id, (balanceMap.get(r.account_id) || 0) + Number(r.total_debit || 0));
+-      });
+-      creditBalances.forEach((r: any) => {
+-        balanceMap.set(r.account_id, (balanceMap.get(r.account_id) || 0) - Number(r.total_credit || 0));
+-      });
++        // ÔöÇÔöÇ 2. Atomically write the corrected balances back to the database ÔöÇÔöÇ
++        let updated = 0;
++        await prisma.$transaction(
++            async (tx) => {
++                for (const row of balanceRows) {
++                    const newBalance = Number(row.net_balance);
++                    await (tx as any).financialAccount.update({
++                        where: { id: row.account_id },
++                        data:  { balance: newBalance }
++                    });
++                    updated++;
++                }
++            },
++            { timeout: 30_000 }
++        );
+ 
+-      for (const acc of accounts) {
+-        const newBalance = balanceMap.get(acc.id) || 0;
+-
+-        // Update Saldo Akun
+-        await (tx as any).financialAccount.update({
+-          where: { id: acc.id },
+-          data: { balance: newBalance }
++        return NextResponse.json({
++            success: true,
++            updated,
++            message: `Rekalibrasi selesai: ${updated} akun berhasil diselaraskan dengan jurnal transaksi.`
+         });
+ 
+-        console.log(`[RECALCULATE] Account ${acc.name} synced to: ${newBalance}`);
+-      }
+-    }, {
+-      timeout: 30000 // Tipe transaksi berat, beri waktu 30 detik
+-    });
+-
+-    return NextResponse.json({
+-      success: true,
+-      message: 'Auto-Healing Selesai: Semua saldo akun telah disinkronkan ulang dengan jurnal transaksi secara akurat.'
+-    });
+-
+-  } catch (error: any) {
+-    console.error('Recalculate Error:', error);
+-    return NextResponse.json({ error: error.message }, { status: 500 });
+-  }
++    } catch (error: any) {
++        console.error('[RECALCULATE] Error:', error);
++        return NextResponse.json({ error: error.message || 'Internal error' }, { status: 500 });
++    }
+ }
+diff --git a/app/api/finance/summary/route.ts b/app/api/finance/summary/route.ts
+index 976ad902..c3715dd5 100644
+--- a/app/api/finance/summary/route.ts
++++ b/app/api/finance/summary/route.ts
+@@ -12,59 +12,137 @@ export async function GET(request: Request) {
+ 
+         const { searchParams } = new URL(request.url);
+         const businessUnitId = searchParams.get('businessUnitId');
++        const startDate = searchParams.get('startDate');    // NEW: date-range filter for card balances
++        const endDate = searchParams.get('endDate');        // NEW: date-range filter for card balances
+         const hasUnitFilter = businessUnitId && businessUnitId !== 'ALL';
+ 
+-        // 1. Calculate Balance per Financial Account (Bank/Kas)
+-        const debitBalances = await prisma.$queryRaw<any[]>`
+-            SELECT 
+-                fa.name as account_name,
+-                SUM(t.amount) as total_debit
+-            FROM transactions t
+-            JOIN financial_accounts fa ON 
+-                (LOWER(t.account) = LOWER(fa.name) AND t.type = 'IN') OR 
+-                (LOWER(t.category) = LOWER(fa.name) AND t.type = 'OUT')
+-            WHERE t.tenant_id = ${tenantId} AND fa.tenant_id = ${tenantId}
+-            ${hasUnitFilter ? Prisma.sql`AND t.business_unit_id = ${businessUnitId}` : Prisma.empty}
+-            GROUP BY fa.name
+-        `;
++        // ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
++        // 1. Fetch all active Financial Accounts (Bank / Kas) for this tenant
++        // ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
++        const financialAccounts = await prisma.financialAccount.findMany({
++            where: { tenantId, isActive: true }
++        });
++        const bankNames = financialAccounts.map(fa => fa.name.toLowerCase());
++
++        // ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
++        // 2. Build date filter for balance cards
++        //    If a date range is supplied, we compute balances UP-TO the end date.
++        //    (Typical ledger logic: balance = everything created on or before endDate)
++        //    If no date supplied, the cards show the all-time running balance.
++        // ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
++        let balanceDateFilter: Prisma.TransactionWhereInput = {};
++        if (endDate) {
++            const endOfDay = new Date(endDate);
++            endOfDay.setUTCHours(23, 59, 59, 999);
++            balanceDateFilter = { date: { lte: endOfDay } };
++        }
+ 
+-        const creditBalances = await prisma.$queryRaw<any[]>`
++        // ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
++        // 3. Compute running balance per account using raw SQL for performance.
++        //
++        //    Convention in the transactions table (from POST route):
++        //      IN  ÔåÆ `account` = bank name, `category` = revenue/expense label
++        //            Effect: bank.balance += amount
++        //      OUT ÔåÆ `account` = bank name (swapped on write), `category` = expense label
++        //            Effect: bank.balance -= amount
++        //      Transfer (IN/OUT both banks) ÔåÆ stored as OUT
++        //            `account` = source bank (credit side), `category` = dest bank (debit side)
++        //            Effect: source.balance -= amount, dest.balance += amount
++        //
++        //    So to compute balance for a given bank:
++        //      +amount for every row where LOWER(account) = bankName AND type = 'IN'
++        //      +amount for every row where LOWER(category) = bankName AND type = 'OUT'  (transfer dest)
++        //      -amount for every row where LOWER(account) = bankName AND type = 'OUT'   (expense / transfer source)
++        //      (We don't need to subtract "category=bank AND type=IN" because that case doesn't occur
++        //       by our write convention ÔÇö when a bank is on the credit side of an IN, it's the source
++        //       of a transfer which is stored as OUT)
++        // ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
++
++        // Build the raw SQL unit filter fragment
++        const unitSql = hasUnitFilter
++            ? Prisma.sql`AND t.business_unit_id = ${businessUnitId}`
++            : Prisma.empty;
++
++        // Build date ceiling
++        const dateSql = endDate
++            ? Prisma.sql`AND t.date <= ${new Date(endDate + 'T23:59:59.999Z')}`
++            : Prisma.empty;
++
++        // Single pass: compute net balance per bank account in one query
++        const balanceRows = await prisma.$queryRaw<{ account_name: string; net_balance: number }[]>`
+             SELECT 
+-                fa.name as account_name,
+-                SUM(t.amount) as total_credit
+-            FROM transactions t
+-            JOIN financial_accounts fa ON 
+-                (LOWER(t.account) = LOWER(fa.name) AND t.type = 'OUT') OR
+-                (LOWER(t.category) = LOWER(fa.name) AND t.type = 'IN')
+-            WHERE t.tenant_id = ${tenantId} AND fa.tenant_id = ${tenantId}
+-            ${hasUnitFilter ? Prisma.sql`AND t.business_unit_id = ${businessUnitId}` : Prisma.empty}
++                fa.name                                                     AS account_name,
++                COALESCE(SUM(
++                    CASE
++                        -- Money enters this bank (IN where account = this bank)
++                        WHEN LOWER(t.account) = LOWER(fa.name) AND t.type = 'IN'  THEN  t.amount
++                        -- Money leaves this bank (OUT where account = this bank ÔÇö expense or transfer-source)
++                        WHEN LOWER(t.account) = LOWER(fa.name) AND t.type = 'OUT' THEN -t.amount
++                        -- Transfer destination: OUT where category = this bank (money arrives here)
++                        WHEN LOWER(t.category) = LOWER(fa.name) AND t.type = 'OUT' THEN  t.amount
++                        ELSE 0
++                    END
++                ), 0)                                                        AS net_balance
++            FROM financial_accounts fa
++            LEFT JOIN transactions t
++                ON  t.tenant_id = ${tenantId}
++                AND fa.tenant_id = ${tenantId}
++                AND (
++                    LOWER(t.account)   = LOWER(fa.name) OR
++                    LOWER(t.category)  = LOWER(fa.name)
++                )
++                ${unitSql}
++                ${dateSql}
++            WHERE fa.tenant_id = ${tenantId}
++              AND fa.is_active  = true
+             GROUP BY fa.name
+         `;
+ 
+-        // 2. Fetch Financial Accounts early for balances and exclusion
+-        const financialAccounts = await prisma.financialAccount.findMany({ where: { tenantId, isActive: true } });
+-        const bankNames = financialAccounts.map(fa => fa.name);
++        // Build the accountBalances map
++        const accountBalances: Record<string, number> = {};
++        financialAccounts.forEach(fa => { accountBalances[fa.name] = 0; });
++        balanceRows.forEach(r => {
++            accountBalances[r.account_name] = Number(r.net_balance);
++        });
+ 
+-        // 3. Calculate P&L Stats (Current Month)
++        const totalAssets = Object.values(accountBalances).reduce((a, b) => a + b, 0);
++
++        // ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
++        // 4. P&L Stats ÔÇö scoped to the requested date range (or current month if none)
++        //    Only count REAL income & expense, excluding inter-bank transfers.
++        // ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+         const now = new Date();
+-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+-        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+-        endOfMonth.setUTCHours(23, 59, 59, 999);
++        const plStart = startDate ? new Date(startDate) : new Date(now.getFullYear(), now.getMonth(), 1);
++        const plEnd = endDate
++            ? new Date(endDate + 'T23:59:59.999Z')
++            : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+ 
+-        const plWhere: Prisma.TransactionWhereInput = {
+-            tenantId: tenantId,
+-            date: { gte: startOfMonth, lte: endOfMonth }
++        const plBaseWhere: Prisma.TransactionWhereInput = {
++            tenantId,
++            status: 'PAID',
++            date: { gte: plStart, lte: plEnd },
++            ...(hasUnitFilter ? { businessUnitId } : {})
+         };
+-        if (hasUnitFilter) plWhere.businessUnitId = businessUnitId;
+ 
++        // Real income: type=IN where the category (credit side) is NOT another bank
++        // (a bank-to-bank transfer stored as IN would have a bank category, but by our
++        //  write convention, transfers are always stored as OUT ÔÇö so this guard is a safety net)
+         const [incomeAgg, expenseAgg] = await Promise.all([
+             prisma.transaction.aggregate({
+-                where: { ...plWhere, type: 'IN' }, // Income logic handles IN
++                where: {
++                    ...plBaseWhere,
++                    type: 'IN',
++                    NOT: { category: { in: bankNames } }  // exclude any accidental bank-on-credit-IN
++                },
+                 _sum: { amount: true }
+             }),
+             prisma.transaction.aggregate({
+-                // Exclude transfers (where category is another Bank) from Expenses!
+-                where: { ...plWhere, type: 'OUT', NOT: { category: { in: bankNames } } },
++                where: {
++                    ...plBaseWhere,
++                    type: 'OUT',
++                    // Exclude transfers: rows where BOTH account AND category are bank names
++                    NOT: { category: { in: bankNames } }  // if category is a bank ÔåÆ it's a transfer, skip
++                },
+                 _sum: { amount: true }
+             })
+         ]);
+@@ -72,15 +150,6 @@ export async function GET(request: Request) {
+         const income = Number(incomeAgg._sum.amount || 0);
+         const expense = Number(expenseAgg._sum.amount || 0);
+ 
+-        // Merge Balances
+-        const accountBalances: Record<string, number> = {};
+-        financialAccounts.forEach(fa => { accountBalances[fa.name] = 0; });
+-
+-        debitBalances.forEach(r => { accountBalances[r.account_name] = (accountBalances[r.account_name] || 0) + Number(r.total_debit); });
+-        creditBalances.forEach(r => { accountBalances[r.account_name] = (accountBalances[r.account_name] || 0) - Number(r.total_credit); });
+-
+-        let totalAssets = Object.values(accountBalances).reduce((a, b) => a + b, 0);
+-
+         return NextResponse.json({
+             accountBalances,
+             totalAssets,
+@@ -92,7 +161,7 @@ export async function GET(request: Request) {
+         });
+ 
+     } catch (error) {
+-        console.error("Finance Summary Error:", error);
++        console.error('Finance Summary Error:', error);
+         return NextResponse.json({ error: 'Failed to fetch summary' }, { status: 500 });
+     }
+ }
+diff --git a/app/api/requests/[id]/route.ts b/app/api/requests/[id]/route.ts
+index 81361f37..f1791012 100644
+--- a/app/api/requests/[id]/route.ts
++++ b/app/api/requests/[id]/route.ts
+@@ -57,7 +57,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
+                 dataToUpdate.approverId = user.id;
+                 dataToUpdate.approverName = activeUser?.name || 'Manager';
+                 dataToUpdate.actionNote = r.actionNote || null;
+-                dataToUpdate.actionAt = BigInt(Date.now());
++                dataToUpdate.actionAt = new Date();
+             }
+         }
+ 
+@@ -66,6 +66,50 @@ export async function PUT(request: Request, { params }: { params: { id: string }
+             data: dataToUpdate
+         });
+ 
++        // --- QUOTA DEDUCTION LOGIC ---
++        if (isApprovalAction) {
++            const year = new Date(existing.startDate || new Date()).getFullYear();
++            const weight = existing.penaltyWeight || 1;
++            const diffTime = Math.abs(new Date(existing.endDate || existing.startDate || new Date()).getTime() - new Date(existing.startDate || new Date()).getTime());
++            const days = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
++            const totalDeduct = weight * days;
++            
++            const tenant = await prisma.tenant.findUnique({
++                where: { id: tenantId },
++                select: { leaveAnnualQuota: true }
++            });
++            const total = tenant?.leaveAnnualQuota || 12;
++
++            if (r.status === 'APPROVED' && totalDeduct > 0) {
++                // Deduct from quota
++                await prisma.leaveQuota.upsert({
++                    where: { userId_year: { userId: existing.userId!, year } },
++                    update: {
++                        usedQuota: { increment: totalDeduct },
++                        remainingQuota: { decrement: totalDeduct }
++                    },
++                    create: {
++                        id: Math.random().toString(36).substr(2, 9),
++                        userId: existing.userId!,
++                        year,
++                        totalQuota: total,
++                        usedQuota: totalDeduct,
++                        remainingQuota: total - totalDeduct,
++                        tenantId: tenantId
++                    }
++                });
++            } else if (r.status === 'REJECTED' && existing.status === 'APPROVED' && totalDeduct > 0) {
++                // Reverse deduction if it was previously approved
++                await prisma.leaveQuota.update({
++                    where: { userId_year: { userId: existing.userId!, year } },
++                    data: {
++                        usedQuota: { decrement: totalDeduct },
++                        remainingQuota: { increment: totalDeduct }
++                    }
++                });
++            }
++        }
++
+         // --- TELEGRAM NOTIFICATION FOR APPROVAL/REJECTION ---
+         if (isApprovalAction) {
+             try {
+diff --git a/app/api/requests/route.ts b/app/api/requests/route.ts
+index 1786e873..eaea72de 100644
+--- a/app/api/requests/route.ts
++++ b/app/api/requests/route.ts
+@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
+ import { prisma } from '@/lib/prisma';
+ import { authorize } from '@/lib/auth';
+ import { serialize } from '@/lib/serverUtils';
++import { validateAndCalculateRequest } from '@/lib/leaveLogic';
+ 
+ export async function GET(request: Request) {
+     try {
+@@ -31,6 +32,7 @@ export async function GET(request: Request) {
+ 
+         const requests = await prisma.leaveRequest.findMany({
+             where,
++            include: { user: { select: { id: true, name: true, role: true, avatarUrl: true, jobTitle: true } } },
+             orderBy: { createdAt: 'desc' },
+             take: startDate ? undefined : 150 // Limit 150 if no filter to prevent overload
+         });
+@@ -49,12 +51,22 @@ export async function POST(request: Request) {
+         const { tenantId } = user;
+         const r = await request.json();
+ 
++        // 1. Validate & Calculate Metadata
++        const metadata = await validateAndCalculateRequest({
++            userId: r.userId || user.id,
++            tenantId,
++            type: r.type,
++            startDate: new Date(r.startDate),
++            endDate: r.endDate ? new Date(r.endDate) : new Date(r.startDate),
++            hasAttachment: !!r.attachmentUrl
++        });
++
+         // 1. Create Data
+         const newRequest = await prisma.leaveRequest.create({
+             data: {
+                 id: r.id,
+                 tenantId,
+-                userId: r.userId,
++                userId: r.userId || user.id,
+                 type: r.type,
+                 description: r.description,
+                 startDate: new Date(r.startDate),
+@@ -64,8 +76,11 @@ export async function POST(request: Request) {
+                     endTime: r.endTime || null,
+                 } as any),
+                 attachmentUrl: r.attachmentUrl || null,
+-                status: r.status,
+-                createdAt: r.createdAt ? BigInt(r.createdAt) : BigInt(Date.now())
++                status: r.status || 'PENDING',
++                isSudden: metadata.isSudden,
++                hasDoctorNote: metadata.hasDoctorNote,
++                penaltyWeight: metadata.penaltyWeight,
++                createdAt: new Date()
+             }
+         });
+ 
+diff --git a/app/api/settings/route.ts b/app/api/settings/route.ts
+index 1fea4e5a..29129c6f 100644
+--- a/app/api/settings/route.ts
++++ b/app/api/settings/route.ts
+@@ -36,21 +36,35 @@ export async function PUT(request: Request) {
+       return NextResponse.json({ ok: true });
+     }
+ 
+-    await prisma.settings.update({
+-      where: { id: existing.id },
+-      data: {
+-        officeLat: s.officeLocation?.lat,
+-        officeLng: s.officeLocation?.lng,
+-        officeStartTime: s.officeHours?.start,
+-        officeEndTime: s.officeHours?.end,
+-        telegramBotToken: s.telegramBotToken || '',
+-        telegramGroupId: s.telegramGroupId || '',
+-        telegramOwnerChatId: s.telegramOwnerChatId || '',
+-        companyProfileJson: JSON.stringify(s.companyProfile),
+-        dailyRecapTime: s.dailyRecapTime,
+-        dailyRecapContent: JSON.stringify(s.dailyRecapModules)
+-      }
+-    });
++    await Promise.all([
++      prisma.settings.update({
++        where: { id: existing.id },
++        data: {
++          officeLat: s.officeLocation?.lat,
++          officeLng: s.officeLocation?.lng,
++          officeStartTime: s.officeHours?.start,
++          officeEndTime: s.officeHours?.end,
++          telegramBotToken: s.telegramBotToken || '',
++          telegramGroupId: s.telegramGroupId || '',
++          telegramOwnerChatId: s.telegramOwnerChatId || '',
++          companyProfileJson: JSON.stringify(s.companyProfile),
++          dailyRecapTime: s.dailyRecapTime,
++          dailyRecapContent: JSON.stringify(s.dailyRecapModules)
++        }
++      }),
++      // Update tenant policy as well
++      prisma.tenant.update({
++        where: { id: user.tenantId },
++        data: {
++          leaveWeeklyLimit: s.leaveWeeklyLimit,
++          leaveAnnualQuota: s.leaveAnnualQuota,
++          leaveSuddenPenalty: s.leaveSuddenPenalty,
++          leaveNoticeThreshold: s.leaveNoticeThreshold,
++          leaveNoticeRequired: s.leaveNoticeRequired,
++          leaveSuddenHourCutoff: s.leaveSuddenHourCutoff
++        }
++      })
++    ]);
+ 
+     return NextResponse.json({ ok: true });
+   } catch (error) {
+diff --git a/app/api/transactions/[id]/route.ts b/app/api/transactions/[id]/route.ts
+index acbf638d..146a5f8b 100644
+--- a/app/api/transactions/[id]/route.ts
++++ b/app/api/transactions/[id]/route.ts
+@@ -3,6 +3,126 @@ import { NextResponse } from 'next/server';
+ import { prisma } from '@/lib/prisma';
+ import { authorize } from '@/lib/auth';
+ 
++/**
++ * Helper: Given a stored transaction, look up which financial accounts are
++ * involved on the debit side vs the credit side, based on the stored type.
++ *
++ * Convention (established in POST route.ts):
++ *   - 'IN'  ÔåÆ Bank/Kas is on the ACCOUNT (Debit) side, Category is the revenue/contra source
++ *   - 'OUT' ÔåÆ Bank/Kas is on the ACCOUNT side too (it was swapped on write), Category is the expense/destination
++ *   - Transfer (BankÔåÆBank): stored as OUT, ACCOUNT = source bank (credit side), CATEGORY = dest bank (debit side)
++ *
++ * For balance adjustment purposes:
++ *   - ACCOUNT field always holds the bank that was credited/debited at ACCOUNT position
++ *   - CATEGORY field may hold a second bank in a transfer
++ *
++ * The balance impact on CREATE was:
++ *   if (bankDebit) balance += amount   ÔåÆ bankDebit === the bank in category for OUT, or account for IN
++ *   if (bankCredit) balance -= amount  ÔåÆ bankCredit === the bank in account for OUT, or category for IN
++ *
++ * WAIT ÔÇö let's re-read POST carefully to be exact:
++ *   bankDebit  = match on body.account (debit side label from form)
++ *   bankCredit = match on body.category (credit side label from form)
++ *   if IN  (bankDebit only): finalAccountLabel = bankDebit.name  ÔåÆ stored in account col
++ *                             finalCategoryLabel = creditName     ÔåÆ stored in category col
++ *                             balance: bankDebit += amount
++ *   if OUT (bankCredit only): finalAccountLabel = bankCredit.name ÔåÆ stored in account col (SWAPPED!)
++ *                              finalCategoryLabel = debitName     ÔåÆ stored in category col
++ *                              balance: bankCredit -= amount
++ *   if Transfer (both):       finalAccountLabel = bankCredit.name ÔåÆ stored in account col
++ *                             finalCategoryLabel = bankDebit.name  ÔåÆ stored in category col
++ *                             balance: bankDebit += amount, bankCredit -= amount
++ *
++ * So in the DB, ACCOUNT always holds the "primary" bank reference (the one that was Credit-side for OUT).
++ * To UNDO:
++ *   IN  ÔåÆ find bank by old.account ÔåÆ DECREMENT (it was incremented on create)
++ *   OUT ÔåÆ find bank by old.account ÔåÆ INCREMENT (it was decremented on create)
++ *   Transfer ÔåÆ find bank by old.account ÔåÆ INCREMENT, find bank by old.category ÔåÆ DECREMENT
++ */
++async function undoTransactionBalance(
++    tx: any,
++    tenantId: string,
++    old: { type: string; account: string; category: string | null; amount: any }
++): Promise<void> {
++    const oldAmount = Number(old.amount);
++
++    if (old.type === 'IN') {
++        // Account field holds the bank that was incremented. Undo = decrement.
++        const bankAccount = await tx.financialAccount.findFirst({
++            where: { tenantId, name: { equals: old.account, mode: 'insensitive' }, isActive: true }
++        });
++        if (bankAccount) {
++            await tx.financialAccount.update({
++                where: { id: bankAccount.id },
++                data: { balance: { decrement: oldAmount } }
++            });
++        }
++    } else if (old.type === 'OUT') {
++        if (old.category) {
++            // Check if category is also a bank (= this was an Internal Transfer)
++            const bankCategory = await tx.financialAccount.findFirst({
++                where: { tenantId, name: { equals: old.category, mode: 'insensitive' }, isActive: true }
++            });
++            const bankAccount = await tx.financialAccount.findFirst({
++                where: { tenantId, name: { equals: old.account, mode: 'insensitive' }, isActive: true }
++            });
++
++            if (bankCategory && bankAccount) {
++                // Transfer: account was credit-side (decremented), category was debit-side (incremented)
++                await tx.financialAccount.update({
++                    where: { id: bankAccount.id },
++                    data: { balance: { increment: oldAmount } } // Undo the decrement
++                });
++                await tx.financialAccount.update({
++                    where: { id: bankCategory.id },
++                    data: { balance: { decrement: oldAmount } } // Undo the increment
++                });
++            } else if (bankAccount) {
++                // Regular OUT: account was credit-side (decremented). Undo = increment.
++                await tx.financialAccount.update({
++                    where: { id: bankAccount.id },
++                    data: { balance: { increment: oldAmount } }
++                });
++            }
++        } else {
++            // OUT with no category bank ÔÇö just undo account
++            const bankAccount = await tx.financialAccount.findFirst({
++                where: { tenantId, name: { equals: old.account, mode: 'insensitive' }, isActive: true }
++            });
++            if (bankAccount) {
++                await tx.financialAccount.update({
++                    where: { id: bankAccount.id },
++                    data: { balance: { increment: oldAmount } }
++                });
++            }
++        }
++    }
++}
++
++/**
++ * Helper: Apply balance impact for a new transaction, mirroring POST logic exactly.
++ */
++async function applyTransactionBalance(
++    tx: any,
++    tenantId: string,
++    bankDebit: { id: string } | null,
++    bankCredit: { id: string } | null,
++    amount: number
++): Promise<void> {
++    if (bankDebit) {
++        await tx.financialAccount.update({
++            where: { id: bankDebit.id },
++            data: { balance: { increment: amount } }
++        });
++    }
++    if (bankCredit) {
++        await tx.financialAccount.update({
++            where: { id: bankCredit.id },
++            data: { balance: { decrement: amount } }
++        });
++    }
++}
++
+ export async function PUT(request: Request, { params }: { params: { id: string } }) {
+     try {
+         const user = await authorize(['OWNER', 'FINANCE']);
+@@ -11,114 +131,108 @@ export async function PUT(request: Request, { params }: { params: { id: string }
+         const body = await request.json();
+ 
+         if (!body.amount || !body.account) {
+-            return NextResponse.json({ error: 'Invalid data' }, { status: 400 });
++            return NextResponse.json({ error: 'Invalid data: amount and account are required' }, { status: 400 });
+         }
+ 
+-        // STRICT CHECK: Ownership & Tenant match
++        // STRICT CHECK: Ownership & Tenant match before any writes
+         const existingTx = await prisma.transaction.findFirst({ where: { id, tenantId } });
+-        if (!existingTx) return NextResponse.json({ error: 'Transaction not found or unauthorized' }, { status: 404 });
++        if (!existingTx) {
++            return NextResponse.json({ error: 'Transaction not found or unauthorized' }, { status: 404 });
++        }
+ 
+-        // --- UNIVERSAL LOGIC: Redetermine Bank vs COA Context ---
+-        const debitName = body.account;
+-        const creditName = body.category;
++        // --- Resolve Bank Accounts for the NEW (incoming) transaction data ---
++        // These are the form labels BEFORE any swapping. Match them as-is from the form.
++        const debitName: string = body.account;
++        const creditName: string = body.category ?? '';
+ 
+-        const [bankDebit, bankCredit] = await Promise.all([
++        const [newBankDebit, newBankCredit] = await Promise.all([
+             prisma.financialAccount.findFirst({
+-                where: {
+-                    tenantId,
+-                    name: { equals: debitName, mode: 'insensitive' },
+-                    isActive: true
+-                }
++                where: { tenantId, name: { equals: debitName, mode: 'insensitive' }, isActive: true }
+             }),
+-            prisma.financialAccount.findFirst({
+-                where: {
+-                    tenantId,
+-                    name: { equals: creditName, mode: 'insensitive' },
+-                    isActive: true
+-                }
+-            })
++            creditName
++                ? prisma.financialAccount.findFirst({
++                    where: { tenantId, name: { equals: creditName, mode: 'insensitive' }, isActive: true }
++                })
++                : Promise.resolve(null)
+         ]);
+ 
+-        let finalType = body.type || 'IN';
+-        let accountId: string | null = null;
+-
+-        // Determination Logic (Mirroring POST for consistency)
+-        if (bankDebit && !bankCredit) {
+-            finalType = 'IN';
+-            accountId = bankDebit.id;
+-        } else if (bankCredit && !bankDebit) {
+-            finalType = 'OUT';
+-            accountId = bankCredit.id;
+-        } else if (bankDebit && bankCredit) {
+-            // Internal Transfer (Bank to Bank) - Source is Credit Side
+-            finalType = 'OUT';
+-            accountId = bankCredit.id;
++        // Determine final stored type and accountId (mirrors POST logic exactly)
++        let finalType: 'IN' | 'OUT' = (body.type as 'IN' | 'OUT') || 'IN';
++        let finalAccountLabel = debitName;
++        let finalCategoryLabel = creditName;
++        let finalAccountId: string | null = null;
++
++        if (newBankDebit || newBankCredit) {
++            if (newBankDebit && !newBankCredit) {
++                finalType = 'IN';
++                finalAccountLabel = newBankDebit.name;
++                finalCategoryLabel = creditName;
++                finalAccountId = newBankDebit.id;
++            } else if (newBankCredit && !newBankDebit) {
++                finalType = 'OUT';
++                finalAccountLabel = newBankCredit.name;   // SWAP: bank goes to account col
++                finalCategoryLabel = debitName;            // expense goes to category col
++                finalAccountId = newBankCredit.id;
++            } else if (newBankDebit && newBankCredit) {
++                // Internal Transfer: credit-side bank is the source
++                finalType = 'OUT';
++                finalAccountLabel = newBankCredit.name;   // source bank
++                finalCategoryLabel = newBankDebit.name;   // destination bank
++                finalAccountId = newBankCredit.id;
++            }
+         }
++        // else: General Journal ÔÇö keep labels as-is, type from body
++
++        const newAmount = Number(body.amount);
+ 
+         const updated = await prisma.$transaction(async (tx) => {
++            // Fetch the current DB state inside the transaction for freshness
+             const old = await tx.transaction.findUnique({ where: { id } });
+-            if (!old) throw new Error('Transaction not found');
+-
+-            // 1. Undo Old Impact (Universal Debit/Credit Reversal)
+-            const [oldBankDebit, oldBankCredit] = await Promise.all([
+-                (tx.financialAccount as any).findFirst({ where: { tenantId, name: { equals: old.account, mode: 'insensitive' } } }),
+-                (tx.financialAccount as any).findFirst({ where: { tenantId, name: { equals: old.category, mode: 'insensitive' } } })
+-            ]);
+-
+-            if (oldBankDebit) {
+-                await (tx.financialAccount as any).update({
+-                    where: { id: oldBankDebit.id, tenantId },
+-                    data: { balance: { decrement: Number(old.amount) } }
+-                });
+-            }
+-            if (oldBankCredit) {
+-                await (tx.financialAccount as any).update({
+-                    where: { id: oldBankCredit.id, tenantId },
+-                    data: { balance: { increment: Number(old.amount) } }
+-                });
+-            }
++            if (!old) throw new Error('Transaction not found inside transaction');
+ 
+-            // 2. Perform Update (With Corrected type and accountId)
+-            const up = await tx.transaction.update({
++            // STEP 1: Undo the balance impact of the OLD transaction
++            // old.type / old.account are string|null per Prisma schema ÔÇö we use ?? '' as a safe
++            // fallback; valid stored transactions will never actually have null here.
++            await undoTransactionBalance(tx, tenantId, {
++                type:     old.type    ?? '',
++                account:  old.account ?? '',
++                category: old.category,
++                amount:   old.amount
++            });
++
++            // STEP 2: Update the transaction record
++            const updatedRecord = await tx.transaction.update({
+                 where: { id },
+                 data: {
+                     date: new Date(body.date),
+-                    amount: body.amount,
++                    amount: newAmount,
+                     type: finalType,
+-                    category: body.category || null,
+-                    description: body.description,
+-                    account: body.account,
+-                    accountId: accountId,
+-                    businessUnitId: body.businessUnitId || null,
+-                    imageUrl: body.imageUrl || null,
+-                    coaId: body.coaId || null,
+-                    contactName: body.contactName || null,
+-                    status: body.status || 'PAID',
+-                    dueDate: body.dueDate ? new Date(body.dueDate) : null
++                    account: finalAccountLabel,
++                    category: finalCategoryLabel || null,
++                    description: body.description ?? null,
++                    accountId: finalAccountId,
++                    coaId: body.coaId ?? null,
++                    businessUnitId: body.businessUnitId ?? null,
++                    imageUrl: body.imageUrl ?? null,
++                    contactName: body.contactName ?? null,
++                    status: body.status ?? 'PAID',
++                    dueDate: body.dueDate ? new Date(body.dueDate) : null,
+                 } as any
+             });
+ 
+-            // 3. Apply New Impact (Universal Debit/Credit Application)
+-            if (bankDebit) {
+-                await (tx.financialAccount as any).update({
+-                    where: { id: bankDebit.id, tenantId },
+-                    data: { balance: { increment: Number(body.amount) } }
+-                });
+-            }
+-            if (bankCredit) {
+-                await (tx.financialAccount as any).update({
+-                    where: { id: bankCredit.id, tenantId },
+-                    data: { balance: { decrement: Number(body.amount) } }
+-                });
+-            }
++            // STEP 3: Apply the balance impact of the NEW transaction
++            await applyTransactionBalance(tx, tenantId, newBankDebit, newBankCredit, newAmount);
+ 
+-            return up;
++            return updatedRecord;
+         });
+ 
+-        return NextResponse.json(updated);
++        // Serialize Decimal/BigInt fields safely
++        const safe = { ...updated, amount: Number((updated as any).amount) };
++        return NextResponse.json(safe);
++
+     } catch (error) {
+-        console.error('Update Transaction Error:', error);
+-        return NextResponse.json({ error: (error as any).message || 'Failed' }, { status: 500 });
++        console.error('PUT /transactions/[id] Error:', error);
++        return NextResponse.json({ error: (error as any).message || 'Failed to update transaction' }, { status: 500 });
+     }
+ }
+ 
+@@ -130,37 +244,29 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
+ 
+         // STRICT CHECK: Tenant validation
+         const existing = await prisma.transaction.findFirst({ where: { id, tenantId } });
+-        if (!existing) return NextResponse.json({ error: 'Unauthorized delete' }, { status: 403 });
++        if (!existing) {
++            return NextResponse.json({ error: 'Unauthorized delete or not found' }, { status: 403 });
++        }
+ 
+         await prisma.$transaction(async (tx) => {
+             const old = await tx.transaction.findUnique({ where: { id } });
+             if (!old) return;
+ 
+-            // Undo Old Impact (Universal Debit/Credit Reversal)
+-            const [oldBankDebit, oldBankCredit] = await Promise.all([
+-                (tx.financialAccount as any).findFirst({ where: { tenantId, name: { equals: old.account, mode: 'insensitive' } } }),
+-                (tx.financialAccount as any).findFirst({ where: { tenantId, name: { equals: old.category, mode: 'insensitive' } } })
+-            ]);
+-
+-            if (oldBankDebit) {
+-                await (tx.financialAccount as any).update({
+-                    where: { id: oldBankDebit.id, tenantId },
+-                    data: { balance: { decrement: Number(old.amount) } }
+-                });
+-            }
+-            if (oldBankCredit) {
+-                await (tx.financialAccount as any).update({
+-                    where: { id: oldBankCredit.id, tenantId },
+-                    data: { balance: { increment: Number(old.amount) } }
+-                });
+-            }
++            // Undo balance impact using the same robust helper
++            await undoTransactionBalance(tx, tenantId, {
++                type:     old.type    ?? '',
++                account:  old.account ?? '',
++                category: old.category,
++                amount:   old.amount
++            });
+ 
+             await tx.transaction.delete({ where: { id } });
+         });
+ 
+         return NextResponse.json({ success: true });
++
+     } catch (error) {
+-        console.error('Delete Transaction Error:', error);
+-        return NextResponse.json({ error: 'Failed' }, { status: 500 });
++        console.error('DELETE /transactions/[id] Error:', error);
++        return NextResponse.json({ error: 'Failed to delete transaction' }, { status: 500 });
+     }
+ }
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+index 905153e3..e77b3fd9 100644
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@ -18,6 +18,14 @@ model Tenant {
+   workStrategy          String                @default("FIXED") @map("work_strategy") // FIXED, SHIFT, FLEXIBLE
+   radiusTolerance       Int                   @default(50) @map("radius_tolerance") // Meters
+   lateGracePeriod       Int                   @default(15) @map("late_grace_period") // Minutes
++  
++  // Leave Policy Configuration
++  leaveWeeklyLimit      Int                   @default(1) @map("leave_weekly_limit")
++  leaveAnnualQuota      Int                   @default(12) @map("leave_annual_quota")
++  leaveSuddenPenalty    Int                   @default(2) @map("leave_sudden_penalty")
++  leaveNoticeThreshold  Int                   @default(2) @map("leave_notice_threshold") // Days (Apply notice rules if duration >= this)
++  leaveNoticeRequired   Int                   @default(7) @map("leave_notice_required") // Days notice required
++  leaveSuddenHourCutoff Int                   @default(16) @map("leave_sudden_hour_cutoff") // 4 PM
+ 
+   accessList            TenantAccess[]        // Multi-Tenant Access
+   attendance            Attendance[]
+@@ -30,6 +38,7 @@ model Tenant {
+   projects              Project[]
+   settings              Settings?
+   transactionCategories TransactionCategory[]
++  leaveQuotas          LeaveQuota[]
+ 
+   transactions          Transaction[]
+   users                 User[]
+@@ -98,6 +107,7 @@ model User {
+   sentMessages     ChatMessage[]
+   dailyReports     DailyReport[]
+   requests         LeaveRequest[]
++  leaveQuotas      LeaveQuota[]
+   payrollRecords   PayrollRecord[]
+   salaryConfig     SalaryConfig?
+   pushSubscriptions PushSubscription[]
+@@ -193,19 +203,25 @@ model Attendance {
+ model LeaveRequest {
+   id            String    @id
+   userId        String?   @map("user_id")
+-  type          String?
++  type          String?   // LEAVE, SICK, PERMIT, LATE, EARLY
+   description   String?
+   startDate     DateTime? @map("start_date") @db.Date
+   endDate       DateTime? @map("end_date") @db.Date
+   startTime     String?   @map("start_time") // Format: HH:mm
+   endTime       String?   @map("end_time")   // Format: HH:mm
+   attachmentUrl String?   @map("attachment_url")
+-  status        String?
++  status        String?   @default("PENDING") // PENDING, APPROVED, REJECTED
++  
++  // Rule Enforcement Fields
++  isSudden      Boolean?  @default(false) @map("is_sudden")
++  hasDoctorNote Boolean?  @default(false) @map("has_doctor_note")
++  penaltyWeight Int?      @default(1) @map("penalty_weight") // Number of quota days to deduct
++  
+   approverId    String?   @map("approver_id")
+   approverName  String?   @map("approver_name")
+   actionNote    String?   @map("action_note")
+-  createdAt     BigInt?   @map("created_at")
+-  actionAt      BigInt?   @map("action_at")
++  createdAt     DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
++  actionAt      DateTime? @map("action_at") @db.Timestamptz(6)
+   tenantId      String?   @default("sdm") @map("tenant_id")
+   tenant        Tenant?   @relation(fields: [tenantId], references: [id])
+   user          User?     @relation(fields: [userId], references: [id])
+@@ -213,6 +229,22 @@ model LeaveRequest {
+   @@map("leave_requests")
+ }
+ 
++model LeaveQuota {
++  id             String   @id
++  userId         String   @map("user_id")
++  year           Int
++  totalQuota     Int      @default(12) @map("total_quota")
++  usedQuota      Int      @default(0) @map("used_quota")
++  remainingQuota Int      @default(12) @map("remaining_quota")
++  tenantId       String?  @default("sdm") @map("tenant_id")
++
++  user           User     @relation(fields: [userId], references: [id])
++  tenant         Tenant?  @relation(fields: [tenantId], references: [id])
++
++  @@unique([userId, year])
++  @@map("leave_quotas")
++}
++
+ model BusinessUnit {
+   id           String        @id
+   name         String
+diff --git a/src/components/AppSettings.tsx b/src/components/AppSettings.tsx
+index c75a2492..85253a63 100644
+--- a/src/components/AppSettings.tsx
++++ b/src/components/AppSettings.tsx
+@@ -376,6 +376,7 @@ export const AppSettings = ({ store, toast }: any) => {
+         </div>
+       </div>
+ 
++
+       <div className="bg-white p-12 rounded-[3rem] shadow-xl border border-slate-100 space-y-10 relative overflow-hidden">
+         <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-50 blur-3xl rounded-full -mr-16 -mt-16"></div>
+         <div className="flex items-center space-x-6 relative z-10">
+diff --git a/src/components/Attendance.tsx b/src/components/Attendance.tsx
+index b480728c..d2d9deb1 100644
+--- a/src/components/Attendance.tsx
++++ b/src/components/Attendance.tsx
+@@ -65,6 +65,20 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
+   const [lateReason, setLateReason] = useState('');
+   const [isSubmitting, setIsSubmitting] = useState(false);
+   const [successQuote, setSuccessQuote] = useState('');
++  const [leaveQuota, setLeaveQuota] = useState<any>(null);
++
++  // Fetch Leave Quota
++  useEffect(() => {
++    const fetchQuota = async () => {
++      try {
++        const res = await fetch(`/api/requests/quota?userId=${currentUser.id}`);
++        if (res.ok) setLeaveQuota(await res.json());
++      } catch (e) {
++        console.warn("Failed to fetch leave quota", e);
++      }
++    };
++    fetchQuota();
++  }, [currentUser.id]);
+ 
+   // Strategy Config
+   const strategy = currentTenant?.workStrategy || 'FIXED';
+@@ -122,41 +136,28 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
+   // ACTIVE SESSION TRACKING (New Robust Logic from Dashboard)
+   const myAttendanceToday = React.useMemo(() => {
+     if (!currentUser?.id) return undefined;
+-
+-    // Get all my attendance records
+     const myLogs = attendanceLog.filter(a => a.userId === currentUser.id);
+-
+-    // 1. Find today's record (exact date match)
+     const todayRecord = myLogs.find(a => a.date === todayStr);
+-
+     if (todayRecord) return todayRecord;
+ 
+-    // 2. Fallback: Check if there's an active session from yesterday (night shift)
+-    // This handles case where user checked in at 23:00 yesterday, now it's 01:00 today
+-    const yesterdayLogs = myLogs.filter(a => {
+-      if (!a.date) return false;
+-      const logDate = new Date(a.date + 'T00:00:00');
+-      const today = new Date(todayStr + 'T00:00:00');
+-      const diffDays = Math.floor((today.getTime() - logDate.getTime()) / (1000 * 60 * 60 * 24));
+-      return diffDays === 1; // Exactly 1 day ago
+-    });
+-
+-    // Find the most recent one that's still open (no checkout)
+-    const activeSession = yesterdayLogs.find(a => !a.timeOut);
+-
++    // NIGHT SHIFT/OPEN SESSION LOGIC
++    // Check if there is an OPEN session from yesterday (within 24 hours)
++    const yesterday = new Date(todayStr);
++    yesterday.setDate(yesterday.getDate() - 1);
++    const yestStr = yesterday.toISOString().split('T')[0];
++    
++    const activeSession = myLogs.find(a => a.date === yestStr && !a.timeOut);
+     if (activeSession) {
+-      // Verify it's really recent (within 24 hours) check validity
+       const checkInTime = activeSession.createdAt
+         ? new Date(activeSession.createdAt).getTime()
+         : new Date(activeSession.date + 'T' + (activeSession.timeIn || '00:00:00')).getTime();
+-
+       const hoursSinceCheckIn = (Date.now() - checkInTime) / (1000 * 60 * 60);
+ 
++      // If it's an open session from yesterday and it's been less than 24h
+       if (hoursSinceCheckIn < 24) {
+-        return activeSession; // Valid active session
++        return { ...activeSession, isFromYesterday: true }; // Mark it!
+       }
+     }
+-
+     return undefined;
+   }, [attendanceLog, currentUser.id, todayStr]);
+ 
+@@ -381,6 +382,7 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
+               handleStartCheckIn={handleStartCheckIn}
+               handleStartCheckOut={handleStartCheckOut}
+               onViewReport={() => window.location.href = `/${currentUser.tenantId || 'sdm'}/${currentUser.role.toLowerCase()}/attendance/report`}
++              leaveQuota={leaveQuota}
+             />
+           )}
+ 
+diff --git a/src/components/Finance.tsx b/src/components/Finance.tsx
+index ed1d9b1c..120aa14b 100644
+--- a/src/components/Finance.tsx
++++ b/src/components/Finance.tsx
+@@ -155,6 +155,19 @@ const FinanceModule: React.FC<FinanceProps> = ({
+     refreshCoa();
+   }, []);
+ 
++  // --- AUTO-HEAL: Recalculate cached balances once on mount (fire-and-forget) ---
++  // This ensures the financial_accounts.balance column stays in sync with the
++  // transactions table. It runs silently in the background and never blocks the UI.
++  useEffect(() => {
++    const token = typeof window !== 'undefined' ? localStorage.getItem('sdm_erp_auth_token') : null;
++    if (!token) return;
++    fetch('/api/finance/recalculate', {
++      method: 'POST',
++      headers: { 'Authorization': `Bearer ${token}` }
++    }).catch(() => { /* silent ÔÇö non-critical background task */ });
++  // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, []); // Empty deps: runs once per mount
++
+   // --- MODAL STATES ---
+   const [transactionModal, setTransactionModal] = useState<{ isOpen: boolean; isEditing: boolean; data: Transaction | null }>({
+     isOpen: false, isEditing: false, data: null
+@@ -191,9 +204,12 @@ const FinanceModule: React.FC<FinanceProps> = ({
+     if (token) headers['Authorization'] = `Bearer ${token}`;
+ 
+     try {
+-      // 1. Fetch Summary
+-      let sumUrl = '/api/finance/summary';
+-      if (filterBusinessUnit && filterBusinessUnit !== 'ALL') sumUrl += `?businessUnitId=${filterBusinessUnit}`;
++      // 1. Fetch Summary (include date range so card balances respond to the filter)
++      const sumParams = new URLSearchParams();
++      if (filterStartDate) sumParams.set('startDate', filterStartDate);
++      if (filterEndDate)   sumParams.set('endDate',   filterEndDate);
++      if (filterBusinessUnit && filterBusinessUnit !== 'ALL') sumParams.set('businessUnitId', filterBusinessUnit);
++      let sumUrl = `/api/finance/summary?${sumParams.toString()}`;
+ 
+       // 2. Fetch Transactions (With Status Filter, Global Search, and Account Filter)
+       let transUrl = `/api/transactions?startDate=${filterStartDate}&endDate=${filterEndDate}&status=${journalStatus}&page=${journalPage}&limit=50`;
+diff --git a/src/components/ManagerDashboard.tsx b/src/components/ManagerDashboard.tsx
+index 02d60537..d91bc03d 100644
+--- a/src/components/ManagerDashboard.tsx
++++ b/src/components/ManagerDashboard.tsx
+@@ -1,10 +1,11 @@
+ import React, { useState, useEffect } from 'react';
+ import { useAppStore } from '../context/StoreContext';
+-import { Users, AlertTriangle, FileText, CheckCircle2, Clock, Timer, ArrowRight, XCircle } from 'lucide-react';
++import { Users, AlertTriangle, FileText, CheckCircle2, Clock, Timer, ArrowRight, XCircle, Zap, Settings } from 'lucide-react';
+ import { useRouter } from 'next/navigation';
+ 
+ export const ManagerDashboard = () => {
+-  const { currentUser, attendance, projects, requests, users } = useAppStore();
++  const store = useAppStore();
++  const { currentUser, attendance, projects, requests, users } = store;
+   const router = useRouter();
+ 
+   // --- 1. PERSONAL TIMER LOGIC (Copied from Staff) ---
+diff --git a/src/components/OwnerDashboard.tsx b/src/components/OwnerDashboard.tsx
+index ab554c4b..0e72d030 100644
+--- a/src/components/OwnerDashboard.tsx
++++ b/src/components/OwnerDashboard.tsx
+@@ -11,7 +11,8 @@ import {
+     CheckCircle2,
+     Activity,
+     Zap,
+-    ArrowRight
++    ArrowRight,
++    Settings
+ } from 'lucide-react';
+ import { useRouter } from 'next/navigation';
+ import {
+@@ -28,7 +29,8 @@ import {
+ 
+ export const OwnerDashboard = () => {
+     // OPTIMIZED: Remove heavy data dependencies (attendance, projects, requests)
+-    const { currentUser, users, dailyReports, authToken } = useAppStore();
++    const store = useAppStore();
++    const { currentUser, users, dailyReports, authToken } = store;
+     const router = useRouter();
+ 
+     // --- 1. SERVER-SIDE OPERATIONAL STATS (TURBO MODE) ---
+@@ -186,19 +188,51 @@ export const OwnerDashboard = () => {
+ 
+                 {/* 2. Quick Action / Asset Distribution */}
+                 <div className="xl:col-span-4 grid grid-cols-1 gap-6">
+-                    <div className="bg-white rounded-[2.5rem] p-6 xl:p-8 shadow-sm border border-slate-100 flex flex-col justify-between group hover:border-blue-200 transition-all duration-300">
++                    {/* SOP Insight Card */}
++                    <div className="bg-white rounded-[2.5rem] p-6 lg:p-7 shadow-sm border border-slate-100 relative group overflow-hidden">
++                        <div className="absolute right-0 top-0 w-24 h-24 bg-blue-50 rounded-full blur-2xl group-hover:scale-150 transition-transform"></div>
++                        <div className="relative z-10">
++                            <div className="flex items-center justify-between mb-4">
++                                <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl"><Zap size={20} /></div>
++                                <div className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Active SOP Policy</div>
++                            </div>
++                            <h3 className="text-lg font-black text-slate-800 tracking-tight leading-tight">Konsep Izin & Cuti</h3>
++                            <div className="mt-4 space-y-3">
++                                <div className="flex justify-between items-center text-xs">
++                                    <span className="text-slate-400 font-bold uppercase tracking-tight">Limit Mingguan</span>
++                                    <span className="font-black text-slate-800 bg-slate-100 px-2.5 py-1 rounded-lg">{store.settings?.leaveWeeklyLimit ?? 1}x/Minggu</span>
++                                </div>
++                                <div className="flex justify-between items-center text-xs">
++                                    <span className="text-slate-400 font-bold uppercase tracking-tight">Sisa Jatah Tahunan</span>
++                                    <span className="font-black text-slate-800 bg-slate-100 px-2.5 py-1 rounded-lg">{store.settings?.leaveAnnualQuota ?? 12} Hari</span>
++                                </div>
++                                <div className="flex justify-between items-center text-xs">
++                                    <span className="text-slate-400 font-bold uppercase tracking-tight">Penalti Sudden</span>
++                                    <span className="font-black text-rose-500 bg-rose-50 px-2.5 py-1 rounded-lg">Potong {store.settings?.leaveSuddenPenalty ?? 2}x</span>
++                                </div>
++                            </div>
++                            <button 
++                                onClick={() => router.push(`/${currentUser?.tenantId || 'sdm'}/${currentUser?.role.toLowerCase()}/requests`)}
++                                className="w-full mt-6 py-3 bg-slate-50 hover:bg-blue-50 text-slate-500 hover:text-blue-600 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2"
++                            >
++                                Kelola Kebijakan <Settings size={14} />
++                            </button>
++                        </div>
++                    </div>
++
++                    <div className="bg-white rounded-[2.5rem] p-6 lg:p-7 shadow-sm border border-slate-100 flex flex-col justify-between group hover:border-blue-200 transition-all duration-300">
+                         <div>
+-                            <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600 mb-6 group-hover:scale-110 transition-transform">
+-                                <Wallet size={24} />
++                            <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 mb-4 group-hover:scale-110 transition-transform">
++                                <Wallet size={20} />
+                             </div>
+-                            <h3 className="text-lg font-black text-slate-800 tracking-tight">Financial Intelligence</h3>
+-                            <p className="text-slate-400 text-xs xl:text-sm mt-2 leading-relaxed">Kelola arus kas perusahaaan secara menyeluruh di modul finansial.</p>
++                            <h3 className="text-base font-black text-slate-800 tracking-tight">Financial Module</h3>
++                            <p className="text-slate-400 text-[10px] mt-1 leading-relaxed">Kelola arus kas secara menyeluruh.</p>
+                         </div>
+                         <button
+                             onClick={() => router.push(`/${currentUser?.tenantId || 'sdm'}/owner/finance`)}
+-                            className="bg-slate-900 text-white w-full py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-blue-600 transition shadow-lg mt-6 text-sm"
++                            className="bg-slate-900 text-white w-full py-3 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-blue-600 transition shadow-lg mt-5 text-[10px]"
+                         >
+-                            Open Finance <ArrowRight size={18} />
++                            Open Finance <ArrowRight size={16} />
+                         </button>
+                     </div>
+                 </div>
+diff --git a/src/components/Requests.tsx b/src/components/Requests.tsx
+index 4149d780..ebdef5cc 100644
+--- a/src/components/Requests.tsx
++++ b/src/components/Requests.tsx
+@@ -19,7 +19,9 @@ import {
+   Filter,
+   User as UserIcon,
+   ChevronRight,
+-  ArrowRight
++  ArrowRight,
++  AlertTriangle,
++  Settings
+ } from 'lucide-react';
+ import { useToast } from './Toast';
+ import { useAppStore } from '../context/StoreContext';
+@@ -32,6 +34,7 @@ interface RequestsProps {
+   onUpdateRequest: (req: LeaveRequest) => void;
+   toast: ReturnType<typeof useToast>;
+   uploadFile?: (file: File) => Promise<string>;
++  leaveQuota?: any;
+ }
+ 
+ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests, onAddRequest, onUpdateRequest, toast, uploadFile }) => {
+@@ -43,6 +46,20 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
+   const [attachment, setAttachment] = useState<string | null>(null);
+   const [isSubmitting, setIsSubmitting] = useState(false);
+   const [isUploading, setIsUploading] = useState(false);
++  const [quota, setQuota] = useState<any>(null);
++
++  // Fetch Quota
++  useEffect(() => {
++    const fetchQuota = async () => {
++      try {
++        const res = await fetch(`/api/requests/quota?userId=${currentUser.id}`, {
++          headers: { 'Authorization': `Bearer ${store.authToken}` }
++        });
++        if (res.ok) setQuota(await res.json());
++      } catch (e) { console.error("Quota fetch error", e); }
++    };
++    fetchQuota();
++  }, [currentUser.id, store.authToken]);
+ 
+   // Date filter initialized to empty to show all history by default
+   const [filterStart, setFilterStart] = useState('');
+@@ -93,6 +110,47 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
+     return [...visibleRequests].sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
+   }, [visibleRequests]);
+ 
++  // SOP Settings Logic
++  const [showSopSettings, setShowSopSettings] = useState(false);
++  const [leaveWeeklyLimit, setLeaveWeeklyLimit] = useState(store.settings?.leaveWeeklyLimit ?? 1);
++  const [leaveAnnualQuota, setLeaveAnnualQuota] = useState(store.settings?.leaveAnnualQuota ?? 12);
++  const [leaveSuddenPenalty, setLeaveSuddenPenalty] = useState(store.settings?.leaveSuddenPenalty ?? 2);
++  const [leaveNoticeThreshold, setLeaveNoticeThreshold] = useState(store.settings?.leaveNoticeThreshold ?? 2);
++  const [leaveNoticeRequired, setLeaveNoticeRequired] = useState(store.settings?.leaveNoticeRequired ?? 7);
++  const [leaveSuddenHourCutoff, setLeaveSuddenHourCutoff] = useState(store.settings?.leaveSuddenHourCutoff ?? 16);
++
++  useEffect(() => {
++    if (store.settings) {
++      setLeaveWeeklyLimit(store.settings.leaveWeeklyLimit ?? 1);
++      setLeaveAnnualQuota(store.settings.leaveAnnualQuota ?? 12);
++      setLeaveSuddenPenalty(store.settings.leaveSuddenPenalty ?? 2);
++      setLeaveNoticeThreshold(store.settings.leaveNoticeThreshold ?? 2);
++      setLeaveNoticeRequired(store.settings.leaveNoticeRequired ?? 7);
++      setLeaveSuddenHourCutoff(store.settings.leaveSuddenHourCutoff ?? 16);
++    }
++  }, [store.settings]);
++
++  const handleSaveSop = async () => {
++    setIsSubmitting(true);
++    try {
++      await store.updateSettings({
++        ...store.settings,
++        leaveWeeklyLimit,
++        leaveAnnualQuota,
++        leaveSuddenPenalty,
++        leaveNoticeThreshold,
++        leaveNoticeRequired,
++        leaveSuddenHourCutoff
++      });
++      toast.success("Kebijakan SOP Berhasil Diperbarui!");
++      setShowSopSettings(false);
++    } catch (err: any) {
++      toast.error("Gagal menyimpan kebijakan.");
++    } finally {
++      setIsSubmitting(false);
++    }
++  };
++
+   const validateRequest = () => {
+     if (!formData.description.trim()) {
+       toast.warning("Harap tuliskan alasan permohonan.");
+@@ -193,7 +251,7 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
+       if (store.fetchRequests) store.fetchRequests(filterStart, filterEnd);
+     } catch (err: any) {
+       console.error(err);
+-      toast.error("Gagal memproses permohonan.");
++      toast.error(err.message || "Gagal memproses permohonan.");
+     } finally {
+       setIsSubmitting(false);
+     }
+@@ -309,13 +367,54 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
+             )}
+           </div>
+         </div>
++        {isManagement && (
++          <div className="flex flex-col items-end gap-3 order-first md:order-last">
++            <button 
++              onClick={() => setShowSopSettings(true)} 
++              className="px-8 py-5 bg-white border-2 border-slate-200 text-slate-700 font-black text-[10px] uppercase rounded-[1.8rem] hover:border-blue-500 hover:text-blue-600 hover:shadow-lg transition flex items-center gap-3 active:scale-95 shadow-sm"
++            >
++              <Settings size={18} className="text-blue-600" />
++              <span>Setting Kebijakan SOP</span>
++            </button>
++            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest italic px-4">Khusus Akses Manajemen</p>
++          </div>
++        )}
+         {canCreate && (
+-          <button onClick={() => setShowAdd(true)} className="bg-slate-900 text-white px-10 py-5 rounded-[1.8rem] flex items-center gap-3 font-black text-[10px] uppercase tracking-[0.2em] hover:bg-blue-600 hover:scale-105 active:scale-95 transition-all shadow-2xl shadow-slate-200 border-b-4 border-slate-700 hover:border-blue-800">
+-            <Plus size={18} /> <span>Ajukan Permohonan</span>
+-          </button>
++          <div className="flex flex-col items-end gap-3">
++            {quota && (
++              <div className="bg-white px-6 py-3 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-6 animate-in slide-in-from-right duration-500">
++                <div className="text-right">
++                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Sisa Cuti {quota.year}</p>
++                  <p className="text-xl font-black text-blue-600 italic">{quota.remainingQuota} <span className="text-[10px] text-slate-400 font-bold tracking-normal not-italic">HARI</span></p>
++                </div>
++                <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-500">
++                  <History size={20} />
++                </div>
++              </div>
++            )}
++            <button onClick={() => setShowAdd(true)} className="bg-slate-900 text-white px-10 py-5 rounded-[1.8rem] flex items-center gap-3 font-black text-[10px] uppercase tracking-[0.2em] hover:bg-blue-600 hover:scale-105 active:scale-95 transition-all shadow-2xl shadow-slate-200 border-b-4 border-slate-700 hover:border-blue-800">
++              <Plus size={18} /> <span>Ajukan Permohonan</span>
++            </button>
++          </div>
+         )}
+       </div>
+ 
++      {/* Rules Notice */}
++      <div className="bg-amber-50 border border-amber-100 p-6 rounded-[2rem] flex items-start gap-4">
++        <div className="p-3 bg-amber-100 text-amber-600 rounded-xl">
++          <AlertCircle size={20} />
++        </div>
++        <div className="space-y-1">
++          <p className="text-xs font-black text-amber-900 uppercase tracking-widest">Aturan Perizinan & Cuti (SOP {new Date().getFullYear()})</p>
++          <ul className="text-[10px] font-bold text-amber-700 space-y-1 list-disc ml-4">
++            <li>Maksimal izin/cuti adalah <b>{(store.settings.leaveWeeklyLimit || 1) === 99 ? 'Tidak Terbatas' : `${store.settings.leaveWeeklyLimit || 1}x`} per minggu</b> (Senin-Minggu).</li>
++            <li>Cuti mendadak (diajukan H-0 atau lewat jam {store.settings.leaveSuddenHourCutoff || 16}:00 H-1) dikenakan <b>Pinalti Potong {store.settings.leaveSuddenPenalty || 2} Hari Cuti</b>.</li>
++            <li>Pengajuan cuti ÔëÑ {store.settings.leaveNoticeThreshold || 2} hari wajib dilakukan minimal <b>{store.settings.leaveNoticeRequired || 7} hari sebelumnya</b>.</li>
++            <li>Sakit wajib melampirkan <b>Surat Dokter</b> agar tidak memotong jatah cuti.</li>
++          </ul>
++        </div>
++      </div>
++
+       {/* Main Table Container */}
+       <div className="bg-white rounded-[3rem] border border-slate-100 shadow-2xl shadow-slate-200/50 overflow-hidden">
+         <div className="overflow-x-auto custom-scrollbar">
+@@ -349,13 +448,13 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
+                             req.type === RequestType.CUTI ? <Calendar size={24} /> : <Clock size={24} />}
+                         </div>
+                         <div>
+-                          <p className="text-slate-800 font-black text-base italic">{applicant?.name || 'Unknown'}</p>
++                          <p className="text-slate-800 font-black text-base italic">{req.user?.name || applicant?.name || 'Unknown'}</p>
+                           <div className="flex items-center gap-2 mt-1">
+                             <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-wider ${req.type === RequestType.SAKIT ? 'bg-rose-50 text-rose-500' :
+                               req.type === RequestType.CUTI ? 'bg-blue-50 text-blue-500' : 'bg-amber-50 text-amber-500'
+                               }`}>{req.type}</span>
+                             <span className="text-slate-300">ÔÇó</span>
+-                            <span className="text-[9px] font-black text-slate-400 uppercase">{applicant?.role}</span>
++                            <span className="text-[9px] font-black text-slate-400 uppercase">{req.user?.jobTitle || applicant?.role}</span>
+                           </div>
+                         </div>
+                       </div>
+@@ -373,9 +472,21 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
+                             </>
+                           )}
+                         </span>
+-                        <span className="text-[10px] text-slate-400 font-bold truncate max-w-[250px] italic">
+-                          "{req.description}"
+-                        </span>
++                        <div className="flex flex-wrap items-center gap-2">
++                          <span className="text-[10px] text-slate-400 font-bold truncate max-w-[200px] italic">
++                            "{req.description}"
++                          </span>
++                          {req.penaltyWeight && req.penaltyWeight > 1 && (
++                            <span className="bg-rose-50 text-rose-600 text-[8px] font-black px-1.5 py-0.5 rounded border border-rose-100 flex items-center gap-1 uppercase">
++                              <AlertTriangle size={8} /> Pinalti {req.penaltyWeight}x
++                            </span>
++                          )}
++                          {req.hasDoctorNote && (
++                            <span className="bg-emerald-50 text-emerald-600 text-[8px] font-black px-1.5 py-0.5 rounded border border-emerald-100 flex items-center gap-1 uppercase">
++                              <Check size={8} /> Surat Dokter
++                            </span>
++                          )}
++                        </div>
+                       </div>
+                     </td>
+                     <td className="px-10 py-7 text-center">
+@@ -447,8 +558,9 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
+                 <div className="w-20 h-20 md:w-24 md:h-24 rounded-[2.5rem] bg-slate-100 flex items-center justify-center text-slate-400 font-black text-3xl overflow-hidden border-4 border-white shadow-2xl relative">
+                   {(() => {
+                     const applicant = users.find(u => u.id === selectedRequest.userId);
+-                    return applicant?.avatarUrl ? (
+-                      <img src={applicant.avatarUrl || undefined} alt="Avatar" className="w-full h-full object-cover" />
++                    const avatar = selectedRequest.user?.avatarUrl || applicant?.avatarUrl;
++                    return avatar ? (
++                      <img src={avatar} alt="Avatar" className="w-full h-full object-cover" />
+                     ) : (
+                       <UserIcon size={40} className="text-slate-300" />
+                     );
+@@ -459,7 +571,7 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
+                 </div>
+                 <div>
+                   <h3 className="text-3xl md:text-4xl font-black text-slate-800 italic uppercase leading-none tracking-tighter">
+-                    {users.find(u => u.id === selectedRequest.userId)?.name}
++                    {selectedRequest.user?.name || users.find(u => u.id === selectedRequest.userId)?.name || 'Unknown'}
+                   </h3>
+                   <div className="flex items-center gap-4 mt-3">
+                     <span className="px-4 py-1.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-500/20">{selectedRequest.type}</span>
+@@ -633,35 +745,41 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
+                 )}
+ 
+                 {/* Admin Approval Form */}
+-                {isManagement && selectedRequest.status === RequestStatus.PENDING && (
++                {isManagement && (
+                   <div className="mt-12 space-y-6 animate-in slide-in-from-bottom-8 duration-700 bg-slate-900 p-12 rounded-[3.5rem] shadow-2xl relative overflow-hidden">
+                     <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/10 blur-[100px] rounded-full -mr-32 -mt-32"></div>
+                     <div className="relative z-10">
+-                      <label className="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em] mb-4 block">Formulir Keputusan Manajemen</label>
++                      <label className="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em] mb-4 block">
++                        {selectedRequest.status === RequestStatus.PENDING ? 'Formulir Keputusan Manajemen' : 'Revisi Keputusan Manajemen'}
++                      </label>
+                       <textarea
+                         className="w-full p-8 bg-white/5 rounded-[2rem] font-bold text-sm text-white outline-none border-2 border-white/10 focus:border-blue-500 focus:bg-white/10 transition-all resize-none h-32 placeholder:text-slate-600"
+-                        placeholder="Berikan catatan persetujuan atau alasan jika pengajuan ini ditolak..."
++                        placeholder={selectedRequest.status === RequestStatus.PENDING ? "Berikan catatan persetujuan atau alasan jika pengajuan ini ditolak..." : "Catatan revisi status (wajib jika membatalkan)..."}
+                         value={actionNote}
+                         onChange={e => setActionNote(e.target.value)}
+                       />
+                     </div>
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
+-                      <button
+-                        onClick={() => handleAction(selectedRequest, RequestStatus.REJECTED)}
+-                        disabled={isSubmitting}
+-                        className="py-6 bg-rose-500/10 border-2 border-rose-500/20 text-rose-500 font-black uppercase tracking-[0.2em] rounded-[1.8rem] hover:bg-rose-500 hover:text-white transition-all text-[11px] shadow-xl flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+-                      >
+-                        {isSubmitting ? <div className="w-4 h-4 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" /> : null}
+-                        Tolak Permanen
+-                      </button>
+-                      <button
+-                        onClick={() => handleAction(selectedRequest, RequestStatus.APPROVED)}
+-                        disabled={isSubmitting}
+-                        className="py-6 bg-blue-600 text-white font-black uppercase tracking-[0.2em] rounded-[1.8rem] hover:bg-white hover:text-blue-600 transition-all text-[11px] shadow-2xl shadow-blue-500/30 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+-                      >
+-                        {isSubmitting ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : null}
+-                        Setujui Sekarang
+-                      </button>
++                      {selectedRequest.status !== RequestStatus.REJECTED && (
++                        <button
++                          onClick={() => handleAction(selectedRequest, RequestStatus.REJECTED)}
++                          disabled={isSubmitting}
++                          className="py-6 bg-rose-500/10 border-2 border-rose-500/20 text-rose-500 font-black uppercase tracking-[0.2em] rounded-[1.8rem] hover:bg-rose-500 hover:text-white transition-all text-[11px] shadow-xl flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
++                        >
++                          {isSubmitting ? <div className="w-4 h-4 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" /> : null}
++                          {selectedRequest.status === RequestStatus.PENDING ? 'Tolak Permanen' : 'Batalkan (Ubah ke Ditolak)'}
++                        </button>
++                      )}
++                      {selectedRequest.status !== RequestStatus.APPROVED && (
++                        <button
++                          onClick={() => handleAction(selectedRequest, RequestStatus.APPROVED)}
++                          disabled={isSubmitting}
++                          className="py-6 bg-blue-600 text-white font-black uppercase tracking-[0.2em] rounded-[1.8rem] hover:bg-white hover:text-blue-600 transition-all text-[11px] shadow-2xl shadow-blue-500/30 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
++                        >
++                          {isSubmitting ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : null}
++                          {selectedRequest.status === RequestStatus.PENDING ? 'Setujui Sekarang' : 'Revisi Menjadi Disetujui'}
++                        </button>
++                      )}
+                     </div>
+                   </div>
+                 )}
+@@ -679,7 +797,15 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
+         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/90 p-4 backdrop-blur-md overflow-hidden" onClick={handleCloseModal}>
+           <div className="bg-white rounded-[3.5rem] w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
+             <div className="p-10 md:p-12 border-b border-slate-100 flex justify-between items-center shrink-0">
+-              <h3 className="text-2xl font-black text-slate-800 uppercase italic tracking-tighter">{editId ? 'Ubah Data' : 'Pengajuan Baru'}</h3>
++              <div className="flex items-center gap-4">
++                <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600">
++                  <FileText size={24} />
++                </div>
++                <div>
++                  <h3 className="text-2xl font-black text-slate-800 uppercase italic tracking-tighter">{editId ? 'Ubah Data' : 'Pengajuan Baru'}</h3>
++                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mt-1">Lengkapi data sesuai SOP berlaku</p>
++                </div>
++              </div>
+               <button onClick={handleCloseModal} className="p-3 bg-slate-50 text-slate-400 rounded-2xl hover:bg-rose-500 hover:text-white transition">
+                 <X size={20} />
+               </button>
+@@ -753,6 +879,35 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
+                 <textarea className="w-full p-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-3xl font-bold text-xs outline-none h-32 resize-none transition shadow-inner" placeholder="Jelaskan secara detail alasan permohonan Anda..." value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} />
+               </div>
+ 
++              {/* Penalty Preview */}
++              {(() => {
++                const start = new Date(formData.startDate);
++                const now = new Date();
++                const jktNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
++                const startStr = start.toISOString().split('T')[0];
++                const todayStr = jktNow.toISOString().split('T')[0];
++                const tomorrowStr = new Date(jktNow.getTime() + 86400000).toISOString().split('T')[0];
++                
++                let isSudden = false;
++                if (startStr === todayStr) isSudden = true;
++                else if (startStr === tomorrowStr && jktNow.getHours() >= (store.settings.leaveSuddenHourCutoff ?? 16)) isSudden = true;
++                
++                if (isSudden && formData.type !== RequestType.SAKIT) {
++                  return (
++                    <div className="p-5 bg-rose-50 border-2 border-rose-100 rounded-[2rem] flex items-center gap-4 animate-in shake duration-500">
++                      <div className="w-12 h-12 rounded-2xl bg-rose-500 text-white flex items-center justify-center shrink-0 shadow-lg">
++                        <AlertTriangle size={24} />
++                      </div>
++                      <div>
++                        <p className="text-[10px] font-black text-rose-600 uppercase tracking-widest">Peringatan Cuti Mendadak</p>
++                        <p className="text-[11px] font-bold text-rose-800 leading-tight">Pengajuan ini akan dikenakan pinalti <b>potong {store.settings.leaveSuddenPenalty ?? 2} hari cuti</b> per hari izin.</p>
++                      </div>
++                    </div>
++                  );
++                }
++                return null;
++              })()}
++
+               <div className="space-y-4">
+                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-3">Unggah Bukti (Format Gambar)</label>
+                 {!attachment ? (
+@@ -806,6 +961,136 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
+           </div>
+         </div>
+       )}
++
++      {/* SOP SETTINGS MODAL */}
++      {showSopSettings && (
++        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/90 p-4 backdrop-blur-md overflow-hidden" onClick={() => setShowSopSettings(false)}>
++          <div className="bg-white rounded-[3.5rem] w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
++            <div className="p-10 md:p-12 border-b border-slate-100 flex justify-between items-center shrink-0">
++              <div className="flex items-center gap-4">
++                <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600">
++                  <Settings size={24} />
++                </div>
++                <div>
++                  <h3 className="text-2xl font-black text-slate-800 uppercase italic tracking-tighter">Konfigurasi SOP Cuti</h3>
++                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mt-1">Atur Parameter Validasi & Pinalti</p>
++                </div>
++              </div>
++              <button onClick={() => setShowSopSettings(false)} className="p-3 bg-slate-50 text-slate-400 rounded-2xl hover:bg-rose-500 hover:text-white transition">
++                <X size={20} />
++              </button>
++            </div>
++
++            <div className="flex-1 overflow-y-auto custom-scrollbar p-10 md:p-12 space-y-10">
++              {/* Quota & Limit */}
++              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
++                <div className="space-y-4">
++                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-3">Jatah Cuti Tahunan (Default)</label>
++                  <div className="relative group">
++                    <input 
++                      type="number" 
++                      value={leaveAnnualQuota}
++                      onChange={e => setLeaveAnnualQuota(Number(e.target.value))}
++                      className="w-full p-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-3xl font-black text-sm outline-none transition shadow-inner pr-16" 
++                    />
++                    <div className="absolute right-5 top-5 text-[10px] font-black text-slate-300 group-focus-within:text-blue-500">HARI / TAHUN</div>
++                  </div>
++                </div>
++                <div className="space-y-4">
++                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-3">Limit Izin Per Minggu</label>
++                  <div className="relative group">
++                    <input 
++                      type="number" 
++                      value={leaveWeeklyLimit}
++                      onChange={e => setLeaveWeeklyLimit(Number(e.target.value))}
++                      className="w-full p-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-3xl font-black text-sm outline-none transition shadow-inner pr-16" 
++                    />
++                    <div className="absolute right-5 top-5 text-[10px] font-black text-slate-300 group-focus-within:text-blue-500">X / MINGGU</div>
++                  </div>
++                </div>
++              </div>
++
++              {/* Sudden Leave Policy */}
++              <div className="p-8 bg-amber-50 rounded-[2.5rem] border-2 border-dashed border-amber-200/50 space-y-8">
++                <div className="flex items-start gap-4">
++                  <div className="p-2 bg-amber-200 text-amber-700 rounded-lg"><AlertTriangle size={20} /></div>
++                  <div>
++                    <h4 className="text-xs font-black text-amber-900 uppercase">KEBIJAKAN IZIN MENDADAK</h4>
++                    <p className="text-[10px] font-bold text-amber-700 opacity-70">Mengatur pinalti dan batas waktu pengiriman izin.</p>
++                  </div>
++                </div>
++                
++                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
++                  <div className="space-y-3">
++                    <label className="text-[10px] font-black text-amber-800 uppercase tracking-widest ml-3">Jam Cut-Off (H-1)</label>
++                    <div className="relative">
++                      <input 
++                        type="number" 
++                        min="0" max="23"
++                        value={leaveSuddenHourCutoff}
++                        onChange={e => setLeaveSuddenHourCutoff(Number(e.target.value))}
++                        className="w-full p-4 bg-white border-2 border-amber-200/50 focus:border-amber-500 rounded-2xl font-black text-sm outline-none transition pr-16" 
++                      />
++                      <div className="absolute right-4 top-4 text-[10px] font-black text-amber-400">:00 WIB</div>
++                    </div>
++                  </div>
++                  <div className="space-y-3">
++                    <label className="text-[10px] font-black text-amber-800 uppercase tracking-widest ml-3">Pinalti Potong Cuti (Multiplier)</label>
++                    <div className="relative">
++                      <input 
++                        type="number" 
++                        step="0.1"
++                        value={leaveSuddenPenalty}
++                        onChange={e => setLeaveSuddenPenalty(Number(e.target.value))}
++                        className="w-full p-4 bg-white border-2 border-amber-200/50 focus:border-amber-500 rounded-2xl font-black text-sm outline-none transition pr-16" 
++                      />
++                      <div className="absolute right-4 top-4 text-[10px] font-black text-amber-400">X LIPAT</div>
++                    </div>
++                  </div>
++                </div>
++              </div>
++
++              {/* Threshold Notification */}
++              <div className="space-y-6">
++                <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-3">ATURAN PEMBERITAHUAN (NOTICE)</h4>
++                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
++                  <div className="space-y-4">
++                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-3">Jika Izin Lebih Dari (HARI)</label>
++                    <input 
++                      type="number" 
++                      value={leaveNoticeThreshold}
++                      onChange={e => setLeaveNoticeThreshold(Number(e.target.value))}
++                      className="w-full p-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-3xl font-black text-sm outline-none transition shadow-inner" 
++                    />
++                  </div>
++                  <div className="space-y-4">
++                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-3">Wajib Ajukan Minimal (HARI SEBELUM)</label>
++                    <input 
++                      type="number" 
++                      value={leaveNoticeRequired}
++                      onChange={e => setLeaveNoticeRequired(Number(e.target.value))}
++                      className="w-full p-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-3xl font-black text-sm outline-none transition shadow-inner" 
++                    />
++                  </div>
++                </div>
++              </div>
++            </div>
++
++            <div className="p-10 shrink-0 border-t border-slate-100 bg-slate-50/50 rounded-b-[3.5rem] flex gap-4">
++               <button onClick={() => setShowSopSettings(false)} className="flex-1 py-5 bg-white border-2 border-slate-200 text-slate-500 rounded-[1.8rem] font-black uppercase text-[10px] tracking-widest hover:bg-slate-100 transition shadow-sm">
++                Batal
++              </button>
++              <button
++                onClick={handleSaveSop}
++                disabled={isSubmitting}
++                className="flex-[2] py-5 bg-blue-600 text-white rounded-[1.8rem] font-black uppercase text-[10px] tracking-[0.3em] hover:bg-slate-900 hover:scale-[1.02] active:scale-95 transition-all shadow-xl shadow-blue-500/30 disabled:opacity-50 border-b-4 border-blue-800"
++              >
++                {isSubmitting ? 'MEMPROSES...' : 'PERBARUI KEBIJAKAN SOP'}
++              </button>
++            </div>
++          </div>
++        </div>
++      )}
+     </div>
+   );
+ };
+diff --git a/src/components/StaffDashboard.tsx b/src/components/StaffDashboard.tsx
+index 635aa18f..f9f812bf 100644
+--- a/src/components/StaffDashboard.tsx
++++ b/src/components/StaffDashboard.tsx
+@@ -1,4 +1,4 @@
+-import React, { useState, useEffect } from 'react';
++import React, { useState, useEffect, useMemo } from 'react';
+ import { useAppStore } from '../context/StoreContext';
+ import {
+     Clock,
+@@ -13,10 +13,11 @@ import {
+     AlertTriangle
+ } from 'lucide-react';
+ import { useRouter } from 'next/navigation';
+-import { Project, RequestStatus } from '../types';
++import { Project, RequestStatus, LeaveQuota } from '../types';
+ 
+ export const StaffDashboard = () => {
+-    const { currentUser, attendance, projects, dailyReports, requests } = useAppStore();
++    const store = useAppStore();
++    const { currentUser, attendance, projects, dailyReports, requests } = store;
+     const router = useRouter();
+ 
+     // 1. Time & Attendance Logic (FIXED: Consistent Jakarta Timezone)
+@@ -179,8 +180,45 @@ export const StaffDashboard = () => {
+     // 4. Daily Report Check
+     const hasReportedToday = dailyReports.some(r => r.userId === currentUser?.id && r.date === new Date().toISOString().split('T')[0]);
+ 
+-    // 5. Recent Request Status
+-    const latestRequest = requests.filter(r => r.userId === currentUser?.id).sort((a, b) => b.createdAt - a.createdAt)[0];
++    // 5. Latest Request
++    const latestRequest = useMemo(() => {
++        const myRequests = requests.filter(r => r.userId === currentUser?.id);
++        return [...myRequests].sort((a, b) => {
++            const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
++            const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
++            return dateB - dateA;
++        })[0];
++    }, [requests, currentUser?.id]);
++
++    // 6. Leave & Policy Status
++    const myQuota = useMemo(() => store.leaveQuotas?.find((q: LeaveQuota) => q.userId === currentUser?.id), [store.leaveQuotas, currentUser?.id]);
++    
++    const weeklyLimitReached = useMemo(() => {
++        const limit = store.settings?.leaveWeeklyLimit ?? 1;
++        if (limit === 99) return false;
++
++        const now = new Date();
++        const jktNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
++        const startOfWeek = new Date(jktNow);
++        const d = startOfWeek.getDay();
++        const diff = startOfWeek.getDate() - d + (d === 0 ? -6 : 1); // Monday
++        startOfWeek.setDate(diff);
++        startOfWeek.setHours(0, 0, 0, 0);
++
++        const count = requests.filter(r => {
++            const isMe = r.userId === currentUser?.id;
++            const isResolved = r.status === 'APPROVED' || r.status === 'PENDING';
++            const isInWeek = new Date(r.startDate) >= startOfWeek;
++            const isNotSickWithNote = !(r.type === 'SAKIT' && r.hasDoctorNote);
++            return isMe && isResolved && isInWeek && isNotSickWithNote;
++        }).length;
++
++        return count >= limit;
++    }, [requests, currentUser?.id, store.settings?.leaveWeeklyLimit]);
++
++    useEffect(() => {
++        if (store.fetchLeaveQuotas) store.fetchLeaveQuotas(currentUser?.id);
++    }, [currentUser?.id, store.fetchLeaveQuotas]);
+ 
+     return (
+         <div className="space-y-8 animate-in fade-in duration-500 pb-20">
+@@ -190,7 +228,7 @@ export const StaffDashboard = () => {
+                 {/* Work Timer Card */}
+                 <div className="lg:col-span-2 bg-gradient-to-r from-slate-900 to-slate-800 rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-2xl">
+                     <div className="absolute right-0 top-0 w-64 h-64 bg-blue-500/20 rounded-full blur-3xl translate-x-10 -translate-y-10"></div>
+-
++                    
+                     <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                         <div>
+                             <div className="flex items-center gap-2 mb-2">
+@@ -200,12 +238,19 @@ export const StaffDashboard = () => {
+                             <h1 className="text-4xl md:text-5xl font-black tracking-tight font-mono">
+                                 {isCheckedIn ? elapsedTime : '--:--:--'}
+                             </h1>
+-                            <p className="text-slate-400 text-sm font-medium mt-2 flex items-center gap-2">
+-                                <Timer size={16} />
+-                                {isCheckedIn
+-                                    ? (isCheckedOut ? 'Sesi kerja selesai hari ini.' : 'Durasi kerja berjalan...')
+-                                    : 'Anda belum absen masuk hari ini.'}
+-                            </p>
++                            <div className="flex flex-wrap items-center gap-4 mt-3">
++                                <p className="text-slate-400 text-xs font-medium flex items-center gap-2">
++                                    <Timer size={14} />
++                                    {isCheckedIn
++                                        ? (isCheckedOut ? 'Sesi kerja selesai hari ini.' : 'Durasi kerja berjalan...')
++                                        : 'Anda belum absen masuk hari ini.'}
++                                </p>
++                                {weeklyLimitReached && (
++                                    <div className="bg-rose-500/20 text-rose-400 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter border border-rose-500/30 flex items-center gap-1.5">
++                                        <AlertTriangle size={10} /> Limit Izin Minggu Ini Tercapai
++                                    </div>
++                                )}
++                            </div>
+                         </div>
+ 
+                         <div>
+@@ -230,20 +275,31 @@ export const StaffDashboard = () => {
+ 
+                 {/* Stats Mini Cards */}
+                 <div className="grid grid-cols-2 lg:grid-cols-1 gap-4">
+-                    {/* Late Counter */}
+-                    <div className={`p-6 rounded-[2rem] border ${totalLate > 0 ? 'bg-rose-50 border-rose-100' : 'bg-emerald-50 border-emerald-100'} flex flex-col justify-center`}>
+-                        <div className={`mb-2 font-black text-xs uppercase tracking-widest ${totalLate > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>Keterlambatan</div>
+-                        <div className={`text-3xl font-black ${totalLate > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+-                            {totalLate} <span className="text-sm text-slate-400 font-medium">x Bulan Ini</span>
++                    {/* Leave Quota Card */}
++                    <div className="p-6 rounded-[2rem] bg-white border border-slate-100 shadow-sm flex flex-col justify-center relative overflow-hidden group hover:border-blue-200 transition-all">
++                        <div className="absolute right-0 top-0 w-16 h-16 bg-blue-50 rounded-full blur-2xl -translate-y-6 translate-x-6"></div>
++                        <div className="mb-2 font-black text-[10px] uppercase tracking-widest text-slate-400">Sisa Jatah Cuti</div>
++                        <div className="text-3xl font-black text-blue-600 relative z-10 italic">
++                            {myQuota?.remainingQuota ?? store.settings?.leaveAnnualQuota ?? 12} <span className="text-xs text-slate-400 font-bold tracking-normal not-italic uppercase">Hari</span>
++                        </div>
++                        <div className="mt-2 h-1 w-full bg-slate-50 rounded-full overflow-hidden">
++                            <div 
++                                className="bg-blue-500 h-full transition-all duration-1000" 
++                                style={{ width: `${Math.min(100, ((myQuota?.remainingQuota ?? 12) / (store.settings?.leaveAnnualQuota ?? 12)) * 100)}%` }}
++                            ></div>
+                         </div>
+                     </div>
+ 
+-                    {/* Attendance Counter (Replaced Leave Quota) */}
+-                    <div className="p-6 rounded-[2rem] bg-indigo-50 border border-indigo-100 flex flex-col justify-center">
+-                        <div className="mb-2 font-black text-xs uppercase tracking-widest text-indigo-400">Total Kehadiran</div>
+-                        <div className="text-3xl font-black text-indigo-600">
+-                            {totalPresent} <span className="text-sm text-indigo-400 font-medium">Hari</span>
+-                        </div>
++                    {/* Attendance Highlights */}
++                    <div className={`p-6 rounded-[2rem] border ${totalLate > 0 ? 'bg-rose-50 border-rose-100' : 'bg-emerald-50 border-emerald-100'} flex items-center justify-between group`}>
++                       <div>
++                            <div className={`mb-1 font-black text-[10px] uppercase tracking-widest ${totalLate > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>Keterlambatan</div>
++                            <div className={`text-2xl font-black ${totalLate > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{totalLate}x</div>
++                       </div>
++                       <div className="text-right">
++                            <div className="mb-1 font-black text-[10px] uppercase tracking-widest text-slate-400">Hadir Bln Ini</div>
++                            <div className="text-2xl font-black text-slate-800">{totalPresent} Hari</div>
++                       </div>
+                     </div>
+                 </div>
+             </div>
+diff --git a/src/components/attendance/AttendancePortal.tsx b/src/components/attendance/AttendancePortal.tsx
+index 89c3a505..6d1520ed 100644
+--- a/src/components/attendance/AttendancePortal.tsx
++++ b/src/components/attendance/AttendancePortal.tsx
+@@ -20,12 +20,13 @@ interface AttendancePortalProps {
+     handleStartCheckIn: () => void;
+     handleStartCheckOut: () => void;
+     onViewReport: () => void;
++    leaveQuota?: any;
+ }
+ 
+ export const AttendancePortal: React.FC<AttendancePortalProps> = ({
+     timeString, dateString, currentUser, currentTenant, strategy, radiusLimit,
+     currentDistance, gpsAccuracy, gpsLoading, selectedShiftId, setSelectedShiftId,
+-    shifts, myAttendanceToday, handleStartCheckIn, handleStartCheckOut, onViewReport
++    shifts, myAttendanceToday, handleStartCheckIn, handleStartCheckOut, onViewReport, leaveQuota
+ }) => {
+     const isWithinRadius = (currentDistance || 9999) <= radiusLimit;
+ 
+@@ -113,6 +114,21 @@ export const AttendancePortal: React.FC<AttendancePortalProps> = ({
+                         )}
+                     </div>
+                 )}
++
++                {/* LEAVE QUOTA BADGE */}
++                {leaveQuota && (
++                    <div className="flex justify-center gap-4 mt-6 animate-in slide-in-from-bottom-4 duration-1000">
++                      <div className="bg-slate-50 border border-slate-200 px-6 py-4 rounded-[2rem] flex items-center gap-5 shadow-sm group hover:scale-105 transition-all">
++                        <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-blue-600 shadow-md group-hover:bg-blue-600 group-hover:text-white transition-colors">
++                          <History size={24} />
++                        </div>
++                        <div className="text-left">
++                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">SISA CUTI {leaveQuota.year}</p>
++                          <p className="text-xl font-black text-slate-800 italic leading-none">{leaveQuota.remainingQuota} <span className="text-[10px] text-slate-400 font-bold tracking-normal not-italic uppercase ml-1">Hari</span></p>
++                        </div>
++                      </div>
++                    </div>
++                )}
+             </div>
+ 
+             {/* REPORT BUTTON (Corner Desktop, Full Mobile) */}
+@@ -130,23 +146,23 @@ export const AttendancePortal: React.FC<AttendancePortalProps> = ({
+                         Anda masuk sebagai <span className="text-blue-600">OWNER</span>.<br />Akun Owner tidak memerlukan absensi mandiri.
+                     </p>
+                 </div>
+-            ) : !myAttendanceToday ? (
+-                <button
+-                    onClick={handleStartCheckIn}
+-                    disabled={gpsLoading || (!currentUser.isFreelance && !isWithinRadius)}
+-                    className={`px-16 py-6 rounded-[2.5rem] font-black text-xs uppercase tracking-[0.2em] shadow-2xl transition-all transform active:scale-95 flex items-center gap-4 group
+-            ${gpsLoading || (!currentUser.isFreelance && !isWithinRadius)
+-                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none border border-slate-200'
+-                            : 'bg-slate-900 text-white hover:bg-blue-600 hover:shadow-blue-500/30'}
+-          `}
+-                >
+-                    {gpsLoading ? (
+-                        <Loader2 className="animate-spin" size={18} />
+-                    ) : (
+-                        <MapPin size={18} />
+-                    )}
+-                    <span>{gpsLoading ? 'SYNCING...' : (!currentUser.isFreelance && !isWithinRadius) ? 'OUT OF RANGE' : 'CHECK-IN (MASUK)'}</span>
+-                </button>
++            ) : (myAttendanceToday.isFromYesterday && !myAttendanceToday.timeOut) ? (
++                <div className="flex flex-col items-center space-y-6 w-full animate-in zoom-in duration-300">
++                    <div className="bg-amber-50 text-amber-600 px-10 py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest flex flex-col items-center space-y-2 border border-amber-100 shadow-inner max-w-sm mx-auto">
++                        <div className="flex items-center space-x-3">
++                            <Clock size={20} />
++                            <p className="text-sm">Sesi Kemarin Masih Terbuka</p>
++                        </div>
++                        <p className="text-[9px] opacity-70 uppercase font-black">Masuk: {myAttendanceToday.date} {myAttendanceToday.timeIn}</p>
++                    </div>
++                    <button
++                        onClick={handleStartCheckOut}
++                        className="bg-rose-500 text-white px-16 py-6 rounded-[2.5rem] font-black text-xs uppercase tracking-[0.2em] hover:bg-rose-600 shadow-2xl transition transform active:scale-95 flex items-center gap-4 hover:shadow-rose-500/30"
++                    >
++                        <LogOut size={18} /> TUTUP SESI KEMARIN
++                    </button>
++                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest italic">Anda harus menutup sesi kemarin sebelum absen hari ini</p>
++                </div>
+             ) : !myAttendanceToday.timeOut ? (
+                 <div className="flex flex-col items-center space-y-6 w-full animate-in zoom-in duration-300">
+                     <div className="bg-emerald-50 text-emerald-600 px-10 py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest flex items-center space-x-4 border border-emerald-100 shadow-inner">
+@@ -163,6 +179,24 @@ export const AttendancePortal: React.FC<AttendancePortalProps> = ({
+                         <LogOut size={18} /> CHECK-OUT (PULANG)
+                     </button>
+                 </div>
++            ) : myAttendanceToday.isFromYesterday ? (
++                /* Session yesterday finished, now allow check-in for today */
++                <button
++                    onClick={handleStartCheckIn}
++                    disabled={gpsLoading || (!currentUser.isFreelance && !isWithinRadius)}
++                    className={`px-16 py-6 rounded-[2.5rem] font-black text-xs uppercase tracking-[0.2em] shadow-2xl transition-all transform active:scale-95 flex items-center gap-4 group
++            ${gpsLoading || (!currentUser.isFreelance && !isWithinRadius)
++                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none border border-slate-200'
++                            : 'bg-slate-900 text-white hover:bg-blue-600 hover:shadow-blue-500/30'}
++          `}
++                >
++                    {gpsLoading ? (
++                        <Loader2 className="animate-spin" size={18} />
++                    ) : (
++                        <MapPin size={18} />
++                    )}
++                    <span>{gpsLoading ? 'SYNCING...' : (!currentUser.isFreelance && !isWithinRadius) ? 'OUT OF RANGE' : 'CHECK-IN (MASUK)'}</span>
++                </button>
+             ) : (
+                 <div className="space-y-6 animate-in fade-in duration-700">
+                     <div className="bg-slate-900 text-white px-10 py-6 rounded-[2.5rem] font-black text-xs uppercase tracking-widest shadow-2xl border-b-4 border-blue-600 inline-block">
+diff --git a/src/store.ts b/src/store.ts
+index 720a09bd..1c0298f0 100644
+--- a/src/store.ts
++++ b/src/store.ts
+@@ -1,4 +1,4 @@
+-import { useState, useEffect } from 'react';
++import React, { useState, useEffect, useCallback, useMemo } from 'react';
+ import { User, SystemLog, SystemActionType, Project } from './types';
+ import { supabase } from './lib/supabaseClient';
+ import { AppState } from './store/types';
+@@ -23,7 +23,7 @@ export const useStore = () => {
+     : {};
+ 
+   // --- CENTRALIZED LOGGING FUNCTION ---
+-  const addLog = async (actionType: SystemActionType, details: string, target?: string, metadata?: any) => {
++  const addLog = useCallback(async (actionType: SystemActionType, details: string, target?: string, metadata?: any) => {
+     if (!state.currentUser) return;
+ 
+     const newLog: SystemLog = {
+@@ -43,22 +43,22 @@ export const useStore = () => {
+     try {
+       fetch(`${API_BASE}/api/system-logs`, {
+         method: 'POST',
+-        headers: { 'Content-Type': 'application/json', ...authHeaders },
++        headers: { 'Content-Type': 'application/json', Authorization: state.authToken ? `Bearer ${state.authToken}` : '' },
+         body: JSON.stringify(newLog)
+       });
+     } catch (e) {
+       console.error('Failed to persist log', e);
+     }
+-  };
++  }, [state.currentUser?.id, state.authToken]);
+ 
+-  // Re-compose actions from fragments
+-  const attendanceActions = createAttendanceActions(state, setState, authHeaders, addLog);
+-  const financialActions = createFinancialActions(state, setState, authHeaders, addLog);
+-  const userActions = createUserActions(state, setState, authHeaders, addLog);
+-  const projectActions = createProjectActions(state, setState, authHeaders, addLog);
+-  const tenantActions = createTenantActions(state, setState, authHeaders, addLog);
+-  const miscActions = createMiscActions(state, setState, authHeaders, addLog);
+-  const otherActions = createOtherActions(state, setState, authHeaders, addLog);
++  // Re-compose actions from fragments - Memoized to prevent infinite loops
++  const attendanceActions = useMemo(() => createAttendanceActions(state, setState, authHeaders, addLog), [state.authToken, addLog]);
++  const financialActions = useMemo(() => createFinancialActions(state, setState, authHeaders, addLog), [state.authToken, addLog]);
++  const userActions = useMemo(() => createUserActions(state, setState, authHeaders, addLog), [state.authToken, addLog]);
++  const projectActions = useMemo(() => createProjectActions(state, setState, authHeaders, addLog), [state.authToken, addLog]);
++  const tenantActions = useMemo(() => createTenantActions(state, setState, authHeaders, addLog), [state.authToken, addLog]);
++  const miscActions = useMemo(() => createMiscActions(state, setState, authHeaders, addLog), [state.authToken, addLog]);
++  const otherActions = useMemo(() => createOtherActions(state, setState, authHeaders, addLog), [state.authToken, addLog]);
+ 
+   useEffect(() => {
+     const initializeApp = async () => {
+@@ -240,6 +240,7 @@ export const useStore = () => {
+     fetchTransactions: financialActions.fetchTransactions,
+     fetchAttendance: attendanceActions.fetchAttendance,
+     fetchRequests: otherActions.fetchRequests,
++    fetchLeaveQuotas: otherActions.fetchLeaveQuotas,
+     fetchTenants: tenantActions.fetchTenants,
+     fetchDailyReports: miscActions.fetchDailyReports,
+     fetchLogs: otherActions.fetchLogs,
+diff --git a/src/store/attendanceActions.ts b/src/store/attendanceActions.ts
+index 7e334f5c..bddc0c09 100644
+--- a/src/store/attendanceActions.ts
++++ b/src/store/attendanceActions.ts
+@@ -8,10 +8,16 @@ export const createAttendanceActions = (
+   authHeaders: Record<string, string>,
+   addLog: (actionType: SystemActionType, details: string, target?: string, metadata?: any) => Promise<void>
+ ) => {
+-  const fetchAttendance = async (userId?: string) => {
++  const fetchAttendance = async (userId?: string, start?: string, end?: string) => {
+     try {
+       let url = `${API_BASE}/api/attendance`;
+-      if (userId) url += `?userId=${userId}`;
++      const params = new URLSearchParams();
++      if (userId) params.append('userId', userId);
++      if (start) params.append('start', start);
++      if (end) params.append('end', end);
++      
++      const queryString = params.toString();
++      if (queryString) url += `?${queryString}`;
+ 
+       const res = await fetch(url, { headers: authHeaders });
+       if (res.ok) {
+@@ -36,6 +42,7 @@ export const createAttendanceActions = (
+       addLog(SystemActionType.ATTENDANCE_CLOCK_IN, `Clock In at ${created.timeIn} ${created.isLate ? '(LATE)' : ''}`, created.id);
+     } catch (e) {
+       console.error(e);
++      throw e;
+     }
+   };
+ 
+@@ -57,6 +64,7 @@ export const createAttendanceActions = (
+       }
+     } catch (e) {
+       console.error(e);
++      throw e;
+     }
+   };
+ 
+diff --git a/src/store/otherActions.ts b/src/store/otherActions.ts
+index f9b6c534..47b14b1c 100644
+--- a/src/store/otherActions.ts
++++ b/src/store/otherActions.ts
+@@ -28,6 +28,19 @@ export const createOtherActions = (
+     }
+   };
+ 
++  const fetchLeaveQuotas = async (userId?: string) => {
++    try {
++      let url = `${API_BASE}/api/requests/quota`;
++      if (userId) url += `?userId=${userId}`;
++      const res = await fetch(url, { headers: authHeaders });
++      if (res.ok) {
++        const data = await res.json();
++        const quotaArray = Array.isArray(data) ? data : [data];
++        setState(prev => ({ ...prev, leaveQuotas: quotaArray }));
++      }
++    } catch (e) { console.error("Fetch Quotas Failed", e); }
++  };
++
+   const addRequest = async (req: LeaveRequest) => {
+     try {
+       const res = await fetch(`${API_BASE}/api/requests`, {
+@@ -35,12 +48,16 @@ export const createOtherActions = (
+         headers: { 'Content-Type': 'application/json', ...authHeaders },
+         body: JSON.stringify(req)
+       });
+-      if (!res.ok) throw new Error('Failed to create request');
++      if (!res.ok) {
++        const err = await res.json().catch(() => ({}));
++        throw new Error(err.message || err.error || 'Gagal mengirim permohonan.');
++      }
+       const created: LeaveRequest = await res.json();
+       setState(prev => ({ ...prev, requests: [...prev.requests, created] }));
+       addLog(SystemActionType.REQUEST_CREATE, `Submitted request: ${created.type}`, created.id);
+-    } catch (e) {
++    } catch (e: any) {
+       console.error(e);
++      throw e;
+     }
+   };
+ 
+@@ -256,7 +273,7 @@ export const createOtherActions = (
+   };
+ 
+   return {
+-    fetchRequests, addRequest, updateRequest, deleteRequest,
++    fetchRequests, fetchLeaveQuotas, addRequest, updateRequest, deleteRequest,
+     addFinancialAccount, updateFinancialAccount, deleteFinancialAccount,
+     addCategory, updateCategory, deleteCategory,
+     addBusinessUnit, updateBusinessUnit, deleteBusinessUnit,
+diff --git a/src/store/state.ts b/src/store/state.ts
+index 7a2daec9..9bc4e16b 100644
+--- a/src/store/state.ts
++++ b/src/store/state.ts
+@@ -20,6 +20,7 @@ export const initialState: AppState = {
+   tenants: [],
+   currentTenant: null,
+   shifts: [],
++  leaveQuotas: [],
+   settings: {
+     officeLocation: INITIAL_OFFICE_LOCATION,
+     officeHours: { start: '08:00', end: '17:00' },
+diff --git a/src/store/types.ts b/src/store/types.ts
+index 09ce2246..f0413e9e 100644
+--- a/src/store/types.ts
++++ b/src/store/types.ts
+@@ -1,4 +1,4 @@
+-import { BusinessUnit, TransactionCategory, User, UserRole, Project, Attendance, LeaveRequest, Transaction, AppSettings, DailyReport, UserSalaryConfig, PayrollRecord, SystemLog, Tenant, Shift, FinancialAccountDef } from '../types';
++import { BusinessUnit, TransactionCategory, User, UserRole, Project, Attendance, LeaveRequest, LeaveQuota, Transaction, AppSettings, DailyReport, UserSalaryConfig, PayrollRecord, SystemLog, Tenant, Shift, FinancialAccountDef } from '../types';
+ 
+ export interface AppState {
+   currentUser: User | null;
+@@ -20,4 +20,5 @@ export interface AppState {
+   tenants: Tenant[];
+   currentTenant: Tenant | null;
+   shifts: Shift[];
++  leaveQuotas: LeaveQuota[];
+ }
+diff --git a/src/types.ts b/src/types.ts
+index efa44b70..9a94e5cf 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -19,6 +19,14 @@ export interface Tenant {
+   radiusTolerance?: number;
+   lateGracePeriod?: number;
+ 
++  // New: Leave Policy Configuration
++  leaveWeeklyLimit?: number;
++  leaveAnnualQuota?: number;
++  leaveSuddenPenalty?: number;
++  leaveNoticeThreshold?: number;
++  leaveNoticeRequired?: number;
++  leaveSuddenHourCutoff?: number;
++
+   _count?: {
+     users: number;
+     projects: number;
+@@ -146,6 +154,22 @@ export interface LeaveRequest {
+   approverName?: string;
+   actionNote?: string;
+   actionAt?: number;
++  
++  // Rule Enforcement Fields
++  isSudden?: boolean;
++  hasDoctorNote?: boolean;
++  penaltyWeight?: number;
++  user?: User;
++}
++
++export interface LeaveQuota {
++  id: string;
++  userId: string;
++  year: number;
++  totalQuota: number;
++  usedQuota: number;
++  remainingQuota: number;
++  tenantId?: string;
+ }
+ 
+ export interface Attendance {
+@@ -261,6 +285,13 @@ export interface AppSettings {
+   dailyRecapTime: string;
+   dailyRecapModules: string[];
+   companyProfile: CompanyProfile;
++  // Leave Policy
++  leaveWeeklyLimit?: number;
++  leaveAnnualQuota?: number;
++  leaveSuddenPenalty?: number;
++  leaveNoticeThreshold?: number;
++  leaveNoticeRequired?: number;
++  leaveSuddenHourCutoff?: number;
+ }
+ 
+ export interface DailyReport {
+diff --git a/sync_prod_to_local.js b/sync_prod_to_local.js
+index 55abdd7f..a7525d67 100644
+--- a/sync_prod_to_local.js
++++ b/sync_prod_to_local.js
+@@ -7,6 +7,10 @@ const LOCAL_URL = 'postgresql://postgres.euxinsbjfukszxzejbop:082139063266@aws-1
+ const prodPool = new Pool({ connectionString: PROD_URL, ssl: { rejectUnauthorized: false } });
+ const localPool = new Pool({ connectionString: LOCAL_URL, ssl: { rejectUnauthorized: false } });
+ 
++// Mencegah crash jika Supabase mematikan koneksi idle
++prodPool.on('error', (err) => console.warn('Prod pool idle error:', err.message));
++localPool.on('error', (err) => console.warn('Local pool idle error:', err.message));
++
+ const TABLES = [
+     'tenants', // Critical first
+     'users',
+@@ -64,7 +68,17 @@ async function sync() {
+                     });
+ 
+                     const values = chunk.flatMap(row => columns.map(col => {
+-                        const val = row[col];
++                        let val = row[col];
++                        
++                        // CRITICAL: Handle BigInt to Date conversion for leave_requests
++                        // Prod uses BigInt timestamps, Local uses Timestamptz
++                        if (table === 'leave_requests' && (col === 'created_at' || col === 'action_at') && val !== null) {
++                            if (typeof val === 'string' || typeof val === 'number' || typeof val === 'bigint') {
++                                // Supabase BigInt usually comes as string in JS pg driver
++                                val = new Date(Number(val));
++                            }
++                        }
++
+                         // CRITICAL: Handle JSONB and objects
+                         if (val !== null && typeof val === 'object' && !(val instanceof Date)) {
+                             return JSON.stringify(val);
+@@ -86,7 +100,11 @@ async function sync() {
+             }
+         }
+ 
+-        // 2. Aktifkan kembali Trigger
++        // 2. Reset Sequence untuk tabel yang menggunakan auto-increment (settings)
++        console.log('­ƒöä Mereset sequence auto-increment...');
++        await localPool.query("SELECT setval(pg_get_serial_sequence('settings', 'id'), coalesce(max(id), 1)) FROM settings;");
++
++        // 3. Aktifkan kembali Trigger
+         await localPool.query('SET session_replication_role = \'origin\';');
+         console.log('\n--------------------------------------------------');
+         console.log('Ô£à SINKRONISASI SELESAI!');

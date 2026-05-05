@@ -155,6 +155,19 @@ const FinanceModule: React.FC<FinanceProps> = ({
     refreshCoa();
   }, []);
 
+  // --- AUTO-HEAL: Recalculate cached balances once on mount (fire-and-forget) ---
+  // This ensures the financial_accounts.balance column stays in sync with the
+  // transactions table. It runs silently in the background and never blocks the UI.
+  useEffect(() => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('sdm_erp_auth_token') : null;
+    if (!token) return;
+    fetch('/api/finance/recalculate', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    }).catch(() => { /* silent — non-critical background task */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty deps: runs once per mount
+
   // --- MODAL STATES ---
   const [transactionModal, setTransactionModal] = useState<{ isOpen: boolean; isEditing: boolean; data: Transaction | null }>({
     isOpen: false, isEditing: false, data: null
@@ -191,9 +204,12 @@ const FinanceModule: React.FC<FinanceProps> = ({
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
     try {
-      // 1. Fetch Summary
-      let sumUrl = '/api/finance/summary';
-      if (filterBusinessUnit && filterBusinessUnit !== 'ALL') sumUrl += `?businessUnitId=${filterBusinessUnit}`;
+      // 1. Fetch Summary (include date range so card balances respond to the filter)
+      const sumParams = new URLSearchParams();
+      if (filterStartDate) sumParams.set('startDate', filterStartDate);
+      if (filterEndDate)   sumParams.set('endDate',   filterEndDate);
+      if (filterBusinessUnit && filterBusinessUnit !== 'ALL') sumParams.set('businessUnitId', filterBusinessUnit);
+      let sumUrl = `/api/finance/summary?${sumParams.toString()}`;
 
       // 2. Fetch Transactions (With Status Filter, Global Search, and Account Filter)
       let transUrl = `/api/transactions?startDate=${filterStartDate}&endDate=${filterEndDate}&status=${journalStatus}&page=${journalPage}&limit=50`;

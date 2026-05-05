@@ -1,4 +1,4 @@
-import { BusinessUnit, TransactionCategory, User, UserRole, Project, Attendance, LeaveRequest, Transaction, AppSettings, DailyReport, UserSalaryConfig, PayrollRecord, SystemLog, Tenant, Shift, FinancialAccountDef } from '../types';
+import { BusinessUnit, TransactionCategory, User, UserRole, Project, Attendance, LeaveRequest, LeaveQuota, Transaction, AppSettings, DailyReport, UserSalaryConfig, PayrollRecord, SystemLog, Tenant, Shift, FinancialAccountDef } from '../types';
 
 export interface AppState {
   currentUser: User | null;
@@ -20,4 +20,5 @@ export interface AppState {
   tenants: Tenant[];
   currentTenant: Tenant | null;
   shifts: Shift[];
+  leaveQuotas: LeaveQuota[];
 }

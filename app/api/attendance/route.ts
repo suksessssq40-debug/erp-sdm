@@ -35,7 +35,10 @@ export async function GET(request: Request) {
     }
 
     if (startDate && endDate) {
-      where.date = { gte: startDate, lte: endDate };
+      // Ensure we are comparing plain YYYY-MM-DD strings
+      const s = startDate.split('T')[0];
+      const e = endDate.split('T')[0];
+      where.date = { gte: s, lte: e };
     }
 
     const records = await prisma.attendance.findMany({
@@ -45,7 +48,7 @@ export async function GET(request: Request) {
         { date: 'desc' },      // Priority 2: Legacy fallback
         { timeIn: 'desc' }
       ],
-      take: 200
+      take: 5000 // Increased from 1000 to handle larger reports without truncation
     });
 
     const formatted = records.map(r => ({
