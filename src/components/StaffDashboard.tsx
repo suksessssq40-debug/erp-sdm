@@ -157,7 +157,6 @@ export const StaffDashboard = () => {
     });
 
     const totalLate = monthlyAttendance.filter(a => a.isLate).length;
-    // REPLACED: Total Kehadiran instead of Sisa Cuti
     const totalPresent = monthlyAttendance.length;
 
     // 3. Task Priority (Assigned to Me & Incomplete)
@@ -191,7 +190,10 @@ export const StaffDashboard = () => {
     }, [requests, currentUser?.id]);
 
     // 6. Leave & Policy Status
-    const myQuota = useMemo(() => store.leaveQuotas?.find((q: LeaveQuota) => q.userId === currentUser?.id), [store.leaveQuotas, currentUser?.id]);
+    const myQuota = useMemo(() =>
+        store.leaveQuotas?.find((q: LeaveQuota) => q.userId === currentUser?.id),
+        [store.leaveQuotas, currentUser?.id]
+    );
     
     const weeklyLimitReached = useMemo(() => {
         const limit = store.settings?.leaveWeeklyLimit ?? 1;
@@ -208,17 +210,25 @@ export const StaffDashboard = () => {
         const count = requests.filter(r => {
             const isMe = r.userId === currentUser?.id;
             const isResolved = r.status === 'APPROVED' || r.status === 'PENDING';
-            const isInWeek = new Date(r.startDate) >= startOfWeek;
-            const isNotSickWithNote = !(r.type === 'SAKIT' && r.hasDoctorNote);
+            const isInWeek = r.startDate ? new Date(r.startDate) >= startOfWeek : false;
+            const isNotSickWithNote = !(r.type?.toUpperCase() === 'SAKIT' && r.hasDoctorNote);
             return isMe && isResolved && isInWeek && isNotSickWithNote;
         }).length;
 
         return count >= limit;
     }, [requests, currentUser?.id, store.settings?.leaveWeeklyLimit]);
 
+    // Fetch lazy-loaded data on mount for dashboard stats
     useEffect(() => {
-        if (store.fetchLeaveQuotas) store.fetchLeaveQuotas(currentUser?.id);
-    }, [currentUser?.id, store.fetchLeaveQuotas]);
+        if (!currentUser?.id) return;
+        // Attendance: needed for totalLate & totalPresent cards
+        if (store.fetchAttendance) store.fetchAttendance();
+        // Requests: needed for weeklyLimitReached & latestRequest
+        if (store.fetchRequests) store.fetchRequests();
+        // Quota: fallback fetch in case bootstrap didn't populate it
+        if (store.fetchLeaveQuotas) store.fetchLeaveQuotas(currentUser.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentUser?.id]); // Only re-run when user changes, not on every store update
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500 pb-20">

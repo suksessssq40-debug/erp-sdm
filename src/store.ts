@@ -137,6 +137,7 @@ export const useStore = () => {
                 dailyReports: data.dailyReports || [],
                 salaryConfigs: data.salaryConfigs || [],
                 payrollRecords: data.payrollRecords || [],
+                leaveQuotas: data.leaveQuotas || [],
                 logs: data.logs || [],
                 settings: data.settings || prev.settings,
                 financialAccounts: data.financialAccounts || [],
@@ -145,19 +146,30 @@ export const useStore = () => {
               };
             });
 
-            // Active Tenant + Shifts
+            // Active Tenant, Shifts, and current user's leave quota (parallel)
             if (currentUser?.tenantId) {
-              const [resTenant, resShifts] = await Promise.all([
+              const [resTenant, resShifts, resQuota] = await Promise.all([
                 fetch(`${API_BASE}/api/tenants/${currentUser.tenantId}`, { headers: h }),
-                fetch(`${API_BASE}/api/tenants/${currentUser.tenantId}/shifts`, { headers: h })
+                fetch(`${API_BASE}/api/tenants/${currentUser.tenantId}/shifts`, { headers: h }),
+                fetch(`${API_BASE}/api/requests/quota?userId=${currentUser.id}`, { headers: h })
               ]);
               if (resTenant.ok) {
-                const tData = await resTenant.ok ? await resTenant.json() : null;
+                const tData = await resTenant.json();
                 if (tData) setState(prev => ({ ...prev, currentTenant: tData }));
               }
               if (resShifts.ok) {
                 const sData = await resShifts.json();
                 setState(prev => ({ ...prev, shifts: sData }));
+              }
+              if (resQuota.ok) {
+                const qData = await resQuota.json();
+                // Merge into leaveQuotas array without duplicating
+                setState(prev => {
+                  const existing = prev.leaveQuotas.filter(
+                    q => !(q.userId === qData.userId && q.year === qData.year)
+                  );
+                  return { ...prev, leaveQuotas: [...existing, qData] };
+                });
               }
             }
           } else if (resBootstrap.status === 401) {

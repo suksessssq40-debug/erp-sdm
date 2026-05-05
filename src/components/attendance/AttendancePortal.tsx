@@ -146,7 +146,7 @@ export const AttendancePortal: React.FC<AttendancePortalProps> = ({
                         Anda masuk sebagai <span className="text-blue-600">OWNER</span>.<br />Akun Owner tidak memerlukan absensi mandiri.
                     </p>
                 </div>
-            ) : (myAttendanceToday.isFromYesterday && !myAttendanceToday.timeOut) ? (
+            ) : (myAttendanceToday?.isFromYesterday && !myAttendanceToday?.timeOut) ? (
                 <div className="flex flex-col items-center space-y-6 w-full animate-in zoom-in duration-300">
                     <div className="bg-amber-50 text-amber-600 px-10 py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest flex flex-col items-center space-y-2 border border-amber-100 shadow-inner max-w-sm mx-auto">
                         <div className="flex items-center space-x-3">
@@ -163,7 +163,7 @@ export const AttendancePortal: React.FC<AttendancePortalProps> = ({
                     </button>
                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest italic">Anda harus menutup sesi kemarin sebelum absen hari ini</p>
                 </div>
-            ) : !myAttendanceToday.timeOut ? (
+            ) : !myAttendanceToday?.timeOut ? (
                 <div className="flex flex-col items-center space-y-6 w-full animate-in zoom-in duration-300">
                     <div className="bg-emerald-50 text-emerald-600 px-10 py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest flex items-center space-x-4 border border-emerald-100 shadow-inner">
                         <CheckCircle2 size={24} className="animate-bounce" />
@@ -179,7 +179,7 @@ export const AttendancePortal: React.FC<AttendancePortalProps> = ({
                         <LogOut size={18} /> CHECK-OUT (PULANG)
                     </button>
                 </div>
-            ) : myAttendanceToday.isFromYesterday ? (
+            ) : myAttendanceToday?.isFromYesterday ? (
                 /* Session yesterday finished, now allow check-in for today */
                 <button
                     onClick={handleStartCheckIn}
