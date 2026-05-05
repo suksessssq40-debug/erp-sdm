@@ -123,39 +123,52 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
     return () => clearInterval(timer);
   }, [serverOffset]);
 
-  // DATE LOGIC (FIXED: Consistent Jakarta Timezone)
-  const getTodayJakarta = () => {
-    const now = new Date();
-    // Convert to Jakarta timezone (UTC+7)
-    const jakartaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
-    return jakartaTime.toISOString().split('T')[0]; // Format: YYYY-MM-DD
+  // DATE LOGIC (FIXED: en-CA locale returns reliable YYYY-MM-DD without UTC conversion)
+  const getTodayJakarta = (): string => {
+    // toLocaleDateString with en-CA locale reliably returns YYYY-MM-DD in Jakarta timezone
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
   };
 
   const todayStr = getTodayJakarta();
 
-  // ACTIVE SESSION TRACKING (New Robust Logic from Dashboard)
+  // ACTIVE SESSION TRACKING — handles both old & new date formats
   const myAttendanceToday = React.useMemo(() => {
     if (!currentUser?.id) return undefined;
     const myLogs = attendanceLog.filter(a => a.userId === currentUser.id);
-    const todayRecord = myLogs.find(a => a.date === todayStr);
+
+    // Normalize any date string to YYYY-MM-DD for comparison
+    const normalizeDate = (raw: string | null | undefined): string => {
+      if (!raw) return '';
+      // Already in YYYY-MM-DD format
+      if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+      // Legacy formats like "Wed Jan 14 2026" or "14/01/2026"
+      const parsed = new Date(raw);
+      if (!isNaN(parsed.getTime())) {
+        return parsed.toLocaleDateString('en-CA'); // YYYY-MM-DD
+      }
+      return raw;
+    };
+
+    // Find today's record (supports old AND new date formats)
+    const todayRecord = myLogs.find(a => normalizeDate(a.date) === todayStr);
     if (todayRecord) return todayRecord;
 
     // NIGHT SHIFT/OPEN SESSION LOGIC
-    // Check if there is an OPEN session from yesterday (within 24 hours)
-    const yesterday = new Date(todayStr);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yestStr = yesterday.toISOString().split('T')[0];
-    
-    const activeSession = myLogs.find(a => a.date === yestStr && !a.timeOut);
+    // Yesterday in YYYY-MM-DD (string manipulation avoids UTC parsing bugs)
+    const [y, mo, d] = todayStr.split('-').map(Number);
+    const yestDate = new Date(y, mo - 1, d - 1); // Uses LOCAL timezone, no UTC issue
+    const yestStr = yestDate.toLocaleDateString('en-CA'); // YYYY-MM-DD
+
+    const activeSession = myLogs.find(
+      a => normalizeDate(a.date) === yestStr && !a.timeOut
+    );
     if (activeSession) {
       const checkInTime = activeSession.createdAt
         ? new Date(activeSession.createdAt).getTime()
-        : new Date(activeSession.date + 'T' + (activeSession.timeIn || '00:00:00')).getTime();
+        : new Date(activeSession.date + 'T' + (activeSession.timeIn || '00:00') + ':00').getTime();
       const hoursSinceCheckIn = (Date.now() - checkInTime) / (1000 * 60 * 60);
-
-      // If it's an open session from yesterday and it's been less than 24h
       if (hoursSinceCheckIn < 24) {
-        return { ...activeSession, isFromYesterday: true }; // Mark it!
+        return { ...activeSession, isFromYesterday: true };
       }
     }
     return undefined;

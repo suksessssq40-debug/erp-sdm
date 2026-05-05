@@ -146,7 +146,29 @@ export const AttendancePortal: React.FC<AttendancePortalProps> = ({
                         Anda masuk sebagai <span className="text-blue-600">OWNER</span>.<br />Akun Owner tidak memerlukan absensi mandiri.
                     </p>
                 </div>
-            ) : (myAttendanceToday?.isFromYesterday && !myAttendanceToday?.timeOut) ? (
+
+            ) : !myAttendanceToday ? (
+                /* ── BELUM ABSEN MASUK ── */
+                <button
+                    id="btn-checkin"
+                    onClick={handleStartCheckIn}
+                    disabled={gpsLoading || (!currentUser.isFreelance && !isWithinRadius)}
+                    className={`px-16 py-6 rounded-[2.5rem] font-black text-xs uppercase tracking-[0.2em] shadow-2xl transition-all transform active:scale-95 flex items-center gap-4 group
+            ${gpsLoading || (!currentUser.isFreelance && !isWithinRadius)
+                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none border border-slate-200'
+                            : 'bg-slate-900 text-white hover:bg-blue-600 hover:shadow-blue-500/30'}
+          `}
+                >
+                    {gpsLoading ? (
+                        <Loader2 className="animate-spin" size={18} />
+                    ) : (
+                        <MapPin size={18} />
+                    )}
+                    <span>{gpsLoading ? 'SYNCING...' : (!currentUser.isFreelance && !isWithinRadius) ? 'OUT OF RANGE' : 'CHECK-IN (MASUK)'}</span>
+                </button>
+
+            ) : (myAttendanceToday.isFromYesterday && !myAttendanceToday.timeOut) ? (
+                /* ── SESI KEMARIN MASIH TERBUKA ── */
                 <div className="flex flex-col items-center space-y-6 w-full animate-in zoom-in duration-300">
                     <div className="bg-amber-50 text-amber-600 px-10 py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest flex flex-col items-center space-y-2 border border-amber-100 shadow-inner max-w-sm mx-auto">
                         <div className="flex items-center space-x-3">
@@ -163,7 +185,8 @@ export const AttendancePortal: React.FC<AttendancePortalProps> = ({
                     </button>
                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest italic">Anda harus menutup sesi kemarin sebelum absen hari ini</p>
                 </div>
-            ) : !myAttendanceToday?.timeOut ? (
+            ) : !myAttendanceToday.timeOut ? (
+                /* ── SESI HARI INI AKTIF — tampilkan check-out ── */
                 <div className="flex flex-col items-center space-y-6 w-full animate-in zoom-in duration-300">
                     <div className="bg-emerald-50 text-emerald-600 px-10 py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest flex items-center space-x-4 border border-emerald-100 shadow-inner">
                         <CheckCircle2 size={24} className="animate-bounce" />
@@ -179,8 +202,8 @@ export const AttendancePortal: React.FC<AttendancePortalProps> = ({
                         <LogOut size={18} /> CHECK-OUT (PULANG)
                     </button>
                 </div>
-            ) : myAttendanceToday?.isFromYesterday ? (
-                /* Session yesterday finished, now allow check-in for today */
+            ) : myAttendanceToday.isFromYesterday ? (
+                /* ── SESI KEMARIN SELESAI — tampilkan check-in untuk hari ini ── */
                 <button
                     onClick={handleStartCheckIn}
                     disabled={gpsLoading || (!currentUser.isFreelance && !isWithinRadius)}

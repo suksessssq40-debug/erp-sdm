@@ -20,12 +20,9 @@ export const StaffDashboard = () => {
     const { currentUser, attendance, projects, dailyReports, requests } = store;
     const router = useRouter();
 
-    // 1. Time & Attendance Logic (FIXED: Consistent Jakarta Timezone)
-    const getTodayJakarta = () => {
-        const now = new Date();
-        // Convert to Jakarta timezone (UTC+7)
-        const jakartaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
-        return jakartaTime.toISOString().split('T')[0]; // Format: YYYY-MM-DD
+    // 1. Time & Attendance Logic (FIXED: en-CA locale = reliable YYYY-MM-DD)
+    const getTodayJakarta = (): string => {
+        return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
     };
 
     const todayStr = getTodayJakarta();
