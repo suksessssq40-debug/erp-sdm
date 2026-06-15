@@ -34,6 +34,7 @@ export default function KaizenPanel({ currentUser, toast }: KaizenPanelProps) {
   const [category, setCategory] = useState<'RINGAN' | 'SEDANG' | 'BERAT'>('RINGAN');
   const [amount, setAmount] = useState(10);
   const [reason, setReason] = useState('');
+  const [violationDate, setViolationDate] = useState(new Date().toISOString().split('T')[0]);
 
   const getHeaders = (): Record<string, string> => {
     const h: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -91,13 +92,16 @@ export default function KaizenPanel({ currentUser, toast }: KaizenPanelProps) {
           userId: selectedUserId,
           category,
           amount,
-          reason: reason.trim()
+          reason: reason.trim(),
+          violationDate
         })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Gagal memotong poin');
 
-      toast.success(`Berhasil memotong ${amount} poin (${category}) dari ${users.find(u => u.id === selectedUserId)?.name || 'user'}`);
+      const todayStr = new Date().toISOString().split('T')[0];
+      const dateNote = violationDate !== todayStr ? ` (pelanggaran: ${new Date(violationDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })})` : '';
+      toast.success(`Berhasil memotong ${amount} poin (${category}) dari ${users.find(u => u.id === selectedUserId)?.name || 'user'}${dateNote}`);
       setShowDeductModal(false);
       resetForm();
       fetchData();
@@ -134,6 +138,7 @@ export default function KaizenPanel({ currentUser, toast }: KaizenPanelProps) {
     setCategory('RINGAN');
     setAmount(10);
     setReason('');
+    setViolationDate(new Date().toISOString().split('T')[0]);
   };
 
   const getCategoryColor = (cat: string) => {
@@ -446,6 +451,19 @@ export default function KaizenPanel({ currentUser, toast }: KaizenPanelProps) {
                   value={reason}
                   onChange={e => setReason(e.target.value)}
                 />
+              </div>
+
+              {/* Violation Date */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tanggal Pelanggaran</label>
+                <input
+                  type="date"
+                  max={new Date().toISOString().split('T')[0]}
+                  value={violationDate}
+                  onChange={e => setViolationDate(e.target.value)}
+                  className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-purple-600 focus:bg-white rounded-2xl outline-none font-black text-xs uppercase tracking-widest transition shadow-sm"
+                />
+                <p className="text-[9px] text-slate-400 ml-2 italic font-bold">Default: hari ini. Bisa diubah untuk backdate pelanggaran.</p>
               </div>
             </div>
 

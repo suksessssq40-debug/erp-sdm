@@ -18,7 +18,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Hanya Kaizen Master atau Owner yang bisa memotong poin' }, { status: 403 });
     }
 
-    const { userId, category, amount, reason } = await request.json();
+    const { userId, category, amount, reason, violationDate } = await request.json();
 
     // Validation
     if (!userId || !category || !amount) {
@@ -62,7 +62,8 @@ export async function POST(request: Request) {
           deductedBy: actor.id,
           amount: deductAmount,
           category,
-          reason: reason || null
+          reason: reason || null,
+          createdAt: violationDate ? new Date(violationDate + 'T12:00:00') : new Date()
         }
       }),
       // Log to system_logs
