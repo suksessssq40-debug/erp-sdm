@@ -52,10 +52,8 @@ export async function GET(request: Request) {
     const isKaizenMaster = !!(actorUser as any)?.isKaizenMaster;
     const hasFullAccess = isAdmin || isKaizenMaster;
 
-    // Deny access if not admin or kaizen master
-    if (!hasFullAccess) {
-      return NextResponse.json({ error: 'Forbidden: Akses ditolak' }, { status: 403 });
-    }
+    // All authenticated users can view their own attendance report
+    // Admin/Kaizen can view all users (hasFullAccess controls scope below)
 
     // Parse query params
     const url = new URL(request.url);

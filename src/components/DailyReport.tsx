@@ -211,100 +211,108 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
         )}
       </div>
 
-      <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
-        {/* Table content unchanged */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="bg-slate-50 border-b border-slate-100">
-              <tr>
-                <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Tanggal</th>
-                <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Anggota</th>
-                <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Ringkasan Aktivitas</th>
-                <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Total Item</th>
-                <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Waktu Submit</th>
-                <th className="px-6 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Detail</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {displayReports.map(report => {
-                const user = users.find(u => u.id === report.userId);
-                // Render nicely formatted date
-                const displayDate = new Date(report.date).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-                
-                return (
-                  <tr key={report.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-6 py-5">
-                      <span className="text-xs font-bold text-slate-700">{displayDate}</span>
-                    </td>
-                    <td className="px-6 py-5">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center font-black text-xs overflow-hidden shadow-md">
-                          {user?.avatarUrl ? (
-                              <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
-                          ) : (
-                              user?.name.charAt(0)
-                          )}
-                        </div>
-                        <span className="text-xs font-bold text-slate-700">{user?.name}</span>
+      {/* Card Grid */}
+      {displayReports.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+          {displayReports.map(report => {
+            const user = users.find(u => u.id === report.userId);
+            const displayDate = new Date(report.date).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+            const totalItems = report.activities.reduce((sum, a) => sum + (a.quantity || 0), 0);
+
+            return (
+              <div
+                key={report.id}
+                onClick={() => setSelectedReport(report)}
+                className="bg-white rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-xl hover:border-blue-200 transition-all duration-300 cursor-pointer group overflow-hidden"
+              >
+                {/* Card Header */}
+                <div className="p-6 pb-4">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-600 text-white flex items-center justify-center font-black text-sm overflow-hidden shadow-lg">
+                        {user?.avatarUrl ? (
+                          <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
+                        ) : (
+                          user?.name?.charAt(0) || '?'
+                        )}
                       </div>
-                    </td>
-                    <td className="px-6 py-5">
-                       <p className="text-xs font-medium text-slate-500 italic truncate max-w-xs">
-                         "{report.activities[0]?.task || 'No activity'}" {report.activities.length > 1 && `dan ${report.activities.length - 1} lainnya...`}
-                       </p>
-                    </td>
-                    <td className="px-6 py-5">
-                       <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">
-                         {report.activities.length} AKTIVITAS
-                       </span>
-                    </td>
-                    <td className="px-6 py-5">
-                       {report.createdAt ? (
-                         <div className="flex flex-col">
-                           <span className="text-[10px] font-bold text-slate-600">
-                             {new Date(report.createdAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
-                           </span>
-                           <span className="text-[9px] text-slate-400">
-                             {new Date(report.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
-                           </span>
-                         </div>
-                       ) : (
-                         <span className="text-[10px] text-slate-300 italic">-</span>
-                       )}
-                    </td>
-                    <td className="px-6 py-5 text-right">
-                       <button onClick={() => setSelectedReport(report)} className="p-2 bg-slate-100 text-slate-500 rounded-xl hover:bg-blue-600 hover:text-white transition group mr-2">
-                          <Eye size={16} />
-                       </button>
-                       {/* Actions */}
-                       <div className="flex items-center gap-1">
-                           {/* Edit: Only Report Owner */}
-                           {report.userId === currentUser.id && (
-                             <button onClick={() => prepareEdit(report)} className="p-2 bg-slate-100 text-slate-500 rounded-xl hover:bg-amber-500 hover:text-white transition group">
-                                <Pencil size={16} />
-                             </button>
-                           )}
-                           
-                           {/* Delete: Owner or Management */}
-                           {(report.userId === currentUser.id || canViewAll) && (
-                             <button onClick={() => handleDelete(report.id)} className="p-2 bg-slate-100 text-slate-500 rounded-xl hover:bg-rose-600 hover:text-white transition group">
-                                <Trash2 size={16} />
-                             </button>
-                           )}
-                       </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {displayReports.length === 0 && (
-             <div className="p-12 text-center text-slate-300 font-bold uppercase tracking-widest text-xs">
-               Tidak ada laporan aktivitas pada rentang tanggal ini.
-             </div>
-          )}
+                      <div>
+                        <p className="text-sm font-black text-slate-800 leading-tight">{user?.name || 'Unknown'}</p>
+                        <span className={`inline-block mt-1 px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest ${
+                          user?.role === 'MANAGER' ? 'bg-amber-50 text-amber-600' :
+                          user?.role === 'FINANCE' ? 'bg-emerald-50 text-emerald-600' :
+                          'bg-blue-50 text-blue-600'
+                        }`}>{user?.role || '-'}</span>
+                      </div>
+                    </div>
+                    {/* Action Buttons */}
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {report.userId === currentUser.id && (
+                        <button onClick={(e) => { e.stopPropagation(); prepareEdit(report); }} className="p-2 bg-slate-100 text-slate-400 rounded-xl hover:bg-amber-500 hover:text-white transition">
+                          <Pencil size={14} />
+                        </button>
+                      )}
+                      {(report.userId === currentUser.id || canViewAll) && (
+                        <button onClick={(e) => { e.stopPropagation(); handleDelete(report.id); }} className="p-2 bg-slate-100 text-slate-400 rounded-xl hover:bg-rose-600 hover:text-white transition">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Date & Activity Count */}
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="flex items-center gap-1.5 text-slate-400">
+                      <Calendar size={12} />
+                      <span className="text-[10px] font-black uppercase tracking-widest">{displayDate}</span>
+                    </div>
+                  </div>
+
+                  {/* First Task Preview */}
+                  <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                    <p className="text-xs font-bold text-slate-600 line-clamp-2 leading-relaxed">
+                      {report.activities[0]?.task || 'Tidak ada aktivitas'}
+                    </p>
+                    {report.activities[0]?.link && (
+                      <div className="flex items-center gap-1 mt-2 text-blue-500">
+                        <LinkIcon size={10} />
+                        <span className="text-[9px] font-black uppercase tracking-widest">Ada bukti/link</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Card Footer */}
+                <div className="px-6 py-4 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="bg-blue-100 text-blue-700 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest">
+                      {report.activities.length} Aktivitas
+                    </span>
+                    {totalItems > 0 && (
+                      <span className="bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest">
+                        {totalItems} Item
+                      </span>
+                    )}
+                  </div>
+                  {report.createdAt && (
+                    <div className="flex items-center gap-1.5 text-slate-400">
+                      <History size={10} />
+                      <span className="text-[9px] font-bold">
+                        {new Date(report.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
-      </div>
+      ) : (
+        <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm p-16 text-center">
+          <Calendar size={48} className="mx-auto text-slate-200 mb-4" />
+          <p className="text-slate-400 font-black uppercase tracking-widest text-xs">Tidak ada laporan aktivitas pada rentang tanggal ini.</p>
+        </div>
+      )}
 
       {/* View Detail Modal ... (Unchanged) ... */}
       {selectedReport && (
