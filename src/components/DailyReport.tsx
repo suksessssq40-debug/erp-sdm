@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { User, DailyReport, UserRole } from '../types';
-import { Plus, CheckCircle2, History, Link as LinkIcon, Image as ImageIcon, Send, Eye, X, Pencil, Trash2, Calendar } from 'lucide-react';
+import { Plus, CheckCircle2, History, Link as LinkIcon, Image as ImageIcon, Send, Eye, X, Pencil, Trash2, Calendar, ArrowDownNarrowWide, ArrowUpNarrowWide, Filter } from 'lucide-react';
 import { useToast } from './Toast';
 import { useAppStore } from '../context/StoreContext';
 
@@ -29,6 +29,8 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
 
   const [filterStart, setFilterStart] = useState(firstDay);
   const [filterEnd, setFilterEnd] = useState(lastDay);
+  const [filterUserId, setFilterUserId] = useState('');
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
   
   // Auto-Fetch when Date Range Changes
   useEffect(() => {
@@ -94,7 +96,21 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
   const canViewAll = [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(currentUser.role) || !!currentUser.isKaizenMaster;
   const canReport = currentUser.role !== UserRole.OWNER; 
   const filteredByRole = canViewAll ? reports : reports.filter(r => r.userId === currentUser.id);
-  const displayReports = filteredByRole;
+
+  // Apply user filter + sort order
+  const displayReports = useMemo(() => {
+    let result = [...filteredByRole];
+    if (filterUserId) {
+      result = result.filter(r => r.userId === filterUserId);
+    }
+    // Sort by date + createdAt
+    result.sort((a, b) => {
+      const dateA = new Date(a.createdAt || a.date).getTime();
+      const dateB = new Date(b.createdAt || b.date).getTime();
+      return sortOrder === 'newest' ? dateB - dateA : dateA - dateB;
+    });
+    return result;
+  }, [filteredByRole, filterUserId, sortOrder]);
 
   const prepareEdit = (report: DailyReport) => {
       setEditingReport(report);
@@ -136,7 +152,7 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
                     className="bg-transparent text-xs font-bold text-slate-700 outline-none w-24 cursor-pointer"
                 />
              </div>
-             <div className="flex items-center gap-1 px-2">
+             <div className="flex items-center gap-1 px-2 border-r border-slate-100">
                 <span className="text-[10px] font-black uppercase text-slate-400">SAMPAI</span>
                 <input 
                     type="date" 
@@ -145,6 +161,35 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
                     className="bg-transparent text-xs font-bold text-slate-700 outline-none w-24 cursor-pointer"
                 />
              </div>
+             {/* User Filter (only for admin/kaizen) */}
+             {canViewAll && (
+               <div className="flex items-center gap-1 px-2 border-r border-slate-100">
+                  <Filter size={12} className="text-slate-400" />
+                  <select
+                    value={filterUserId}
+                    onChange={e => setFilterUserId(e.target.value)}
+                    className="bg-transparent text-xs font-bold text-slate-700 outline-none cursor-pointer min-w-[100px]"
+                  >
+                    <option value="">Semua Anggota</option>
+                    {users
+                      .filter(u => u.role !== 'OWNER' && u.role !== 'SUPERADMIN')
+                      .map(u => (
+                        <option key={u.id} value={u.id}>{u.name || u.username}</option>
+                      ))}
+                  </select>
+               </div>
+             )}
+             {/* Sort Order Toggle */}
+             <button
+               onClick={() => setSortOrder(sortOrder === 'newest' ? 'oldest' : 'newest')}
+               className="flex items-center gap-1 px-2 text-slate-500 hover:text-blue-600 transition"
+               title={sortOrder === 'newest' ? 'Terbaru dulu' : 'Terlama dulu'}
+             >
+               {sortOrder === 'newest' ? <ArrowDownNarrowWide size={14} /> : <ArrowUpNarrowWide size={14} />}
+               <span className="text-[10px] font-black uppercase hidden md:inline">
+                 {sortOrder === 'newest' ? 'Terbaru' : 'Terlama'}
+               </span>
+             </button>
              {/* Auto-loading indicator */}
              <div className="px-2">
                  <div className="h-2 w-2 bg-emerald-500 rounded-full animate-pulse" title="Live Sync Active"></div>
@@ -181,7 +226,7 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {displayReports.slice().reverse().map(report => {
+              {displayReports.map(report => {
                 const user = users.find(u => u.id === report.userId);
                 // Render nicely formatted date
                 const displayDate = new Date(report.date).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
