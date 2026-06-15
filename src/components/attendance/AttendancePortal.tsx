@@ -20,13 +20,12 @@ interface AttendancePortalProps {
     handleStartCheckIn: () => void;
     handleStartCheckOut: () => void;
     onViewReport: () => void;
-    leaveQuota?: any;
 }
 
 export const AttendancePortal: React.FC<AttendancePortalProps> = ({
     timeString, dateString, currentUser, currentTenant, strategy, radiusLimit,
     currentDistance, gpsAccuracy, gpsLoading, selectedShiftId, setSelectedShiftId,
-    shifts, myAttendanceToday, handleStartCheckIn, handleStartCheckOut, onViewReport, leaveQuota
+    shifts, myAttendanceToday, handleStartCheckIn, handleStartCheckOut, onViewReport
 }) => {
     const isWithinRadius = (currentDistance || 9999) <= radiusLimit;
 
@@ -64,8 +63,8 @@ export const AttendancePortal: React.FC<AttendancePortalProps> = ({
 
                 <div className="flex justify-center gap-3">
                     <span className={`px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest border shadow-sm ${strategy === 'FIXED' ? 'bg-blue-50 border-blue-200 text-blue-600' :
-                        strategy === 'SHIFT' ? 'bg-purple-50 border-purple-200 text-purple-600' :
-                            'bg-amber-50 border-amber-200 text-amber-600'
+                            strategy === 'SHIFT' ? 'bg-purple-50 border-purple-200 text-purple-600' :
+                                'bg-amber-50 border-amber-200 text-amber-600'
                         }`}>
                         <Shield size={10} className="inline mr-1.5" /> STRATEGY: {strategy}
                     </span>
@@ -114,21 +113,6 @@ export const AttendancePortal: React.FC<AttendancePortalProps> = ({
                         )}
                     </div>
                 )}
-
-                {/* LEAVE QUOTA BADGE */}
-                {leaveQuota && (
-                    <div className="flex justify-center gap-4 mt-6 animate-in slide-in-from-bottom-4 duration-1000">
-                      <div className="bg-slate-50 border border-slate-200 px-6 py-4 rounded-[2rem] flex items-center gap-5 shadow-sm group hover:scale-105 transition-all">
-                        <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-blue-600 shadow-md group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                          <History size={24} />
-                        </div>
-                        <div className="text-left">
-                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">SISA CUTI {leaveQuota.year}</p>
-                          <p className="text-xl font-black text-slate-800 italic leading-none">{leaveQuota.remainingQuota} <span className="text-[10px] text-slate-400 font-bold tracking-normal not-italic uppercase ml-1">Hari</span></p>
-                        </div>
-                      </div>
-                    </div>
-                )}
             </div>
 
             {/* REPORT BUTTON (Corner Desktop, Full Mobile) */}
@@ -140,20 +124,11 @@ export const AttendancePortal: React.FC<AttendancePortalProps> = ({
             </button>
 
 
-            {currentUser.role === 'OWNER' ? (
-                <div className="bg-slate-50 p-8 rounded-[2rem] border border-slate-200 text-center">
-                    <p className="text-sm font-black text-slate-400 uppercase tracking-widest leading-relaxed">
-                        Anda masuk sebagai <span className="text-blue-600">OWNER</span>.<br />Akun Owner tidak memerlukan absensi mandiri.
-                    </p>
-                </div>
-
-            ) : !myAttendanceToday ? (
-                /* ── BELUM ABSEN MASUK ── */
+            {!myAttendanceToday ? (
                 <button
-                    id="btn-checkin"
                     onClick={handleStartCheckIn}
                     disabled={gpsLoading || (!currentUser.isFreelance && !isWithinRadius)}
-                    className={`px-16 py-6 rounded-[2.5rem] font-black text-xs uppercase tracking-[0.2em] shadow-2xl transition-all transform active:scale-95 flex items-center gap-4 group
+                    className={`px-16 py-6 rounded-[2.5rem] font-black text-xs uppercase tracking-[0.2em] shadow-2xl transition-all transform active:scale-95 flex items-center gap-4
             ${gpsLoading || (!currentUser.isFreelance && !isWithinRadius)
                             ? 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none border border-slate-200'
                             : 'bg-slate-900 text-white hover:bg-blue-600 hover:shadow-blue-500/30'}
@@ -166,27 +141,7 @@ export const AttendancePortal: React.FC<AttendancePortalProps> = ({
                     )}
                     <span>{gpsLoading ? 'SYNCING...' : (!currentUser.isFreelance && !isWithinRadius) ? 'OUT OF RANGE' : 'CHECK-IN (MASUK)'}</span>
                 </button>
-
-            ) : (myAttendanceToday.isFromYesterday && !myAttendanceToday.timeOut) ? (
-                /* ── SESI KEMARIN MASIH TERBUKA ── */
-                <div className="flex flex-col items-center space-y-6 w-full animate-in zoom-in duration-300">
-                    <div className="bg-amber-50 text-amber-600 px-10 py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest flex flex-col items-center space-y-2 border border-amber-100 shadow-inner max-w-sm mx-auto">
-                        <div className="flex items-center space-x-3">
-                            <Clock size={20} />
-                            <p className="text-sm">Sesi Kemarin Masih Terbuka</p>
-                        </div>
-                        <p className="text-[9px] opacity-70 uppercase font-black">Masuk: {myAttendanceToday.date} {myAttendanceToday.timeIn}</p>
-                    </div>
-                    <button
-                        onClick={handleStartCheckOut}
-                        className="bg-rose-500 text-white px-16 py-6 rounded-[2.5rem] font-black text-xs uppercase tracking-[0.2em] hover:bg-rose-600 shadow-2xl transition transform active:scale-95 flex items-center gap-4 hover:shadow-rose-500/30"
-                    >
-                        <LogOut size={18} /> TUTUP SESI KEMARIN
-                    </button>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest italic">Anda harus menutup sesi kemarin sebelum absen hari ini</p>
-                </div>
             ) : !myAttendanceToday.timeOut ? (
-                /* ── SESI HARI INI AKTIF — tampilkan check-out ── */
                 <div className="flex flex-col items-center space-y-6 w-full animate-in zoom-in duration-300">
                     <div className="bg-emerald-50 text-emerald-600 px-10 py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest flex items-center space-x-4 border border-emerald-100 shadow-inner">
                         <CheckCircle2 size={24} className="animate-bounce" />
@@ -202,24 +157,6 @@ export const AttendancePortal: React.FC<AttendancePortalProps> = ({
                         <LogOut size={18} /> CHECK-OUT (PULANG)
                     </button>
                 </div>
-            ) : myAttendanceToday.isFromYesterday ? (
-                /* ── SESI KEMARIN SELESAI — tampilkan check-in untuk hari ini ── */
-                <button
-                    onClick={handleStartCheckIn}
-                    disabled={gpsLoading || (!currentUser.isFreelance && !isWithinRadius)}
-                    className={`px-16 py-6 rounded-[2.5rem] font-black text-xs uppercase tracking-[0.2em] shadow-2xl transition-all transform active:scale-95 flex items-center gap-4 group
-            ${gpsLoading || (!currentUser.isFreelance && !isWithinRadius)
-                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none border border-slate-200'
-                            : 'bg-slate-900 text-white hover:bg-blue-600 hover:shadow-blue-500/30'}
-          `}
-                >
-                    {gpsLoading ? (
-                        <Loader2 className="animate-spin" size={18} />
-                    ) : (
-                        <MapPin size={18} />
-                    )}
-                    <span>{gpsLoading ? 'SYNCING...' : (!currentUser.isFreelance && !isWithinRadius) ? 'OUT OF RANGE' : 'CHECK-IN (MASUK)'}</span>
-                </button>
             ) : (
                 <div className="space-y-6 animate-in fade-in duration-700">
                     <div className="bg-slate-900 text-white px-10 py-6 rounded-[2.5rem] font-black text-xs uppercase tracking-widest shadow-2xl border-b-4 border-blue-600 inline-block">

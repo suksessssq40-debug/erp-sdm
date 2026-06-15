@@ -18,14 +18,6 @@ model Tenant {
   workStrategy          String                @default("FIXED") @map("work_strategy") // FIXED, SHIFT, FLEXIBLE
   radiusTolerance       Int                   @default(50) @map("radius_tolerance") // Meters
   lateGracePeriod       Int                   @default(15) @map("late_grace_period") // Minutes
-  
-  // Leave Policy Configuration
-  leaveWeeklyLimit      Int                   @default(1) @map("leave_weekly_limit")
-  leaveAnnualQuota      Int                   @default(12) @map("leave_annual_quota")
-  leaveSuddenPenalty    Int                   @default(2) @map("leave_sudden_penalty")
-  leaveNoticeThreshold  Int                   @default(2) @map("leave_notice_threshold") // Days (Apply notice rules if duration >= this)
-  leaveNoticeRequired   Int                   @default(7) @map("leave_notice_required") // Days notice required
-  leaveSuddenHourCutoff Int                   @default(16) @map("leave_sudden_hour_cutoff") // 4 PM
 
   accessList            TenantAccess[]        // Multi-Tenant Access
   attendance            Attendance[]
@@ -38,13 +30,9 @@ model Tenant {
   projects              Project[]
   settings              Settings?
   transactionCategories TransactionCategory[]
-  leaveQuotas          LeaveQuota[]
-
   transactions          Transaction[]
   users                 User[]
   shifts                Shift[]               // Relation to Shifts
-  rentalPsPrices        RentalPsPrice[]
-  rentalPsOutlets       RentalPsOutlet[]
 
   @@map("tenants")
 }
@@ -96,10 +84,13 @@ model User {
   jobTitle         String?         @map("job_title")
   bio              String?
   isFreelance      Boolean?        @default(false) @map("is_freelance")
+  isKaizenMaster   Boolean         @default(false) @map("is_kaizen_master")
+  isActive         Boolean         @default(true) @map("is_active")
+  kaizenPoints     Int             @default(100) @map("kaizen_points")
+  kaizenPointsResetAt DateTime?    @map("kaizen_points_reset_at") @db.Timestamptz(6)
   createdAt        DateTime?       @default(now()) @map("created_at") @db.Timestamptz(6)
   deviceId         String?         @map("device_id")
   tenantId         String?         @default("sdm") @map("tenant_id")
-  isActive         Boolean         @default(true) @map("is_active")
   
   tenantAccess     TenantAccess[]  // New Relation
   attendance       Attendance[]
@@ -107,26 +98,12 @@ model User {
   sentMessages     ChatMessage[]
   dailyReports     DailyReport[]
   requests         LeaveRequest[]
-  leaveQuotas      LeaveQuota[]
   payrollRecords   PayrollRecord[]
   salaryConfig     SalaryConfig?
-  pushSubscriptions PushSubscription[]
+  kaizenDeductions KaizenDeduction[]
   tenant           Tenant?         @relation(fields: [tenantId], references: [id])
 
   @@map("users")
-}
-
-model PushSubscription {
-  id        String   @id @default(cuid())
-  userId    String   @map("user_id")
-  endpoint  String   @unique
-  p256dh    String
-  auth      String
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@map("push_subscriptions")
 }
 
 model Settings {
@@ -141,12 +118,6 @@ model Settings {
   companyProfileJson  String? @map("company_profile_json")
   dailyRecapTime      String? @default("18:00") @map("daily_recap_time") @db.VarChar(10)
   dailyRecapContent   String? @default("[]") @map("daily_recap_content")
-  rentalPsCashAccountId     String? @map("rental_ps_cash_account_id")
-  rentalPsTransferAccountId String? @map("rental_ps_transfer_account_id")
-  rentalPsReceivableCoaId   String? @map("rental_ps_receivable_coa_id")
-  rentalPsSalesCoaId        String? @map("rental_ps_sales_coa_id")
-  rentalPsTargetTenantId    String? @default("sdm") @map("rental_ps_target_tenant_id")
-  rentalPsTargetBusinessUnitId String? @default("eke1tjt1u") @map("rental_ps_target_business_unit_id")
   id                  Int     @id @default(autoincrement())
   tenantId            String  @unique @default("sdm") @map("tenant_id")
   tenant              Tenant  @relation(fields: [tenantId], references: [id])
@@ -203,46 +174,22 @@ model Attendance {
 model LeaveRequest {
   id            String    @id
   userId        String?   @map("user_id")
-  type          String?   // LEAVE, SICK, PERMIT, LATE, EARLY
+  type          String?
   description   String?
   startDate     DateTime? @map("start_date") @db.Date
   endDate       DateTime? @map("end_date") @db.Date
-  startTime     String?   @map("start_time") // Format: HH:mm
-  endTime       String?   @map("end_time")   // Format: HH:mm
   attachmentUrl String?   @map("attachment_url")
-  status        String?   @default("PENDING") // PENDING, APPROVED, REJECTED
-  
-  // Rule Enforcement Fields
-  isSudden      Boolean?  @default(false) @map("is_sudden")
-  hasDoctorNote Boolean?  @default(false) @map("has_doctor_note")
-  penaltyWeight Int?      @default(1) @map("penalty_weight") // Number of quota days to deduct
-  
+  status        String?
   approverId    String?   @map("approver_id")
   approverName  String?   @map("approver_name")
   actionNote    String?   @map("action_note")
-  createdAt     DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
-  actionAt      DateTime? @map("action_at") @db.Timestamptz(6)
+  createdAt     BigInt?   @map("created_at")
+  actionAt      BigInt?   @map("action_at")
   tenantId      String?   @default("sdm") @map("tenant_id")
   tenant        Tenant?   @relation(fields: [tenantId], references: [id])
   user          User?     @relation(fields: [userId], references: [id])
 
   @@map("leave_requests")
-}
-
-model LeaveQuota {
-  id             String   @id
-  userId         String   @map("user_id")
-  year           Int
-  totalQuota     Int      @default(12) @map("total_quota")
-  usedQuota      Int      @default(0) @map("used_quota")
-  remainingQuota Int      @default(12) @map("remaining_quota")
-  tenantId       String?  @default("sdm") @map("tenant_id")
-
-  user           User     @relation(fields: [userId], references: [id])
-  tenant         Tenant?  @relation(fields: [tenantId], references: [id])
-
-  @@unique([userId, year])
-  @@map("leave_quotas")
 }
 
 model BusinessUnit {
@@ -302,7 +249,6 @@ model FinancialAccount {
   tenant        Tenant?       @relation(fields: [tenantId], references: [id])
   transactions  Transaction[]
 
-  @@unique([tenantId, name])
   @@map("financial_accounts")
 }
 
@@ -341,8 +287,8 @@ model DailyReport {
   userId         String?   @map("user_id")
   date           String?   @db.VarChar(50)
   activitiesJson String?   @map("activities_json")
-  createdAt      DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime? @default(now()) @map("updated_at") @db.Timestamptz(6)
+  createdAt      DateTime? @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime? @map("updated_at") @db.Timestamptz(6)
   tenantId       String?   @default("sdm") @map("tenant_id")
   tenant         Tenant?   @relation(fields: [tenantId], references: [id])
   user           User?     @relation(fields: [userId], references: [id])
@@ -423,6 +369,19 @@ model ChatMember {
   @@map("chat_members")
 }
 
+model KaizenDeduction {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  deductedBy  String   @map("deducted_by")
+  amount      Int
+  category    String   // RINGAN, SEDANG, BERAT
+  reason      String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@map("kaizen_deductions")
+}
+
 model ChatMessage {
   id            String    @id
   roomId        String?   @map("room_id")
@@ -434,64 +393,6 @@ model ChatMessage {
   createdAt     BigInt?   @map("created_at")
   room          ChatRoom? @relation(fields: [roomId], references: [id])
   sender        User?     @relation(fields: [senderId], references: [id])
-  replyTo       ChatMessage? @relation("ReplyTo", fields: [replyToId], references: [id])
-  replies       ChatMessage[] @relation("ReplyTo")
 
   @@map("chat_messages")
-}
-
-
-model RentalPsOutlet {
-  id        String   @id @default(cuid())
-  name      String
-  tenantId  String   @map("tenant_id")
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  prices    RentalPsPrice[]
-  records   RentalRecord[]
-
-  @@map("rental_ps_outlets")
-}
-
-model RentalRecord {
-  id               String   @id @default(cuid())
-  invoiceNumber    String   @unique @map("invoice_number")
-  customerName     String   @map("customer_name")
-  psType           String   @map("ps_type") // PS 3, PS 4
-  duration         Float    @map("duration") // Hours
-  totalAmount      Decimal  @map("total_amount")
-  paymentMethod    String   @map("payment_method") // CASH, TRANSFER, SPLIT
-  cashAmount       Decimal? @default(0) @map("cash_amount")
-  transferAmount   Decimal? @default(0) @map("transfer_amount")
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  tenantId         String   @map("tenant_id")
-  staffName        String?  @map("staff_name")
-  businessUnitId   String?  @map("business_unit_id")
-  outletId         String?  @map("outlet_id")
-
-  outlet           RentalPsOutlet? @relation(fields: [outletId], references: [id])
-  
-  // Link to the generated transactions in Finance for audit
-  transactionIds   String[] @default([]) @map("transaction_ids")
-
-  @@map("rental_records")
-}
-
-model RentalPsPrice {
-  id           String   @id @default(cuid())
-  name         String   @map("name") // e.g., 'PS 3', 'PS 4'
-  pricePerHour Decimal  @map("price_per_hour")
-  isActive     Boolean  @default(true) @map("is_active")
-  tenantId     String   @map("tenant_id")
-  outletId     String?  @map("outlet_id")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  outlet       RentalPsOutlet? @relation(fields: [outletId], references: [id])
-
-  @@unique([tenantId, outletId, name])
-  @@map("rental_ps_prices")
 }

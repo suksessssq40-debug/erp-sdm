@@ -12,22 +12,21 @@ export async function GET() {
     let users: any[] = [];
     let settingsData: any = null;
     let financialAccounts: any[] = [];
-    let tenantRes: any = null;
     let tenantFeatures: string | null = null;
     let logs: any[] = [];
 
     // 2. Fetch Users who have access to this tenant (via TenantAccess table)
     try {
-      const [tenantAccessList, settingsRes, accountsRes, tenantResData, logsRes] = await Promise.all([
+      const [tenantAccessList, settingsRes, accountsRes, tenantRes, logsRes] = await Promise.all([
         prisma.tenantAccess.findMany({
-          where: { tenantId },
+          where: { tenantId, isActive: true },
           include: { user: true }
         }),
         prisma.settings.findFirst({ where: { tenantId } as any }),
         prisma.financialAccount.findMany({
           where: { tenantId, isActive: true } as any
         }),
-        prisma.tenant.findUnique({ where: { id: tenantId } }),
+        prisma.tenant.findUnique({ where: { id: tenantId }, select: { featuresJson: true } }),
         prisma.systemLog.findMany({
           where: { tenantId },
           orderBy: { timestamp: 'desc' },
@@ -35,16 +34,12 @@ export async function GET() {
         })
       ]);
 
-      tenantRes = tenantResData;
-
       // Flatten and transform to match previous structure
-      users = tenantAccessList
-        .map(ta => ({
-          ...ta.user,
-          role: ta.role, // Use the role defined for THIS tenant
-          tenantId: ta.tenantId
-        }))
-        .filter(u => u.isActive !== false && u.role !== 'SUPERADMIN'); // Filter out archived and superadmin
+      users = tenantAccessList.map(ta => ({
+        ...ta.user,
+        role: ta.role, // Use the role defined for THIS tenant
+        tenantId: ta.tenantId
+      }));
 
       settingsData = settingsRes;
       financialAccounts = accountsRes;
@@ -84,14 +79,7 @@ export async function GET() {
         : (settingsData.dailyRecapContent || []),
       companyProfile: typeof settingsData.companyProfileJson === 'string'
         ? JSON.parse(settingsData.companyProfileJson)
-        : (settingsData.companyProfileJson || {}),
-      // Leave Policy Configuration from Tenant Model
-      leaveWeeklyLimit: tenantRes?.leaveWeeklyLimit ?? 1,
-      leaveAnnualQuota: tenantRes?.leaveAnnualQuota ?? 12,
-      leaveSuddenPenalty: tenantRes?.leaveSuddenPenalty ?? 2,
-      leaveNoticeThreshold: tenantRes?.leaveNoticeThreshold ?? 2,
-      leaveNoticeRequired: tenantRes?.leaveNoticeRequired ?? 7,
-      leaveSuddenHourCutoff: tenantRes?.leaveSuddenHourCutoff ?? 16
+        : (settingsData.companyProfileJson || {})
     } : {};
 
     const data = {
@@ -106,6 +94,9 @@ export async function GET() {
         deviceIds: u.deviceIds || [],
         avatarUrl: u.avatarUrl || undefined,
         isFreelance: !!u.isFreelance,
+        isKaizenMaster: !!(u as any).isKaizenMaster,
+        isActive: (u as any).isActive !== false,
+        kaizenPoints: (u as any).kaizenPoints ?? 100,
         features: u.id === user.id ? (tenantFeatures || '[]') : undefined
       })),
       settings,
@@ -124,7 +115,6 @@ export async function GET() {
       dailyReports: [], // Lazy Loaded
       salaryConfigs: [], // Fetched on demand in Payroll
       payrollRecords: [], // Fetched on demand in Payroll
-      leaveQuotas: [],    // Lazy Loaded
       logs: logs
     };
 

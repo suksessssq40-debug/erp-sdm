@@ -13,6 +13,7 @@ import { AttendanceHistory } from './attendance/AttendanceHistory';
 import { AdminConfigurations } from './attendance/AdminConfigurations';
 import { AttendanceSuccess } from './attendance/AttendanceSuccess';
 import { LateReasonModal } from './attendance/LateReasonModal';
+import { AttendanceReport } from './attendance/AttendanceReport';
 
 interface AttendanceProps {
   isLoading?: boolean;
@@ -26,6 +27,7 @@ interface AttendanceProps {
   onUpdateSettings: (settings: Partial<AppSettings>) => void;
   toast: ReturnType<typeof useToast>;
   uploadFile?: (file: File) => Promise<string>;
+  onFetchAttendanceReport?: (startDate: string, endDate: string) => Promise<any>;
 }
 
 const CHECK_IN_QUOTES = [
@@ -56,7 +58,7 @@ const LATE_CHECK_IN_QUOTES = [
 
 const AttendanceModule: React.FC<AttendanceProps> = ({
   isLoading, currentUser, currentTenant, shifts, settings, attendanceLog,
-  onAddAttendance, onUpdateAttendance, onUpdateSettings, toast, uploadFile
+  onAddAttendance, onUpdateAttendance, onUpdateSettings, toast, uploadFile, onFetchAttendanceReport
 }) => {
   const [stage, setStage] = useState<'IDLE' | 'CHECKING_LOCATION' | 'SELFIE' | 'LATE_REASON' | 'SUCCESS'>('IDLE');
   const [isCheckOut, setIsCheckOut] = useState(false);
@@ -65,26 +67,13 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
   const [lateReason, setLateReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successQuote, setSuccessQuote] = useState('');
-  const [leaveQuota, setLeaveQuota] = useState<any>(null);
-
-  // Fetch Leave Quota
-  useEffect(() => {
-    const fetchQuota = async () => {
-      try {
-        const res = await fetch(`/api/requests/quota?userId=${currentUser.id}`);
-        if (res.ok) setLeaveQuota(await res.json());
-      } catch (e) {
-        console.warn("Failed to fetch leave quota", e);
-      }
-    };
-    fetchQuota();
-  }, [currentUser.id]);
 
   // Strategy Config
   const strategy = currentTenant?.workStrategy || 'FIXED';
   const radiusLimit = currentTenant?.radiusTolerance || 50;
   const graceMinutes = currentTenant?.lateGracePeriod || 15;
   const [selectedShiftId, setSelectedShiftId] = useState<string>('');
+  const [viewMode, setViewMode] = useState<'portal' | 'report'>('portal');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -97,7 +86,7 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
     const syncTime = async () => {
       try {
         const start = Date.now();
-        const res = await fetch(`/api/ping`, { method: 'HEAD' });
+        const res = await fetch(`/api/chat/messages?roomId=ping`, { method: 'HEAD' });
         const end = Date.now();
         const latency = (end - start) / 2;
 
@@ -123,56 +112,48 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
     return () => clearInterval(timer);
   }, [serverOffset]);
 
-  // DATE LOGIC (FIXED: en-CA locale returns reliable YYYY-MM-DD without UTC conversion)
-  const getTodayJakarta = (): string => {
-    // toLocaleDateString with en-CA locale reliably returns YYYY-MM-DD in Jakarta timezone
-    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+  // DATE LOGIC
+  const getISOString = (d: Date) => {
+    const y = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${y}-${mm}-${dd}`;
   };
 
-  const todayStr = getTodayJakarta();
+  const serverTime = new Date(Date.now() + serverOffset);
+  const effectiveDate = new Date(serverTime);
+  if (effectiveDate.getHours() < 6) effectiveDate.setDate(effectiveDate.getDate() - 1);
+  const todayISO = getISOString(effectiveDate);
 
-  // ACTIVE SESSION TRACKING — handles both old & new date formats
+  // ACTIVE SESSION TRACKING (Supports Cross-Day Attendance)
   const myAttendanceToday = React.useMemo(() => {
-    if (!currentUser?.id) return undefined;
     const myLogs = attendanceLog.filter(a => a.userId === currentUser.id);
+    myLogs.sort((a, b) => {
+      const tA = a.createdAt ? new Date(a.createdAt).getTime() : new Date(a.date).getTime();
+      const tB = b.createdAt ? new Date(b.createdAt).getTime() : new Date(b.date).getTime();
+      return tB - tA;
+    });
 
-    // Normalize any date string to YYYY-MM-DD for comparison
-    const normalizeDate = (raw: string | null | undefined): string => {
-      if (!raw) return '';
-      // Already in YYYY-MM-DD format
-      if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-      // Legacy formats like "Wed Jan 14 2026" or "14/01/2026"
-      const parsed = new Date(raw);
-      if (!isNaN(parsed.getTime())) {
-        return parsed.toLocaleDateString('en-CA'); // YYYY-MM-DD
+    const latest = myLogs[0];
+    if (!latest) return undefined;
+    if (!latest.timeOut) {
+      let tStart = latest.createdAt ? new Date(latest.createdAt).getTime() : 0;
+      if (!tStart && latest.date) {
+        const d = new Date(latest.date);
+        if (latest.timeIn) {
+          const [h, m] = latest.timeIn.replace('.', ':').split(':').map(Number);
+          d.setHours(h || 0, m || 0);
+        }
+        tStart = d.getTime();
       }
-      return raw;
-    };
-
-    // Find today's record (supports old AND new date formats)
-    const todayRecord = myLogs.find(a => normalizeDate(a.date) === todayStr);
-    if (todayRecord) return todayRecord;
-
-    // NIGHT SHIFT/OPEN SESSION LOGIC
-    // Yesterday in YYYY-MM-DD (string manipulation avoids UTC parsing bugs)
-    const [y, mo, d] = todayStr.split('-').map(Number);
-    const yestDate = new Date(y, mo - 1, d - 1); // Uses LOCAL timezone, no UTC issue
-    const yestStr = yestDate.toLocaleDateString('en-CA'); // YYYY-MM-DD
-
-    const activeSession = myLogs.find(
-      a => normalizeDate(a.date) === yestStr && !a.timeOut
-    );
-    if (activeSession) {
-      const checkInTime = activeSession.createdAt
-        ? new Date(activeSession.createdAt).getTime()
-        : new Date(activeSession.date + 'T' + (activeSession.timeIn || '00:00') + ':00').getTime();
-      const hoursSinceCheckIn = (Date.now() - checkInTime) / (1000 * 60 * 60);
-      if (hoursSinceCheckIn < 24) {
-        return { ...activeSession, isFromYesterday: true };
-      }
+      if (tStart > 0) {
+        const diffHours = (Date.now() - tStart) / (1000 * 60 * 60);
+        if (diffHours < 24) return latest;
+      } else return latest;
     }
+    if (latest.date === todayISO) return latest;
     return undefined;
-  }, [attendanceLog, currentUser.id, todayStr]);
+  }, [attendanceLog, currentUser.id, todayISO]);
 
   // CAMERA INITIALIZATION LOGIC
   useEffect(() => {
@@ -310,7 +291,7 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
             const record: Attendance = {
               id: Math.random().toString(36).substr(2, 9),
               userId: currentUser.id,
-              date: todayStr, // Corrected variable
+              date: todayISO,
               timeIn: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
               isLate,
               lateReason: isLate ? lateReason : undefined,
@@ -371,10 +352,58 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
 
   const timeString = currentDate.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
   const dateString = currentDate.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  const isAdmin = [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(currentUser.role);
+  const isAdmin = [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(currentUser.role) || !!currentUser.isKaizenMaster;
+
+  if (viewMode === 'report') {
+    return (
+      <div className="pb-12">
+        {/* Toggle */}
+        <div className="flex items-center gap-2 mb-6">
+          <button
+            onClick={() => setViewMode('portal')}
+            className="px-5 py-2.5 rounded-2xl font-black text-xs uppercase tracking-widest transition bg-slate-100 text-slate-500 hover:bg-slate-200"
+          >
+            Absensi
+          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setViewMode('report')}
+              className="px-5 py-2.5 rounded-2xl font-black text-xs uppercase tracking-widest transition bg-blue-600 text-white shadow-lg shadow-blue-200"
+            >
+              Laporan
+            </button>
+          )}
+        </div>
+        <AttendanceReport
+          currentUser={currentUser}
+          fetchAttendanceReport={onFetchAttendanceReport || (async () => { throw new Error('fetchAttendanceReport tidak tersedia'); })}
+        />
+      </div>
+    );
+  }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pb-12">
+    <div className="pb-12">
+      {/* Toggle Absensi | Laporan */}
+      <div className="flex items-center gap-2 mb-6">
+        <button
+          onClick={() => setViewMode('portal')}
+          className="px-5 py-2.5 rounded-2xl font-black text-xs uppercase tracking-widest transition bg-blue-600 text-white shadow-lg shadow-blue-200"
+        >
+          Absensi
+        </button>
+        {isAdmin && (
+          <button
+            onClick={() => setViewMode('report')}
+            className="px-5 py-2.5 rounded-2xl font-black text-xs uppercase tracking-widest transition bg-slate-100 text-slate-500 hover:bg-slate-200"
+          >
+            Laporan
+          </button>
+        )}
+      </div>
+
+      {/* Portal View */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
       <div className="lg:col-span-2 space-y-6">
         <div className="h-full min-h-[550px]">
           {stage === 'IDLE' && (
@@ -395,7 +424,6 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
               handleStartCheckIn={handleStartCheckIn}
               handleStartCheckOut={handleStartCheckOut}
               onViewReport={() => window.location.href = `/${currentUser.tenantId || 'sdm'}/${currentUser.role.toLowerCase()}/attendance/report`}
-              leaveQuota={leaveQuota}
             />
           )}
 
@@ -446,7 +474,7 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
           <AttendanceHistory
             attendanceLog={attendanceLog}
             currentUserId={currentUser.id}
-            todayISO={todayStr} // Corrected variable
+            todayISO={todayISO}
           />
         </div>
 
@@ -465,6 +493,7 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
         )}
       </div>
     </div>
+      </div>
   );
 };
 

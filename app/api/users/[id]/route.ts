@@ -1,4 +1,3 @@
-export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
@@ -42,7 +41,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     }
 
     // 3. Selective Update
-    const { name, username, telegramId, telegramUsername, role, password, isFreelance, avatarUrl } = body;
+    const { name, username, telegramId, telegramUsername, role, password, isFreelance, avatarUrl, isKaizenMaster } = body;
 
     const data: any = {};
 
@@ -57,6 +56,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       if (role !== undefined) data.role = role;
       if (isFreelance !== undefined) data.isFreelance = !!isFreelance;
       if (telegramId !== undefined) data.telegramId = telegramId;
+      if (isKaizenMaster !== undefined) data.isKaizenMaster = !!isKaizenMaster;
     }
 
     // Password Update
@@ -76,7 +76,9 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       role: updated.role,
       avatarUrl: updated.avatarUrl,
       telegramUsername: updated.telegramUsername,
-      isFreelance: !!updated.isFreelance
+      isFreelance: !!updated.isFreelance,
+      isKaizenMaster: !!(updated as any).isKaizenMaster,
+      kaizenPoints: (updated as any).kaizenPoints ?? 100
     });
   } catch (error: any) {
     console.error('[API User Update Error]', error);
@@ -94,16 +96,9 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     if (!target) return NextResponse.json({ error: 'Not found or unauthorized' }, { status: 404 });
     if (target.role === 'OWNER') return NextResponse.json({ error: 'Cannot delete owner' }, { status: 400 });
 
-    await prisma.user.update({
-      where: { id },
-      data: {
-        isActive: false,
-        passwordHash: null, // Wipe password to be sure
-        username: `_resigned_${target.username}_${Date.now()}` // Prefix username to free up the original one
-      }
-    });
+    await prisma.user.delete({ where: { id } });
 
-    return NextResponse.json({ message: 'User archived successfully (soft deleted)' });
+    return NextResponse.json({ message: 'User deleted' });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: 'Failed' }, { status: 500 });

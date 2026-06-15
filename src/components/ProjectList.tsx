@@ -166,7 +166,7 @@ export const ProjectList = () => {
       `👤 OLEH: <b>${escapeHTML(currentUser.name)}</b>\n` +
       `👥 TEAM: ${escapeHTML(tagString)}`;
 
-    let targetChatId = settings.telegramGroupId || settings.telegramOwnerChatId;
+    let targetChatId = project.isManagementOnly ? settings.telegramOwnerChatId : settings.telegramGroupId;
 
     if (targetChatId) {
       if (targetChatId.includes('_')) {

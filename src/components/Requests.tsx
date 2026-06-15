@@ -19,9 +19,7 @@ import {
   Filter,
   User as UserIcon,
   ChevronRight,
-  ArrowRight,
-  AlertTriangle,
-  Settings
+  ArrowRight
 } from 'lucide-react';
 import { useToast } from './Toast';
 import { useAppStore } from '../context/StoreContext';
@@ -34,7 +32,6 @@ interface RequestsProps {
   onUpdateRequest: (req: LeaveRequest) => void;
   toast: ReturnType<typeof useToast>;
   uploadFile?: (file: File) => Promise<string>;
-  leaveQuota?: any;
 }
 
 const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests, onAddRequest, onUpdateRequest, toast, uploadFile }) => {
@@ -45,21 +42,6 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
   const [selectedRequest, setSelectedRequest] = useState<LeaveRequest | null>(null);
   const [attachment, setAttachment] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const [quota, setQuota] = useState<any>(null);
-
-  // Fetch Quota
-  useEffect(() => {
-    const fetchQuota = async () => {
-      try {
-        const res = await fetch(`/api/requests/quota?userId=${currentUser.id}`, {
-          headers: { 'Authorization': `Bearer ${store.authToken}` }
-        });
-        if (res.ok) setQuota(await res.json());
-      } catch (e) { console.error("Quota fetch error", e); }
-    };
-    fetchQuota();
-  }, [currentUser.id, store.authToken]);
 
   // Date filter initialized to empty to show all history by default
   const [filterStart, setFilterStart] = useState('');
@@ -79,10 +61,7 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
     type: RequestType.IZIN,
     description: '',
     startDate: new Date().toISOString().split('T')[0],
-    endDate: new Date().toISOString().split('T')[0],
-    startTime: '',
-    endTime: '',
-    isHourly: false
+    endDate: new Date().toISOString().split('T')[0]
   });
   const [actionNote, setActionNote] = useState('');
 
@@ -96,7 +75,7 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
   }, [selectedRequest]);
 
   // Permission logic
-  const isManagement = [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(currentUser.role as UserRole);
+  const isManagement = [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(currentUser.role as UserRole) || !!currentUser.isKaizenMaster;
   const canCreate = currentUser.role !== UserRole.OWNER;
 
   // Data filtering
@@ -109,47 +88,6 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
   const sortedRequests = useMemo(() => {
     return [...visibleRequests].sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
   }, [visibleRequests]);
-
-  // SOP Settings Logic
-  const [showSopSettings, setShowSopSettings] = useState(false);
-  const [leaveWeeklyLimit, setLeaveWeeklyLimit] = useState(store.settings?.leaveWeeklyLimit ?? 1);
-  const [leaveAnnualQuota, setLeaveAnnualQuota] = useState(store.settings?.leaveAnnualQuota ?? 12);
-  const [leaveSuddenPenalty, setLeaveSuddenPenalty] = useState(store.settings?.leaveSuddenPenalty ?? 2);
-  const [leaveNoticeThreshold, setLeaveNoticeThreshold] = useState(store.settings?.leaveNoticeThreshold ?? 2);
-  const [leaveNoticeRequired, setLeaveNoticeRequired] = useState(store.settings?.leaveNoticeRequired ?? 7);
-  const [leaveSuddenHourCutoff, setLeaveSuddenHourCutoff] = useState(store.settings?.leaveSuddenHourCutoff ?? 16);
-
-  useEffect(() => {
-    if (store.settings) {
-      setLeaveWeeklyLimit(store.settings.leaveWeeklyLimit ?? 1);
-      setLeaveAnnualQuota(store.settings.leaveAnnualQuota ?? 12);
-      setLeaveSuddenPenalty(store.settings.leaveSuddenPenalty ?? 2);
-      setLeaveNoticeThreshold(store.settings.leaveNoticeThreshold ?? 2);
-      setLeaveNoticeRequired(store.settings.leaveNoticeRequired ?? 7);
-      setLeaveSuddenHourCutoff(store.settings.leaveSuddenHourCutoff ?? 16);
-    }
-  }, [store.settings]);
-
-  const handleSaveSop = async () => {
-    setIsSubmitting(true);
-    try {
-      await store.updateSettings({
-        ...store.settings,
-        leaveWeeklyLimit,
-        leaveAnnualQuota,
-        leaveSuddenPenalty,
-        leaveNoticeThreshold,
-        leaveNoticeRequired,
-        leaveSuddenHourCutoff
-      });
-      toast.success("Kebijakan SOP Berhasil Diperbarui!");
-      setShowSopSettings(false);
-    } catch (err: any) {
-      toast.error("Gagal menyimpan kebijakan.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
   const validateRequest = () => {
     if (!formData.description.trim()) {
@@ -170,17 +108,6 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
       return false;
     }
 
-    if (formData.isHourly) {
-      if (!formData.startTime || !formData.endTime) {
-        toast.warning("Harap tentukan jam mulai dan selesai.");
-        return false;
-      }
-      if (formData.startDate === formData.endDate && formData.startTime >= formData.endTime) {
-        toast.warning("Jam selesai harus setelah jam mulai.");
-        return false;
-      }
-    }
-
     return true;
   };
 
@@ -189,40 +116,29 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
     setFormData({
       type: req.type as RequestType,
       description: req.description || '',
-      startDate: req.startDate.includes('T') ? req.startDate.split('T')[0] : req.startDate,
-      endDate: req.endDate?.includes('T') ? req.endDate.split('T')[0] : (req.endDate || req.startDate),
-      startTime: req.startTime || '',
-      endTime: req.endTime || '',
-      isHourly: !!(req.startTime || req.endTime)
+      startDate: (req.startDate as any).includes('T') ? (req.startDate as any).split('T')[0] : req.startDate as any,
+      endDate: (req.endDate as any).includes('T') ? (req.endDate as any).split('T')[0] : (req.endDate || req.startDate) as any
     });
     setAttachment(req.attachmentUrl || null);
     setShowAdd(true);
   };
 
   const handleDelete = async (id: string) => {
-    if (isSubmitting) return;
     if (!window.confirm("Apakah Anda yakin ingin menghapus data permohonan ini?")) return;
 
-    setIsSubmitting(true);
     try {
       if (store.deleteRequest) {
         await store.deleteRequest(id);
         toast.success("Berhasil menghapus data.");
-        if (store.fetchRequests) store.fetchRequests(filterStart, filterEnd);
+        store.fetchRequests(filterStart, filterEnd);
       }
     } catch (e: any) {
       toast.error("Gagal menghapus data: " + (e.message || "Unknown error"));
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
   const handleSubmit = async () => {
-    if (isSubmitting || isUploading) return;
     if (!validateRequest()) return;
-
-    const { isHourly, ...submitData } = formData;
-
     setIsSubmitting(true);
     try {
       if (editId) {
@@ -230,7 +146,7 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
         if (original) {
           await onUpdateRequest({
             ...original,
-            ...submitData,
+            ...formData,
             attachmentUrl: attachment || undefined
           });
           toast.success("Perubahan disimpan.");
@@ -240,9 +156,9 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
           id: Math.random().toString(36).substr(2, 9),
           userId: currentUser.id,
           status: RequestStatus.PENDING,
-          createdAt: Date.now(),
+          createdAt: Date.now() as any,
           attachmentUrl: attachment || undefined,
-          ...submitData
+          ...formData
         };
         await onAddRequest(req);
         toast.success(`Permohonan dikirim.`);
@@ -250,8 +166,7 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
       handleCloseModal();
       if (store.fetchRequests) store.fetchRequests(filterStart, filterEnd);
     } catch (err: any) {
-      console.error(err);
-      toast.error(err.message || "Gagal memproses permohonan.");
+      toast.error("Gagal memproses permohonan.");
     } finally {
       setIsSubmitting(false);
     }
@@ -265,22 +180,18 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
       type: RequestType.IZIN,
       description: '',
       startDate: new Date().toISOString().split('T')[0],
-      endDate: new Date().toISOString().split('T')[0],
-      startTime: '',
-      endTime: '',
-      isHourly: false
+      endDate: new Date().toISOString().split('T')[0]
     });
   };
 
   const handleAction = async (req: LeaveRequest, status: RequestStatus) => {
-    if (!isManagement || isSubmitting) return;
+    if (!isManagement) return;
 
     if (status === RequestStatus.REJECTED && !actionNote.trim()) {
       toast.warning("Mohon sertakan alasan penolakan pada catatan.");
       return;
     }
 
-    setIsSubmitting(true);
     try {
       await onUpdateRequest({
         ...req,
@@ -288,16 +199,13 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
         approverId: currentUser.id,
         approverName: currentUser.name,
         actionNote: actionNote,
-        actionAt: Date.now()
+        actionAt: Date.now() as any
       });
       toast.success(`Permohonan ${status === RequestStatus.APPROVED ? 'DISETUJUI' : 'DITOLAK'}`);
       setSelectedRequest(null);
       if (store.fetchRequests) store.fetchRequests(filterStart, filterEnd);
     } catch (err: any) {
-      console.error(err);
       toast.error("Gagal memproses aksi.");
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
@@ -305,28 +213,21 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setIsUploading(true);
-    const loadingId = toast.loading("Mengupload lampiran...");
-    try {
-      if (uploadFile) {
+    if (uploadFile) {
+      const loadingId = toast.loading("Mengupload lampiran...");
+      try {
         const url = await uploadFile(file);
         setAttachment(url);
         toast.dismiss(loadingId);
         toast.success("Upload berhasil");
-      } else {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setAttachment(reader.result as string);
-          toast.dismiss(loadingId);
-          toast.success("Upload berhasil (Local)");
-        };
-        reader.readAsDataURL(file);
+      } catch (error) {
+        toast.dismiss(loadingId);
+        toast.error("Upload gagal");
       }
-    } catch (error) {
-      toast.dismiss(loadingId);
-      toast.error("Upload gagal");
-    } finally {
-      setIsUploading(false);
+    } else {
+      const reader = new FileReader();
+      reader.onloadend = () => setAttachment(reader.result as string);
+      reader.readAsDataURL(file);
     }
   };
 
@@ -367,52 +268,11 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
             )}
           </div>
         </div>
-        {isManagement && (
-          <div className="flex flex-col items-end gap-3 order-first md:order-last">
-            <button 
-              onClick={() => setShowSopSettings(true)} 
-              className="px-8 py-5 bg-white border-2 border-slate-200 text-slate-700 font-black text-[10px] uppercase rounded-[1.8rem] hover:border-blue-500 hover:text-blue-600 hover:shadow-lg transition flex items-center gap-3 active:scale-95 shadow-sm"
-            >
-              <Settings size={18} className="text-blue-600" />
-              <span>Setting Kebijakan SOP</span>
-            </button>
-            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest italic px-4">Khusus Akses Manajemen</p>
-          </div>
-        )}
         {canCreate && (
-          <div className="flex flex-col items-end gap-3">
-            {quota && (
-              <div className="bg-white px-6 py-3 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-6 animate-in slide-in-from-right duration-500">
-                <div className="text-right">
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Sisa Cuti {quota.year}</p>
-                  <p className="text-xl font-black text-blue-600 italic">{quota.remainingQuota} <span className="text-[10px] text-slate-400 font-bold tracking-normal not-italic">HARI</span></p>
-                </div>
-                <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-500">
-                  <History size={20} />
-                </div>
-              </div>
-            )}
-            <button onClick={() => setShowAdd(true)} className="bg-slate-900 text-white px-10 py-5 rounded-[1.8rem] flex items-center gap-3 font-black text-[10px] uppercase tracking-[0.2em] hover:bg-blue-600 hover:scale-105 active:scale-95 transition-all shadow-2xl shadow-slate-200 border-b-4 border-slate-700 hover:border-blue-800">
-              <Plus size={18} /> <span>Ajukan Permohonan</span>
-            </button>
-          </div>
+          <button onClick={() => setShowAdd(true)} className="bg-slate-900 text-white px-10 py-5 rounded-[1.8rem] flex items-center gap-3 font-black text-[10px] uppercase tracking-[0.2em] hover:bg-blue-600 hover:scale-105 active:scale-95 transition-all shadow-2xl shadow-slate-200 border-b-4 border-slate-700 hover:border-blue-800">
+            <Plus size={18} /> <span>Ajukan Permohonan</span>
+          </button>
         )}
-      </div>
-
-      {/* Rules Notice */}
-      <div className="bg-amber-50 border border-amber-100 p-6 rounded-[2rem] flex items-start gap-4">
-        <div className="p-3 bg-amber-100 text-amber-600 rounded-xl">
-          <AlertCircle size={20} />
-        </div>
-        <div className="space-y-1">
-          <p className="text-xs font-black text-amber-900 uppercase tracking-widest">Aturan Perizinan & Cuti (SOP {new Date().getFullYear()})</p>
-          <ul className="text-[10px] font-bold text-amber-700 space-y-1 list-disc ml-4">
-            <li>Maksimal izin/cuti adalah <b>{(store.settings.leaveWeeklyLimit || 1) === 99 ? 'Tidak Terbatas' : `${store.settings.leaveWeeklyLimit || 1}x`} per minggu</b> (Senin-Minggu).</li>
-            <li>Cuti mendadak (diajukan H-0 atau lewat jam {store.settings.leaveSuddenHourCutoff || 16}:00 H-1) dikenakan <b>Pinalti Potong {store.settings.leaveSuddenPenalty || 2} Hari Cuti</b>.</li>
-            <li>Pengajuan cuti ≥ {store.settings.leaveNoticeThreshold || 2} hari wajib dilakukan minimal <b>{store.settings.leaveNoticeRequired || 7} hari sebelumnya</b>.</li>
-            <li>Sakit wajib melampirkan <b>Surat Dokter</b> agar tidak memotong jatah cuti.</li>
-          </ul>
-        </div>
       </div>
 
       {/* Main Table Container */}
@@ -442,19 +302,19 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                     <td className="px-10 py-7">
                       <div className="flex items-center gap-5">
                         <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white font-black text-sm shadow-lg transition-transform group-hover:scale-110 ${req.type === RequestType.SAKIT ? 'bg-rose-500' :
-                          req.type === RequestType.CUTI ? 'bg-blue-600' : 'bg-amber-500'
+                            req.type === RequestType.CUTI ? 'bg-blue-600' : 'bg-amber-500'
                           }`}>
                           {req.type === RequestType.SAKIT ? <Plus size={24} className="rotate-45" /> :
                             req.type === RequestType.CUTI ? <Calendar size={24} /> : <Clock size={24} />}
                         </div>
                         <div>
-                          <p className="text-slate-800 font-black text-base italic">{req.user?.name || applicant?.name || 'Unknown'}</p>
+                          <p className="text-slate-800 font-black text-base italic">{applicant?.name || 'Unknown'}</p>
                           <div className="flex items-center gap-2 mt-1">
                             <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-wider ${req.type === RequestType.SAKIT ? 'bg-rose-50 text-rose-500' :
-                              req.type === RequestType.CUTI ? 'bg-blue-50 text-blue-500' : 'bg-amber-50 text-amber-500'
+                                req.type === RequestType.CUTI ? 'bg-blue-50 text-blue-500' : 'bg-amber-50 text-amber-500'
                               }`}>{req.type}</span>
                             <span className="text-slate-300">•</span>
-                            <span className="text-[9px] font-black text-slate-400 uppercase">{req.user?.jobTitle || applicant?.role}</span>
+                            <span className="text-[9px] font-black text-slate-400 uppercase">{applicant?.role}</span>
                           </div>
                         </div>
                       </div>
@@ -463,30 +323,16 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                       <div className="flex flex-col gap-1.5">
                         <span className="text-slate-800 font-black flex items-center gap-2">
                           {new Date(req.startDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
-                          {req.startTime && <span className="text-[10px] text-blue-600">({req.startTime})</span>}
-                          {(req.endDate !== req.startDate || req.endTime) && (
+                          {req.endDate !== req.startDate && (
                             <>
                               <ArrowRight size={10} className="text-slate-300" />
-                              {new Date(req.endDate || req.startDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
-                              {req.endTime && <span className="text-[10px] text-blue-600">({req.endTime})</span>}
+                              {new Date(req.endDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
                             </>
                           )}
                         </span>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-[10px] text-slate-400 font-bold truncate max-w-[200px] italic">
-                            "{req.description}"
-                          </span>
-                          {req.penaltyWeight && req.penaltyWeight > 1 && (
-                            <span className="bg-rose-50 text-rose-600 text-[8px] font-black px-1.5 py-0.5 rounded border border-rose-100 flex items-center gap-1 uppercase">
-                              <AlertTriangle size={8} /> Pinalti {req.penaltyWeight}x
-                            </span>
-                          )}
-                          {req.hasDoctorNote && (
-                            <span className="bg-emerald-50 text-emerald-600 text-[8px] font-black px-1.5 py-0.5 rounded border border-emerald-100 flex items-center gap-1 uppercase">
-                              <Check size={8} /> Surat Dokter
-                            </span>
-                          )}
-                        </div>
+                        <span className="text-[10px] text-slate-400 font-bold truncate max-w-[250px] italic">
+                          "{req.description}"
+                        </span>
                       </div>
                     </td>
                     <td className="px-10 py-7 text-center">
@@ -500,8 +346,8 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                     </td>
                     <td className="px-10 py-7">
                       <span className={`px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-[0.1em] flex w-fit items-center gap-2 shadow-sm ${req.status === RequestStatus.APPROVED ? 'bg-emerald-500 text-white' :
-                        req.status === RequestStatus.REJECTED ? 'bg-rose-500 text-white' :
-                          'bg-amber-100 text-amber-600'
+                          req.status === RequestStatus.REJECTED ? 'bg-rose-500 text-white' :
+                            'bg-amber-100 text-amber-600'
                         }`}>
                         {req.status === RequestStatus.PENDING && <Clock size={12} className="animate-pulse" />}
                         {req.status}
@@ -511,15 +357,15 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                       <div className="flex justify-end gap-2" onClick={e => e.stopPropagation()}>
                         {isManagement && req.status === RequestStatus.PENDING && (
                           <>
-                            <button onClick={() => handleAction(req, RequestStatus.APPROVED)} disabled={isSubmitting} className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white flex items-center justify-center transition shadow-sm border border-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed"><Check size={18} /></button>
-                            <button onClick={() => handleAction(req, RequestStatus.REJECTED)} disabled={isSubmitting} className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-500 hover:text-white flex items-center justify-center transition shadow-sm border border-rose-100 disabled:opacity-50 disabled:cursor-not-allowed"><X size={18} /></button>
+                            <button onClick={() => handleAction(req, RequestStatus.APPROVED)} className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white flex items-center justify-center transition shadow-sm border border-emerald-100"><Check size={18} /></button>
+                            <button onClick={() => handleAction(req, RequestStatus.REJECTED)} className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-500 hover:text-white flex items-center justify-center transition shadow-sm border border-rose-100"><X size={18} /></button>
                           </>
                         )}
                         {!isResolved ? (
                           <>
-                            <button onClick={() => handleEdit(req)} disabled={isSubmitting} className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white flex items-center justify-center transition shadow-sm border border-blue-100 disabled:opacity-50 disabled:cursor-not-allowed" title="Ubah Data"><Edit size={18} /></button>
-                            {(isManagement || req.userId === currentUser.id) && (
-                              <button onClick={() => handleDelete(req.id)} disabled={isSubmitting} className="w-10 h-10 rounded-xl bg-slate-50 text-slate-400 hover:bg-rose-500 hover:text-white flex items-center justify-center transition shadow-sm border border-slate-100 disabled:opacity-50 disabled:cursor-not-allowed" title={req.userId === currentUser.id ? "Batalkan Permohonan" : "Hapus Data"}><Trash2 size={18} /></button>
+                            <button onClick={() => handleEdit(req)} className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white flex items-center justify-center transition shadow-sm border border-blue-100"><Edit size={18} /></button>
+                            {isManagement && (
+                              <button onClick={() => handleDelete(req.id)} className="w-10 h-10 rounded-xl bg-slate-50 text-slate-400 hover:bg-rose-500 hover:text-white flex items-center justify-center transition shadow-sm border border-slate-100"><Trash2 size={18} /></button>
                             )}
                           </>
                         ) : (
@@ -556,22 +402,18 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
             <div className="p-10 md:p-12 border-b border-slate-100 flex justify-between items-center shrink-0 bg-white rounded-t-[3.5rem] z-10 transition-all">
               <div className="flex items-center gap-6">
                 <div className="w-20 h-20 md:w-24 md:h-24 rounded-[2.5rem] bg-slate-100 flex items-center justify-center text-slate-400 font-black text-3xl overflow-hidden border-4 border-white shadow-2xl relative">
-                  {(() => {
-                    const applicant = users.find(u => u.id === selectedRequest.userId);
-                    const avatar = selectedRequest.user?.avatarUrl || applicant?.avatarUrl;
-                    return avatar ? (
-                      <img src={avatar} alt="Avatar" className="w-full h-full object-cover" />
-                    ) : (
-                      <UserIcon size={40} className="text-slate-300" />
-                    );
-                  })()}
+                  {users.find(u => u.id === selectedRequest.userId)?.avatarUrl ? (
+                    <img src={users.find(u => u.id === selectedRequest.userId)?.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                  ) : (
+                    <UserIcon size={40} className="text-slate-300" />
+                  )}
                   <div className={`absolute bottom-0 right-0 w-8 h-8 rounded-full border-4 border-white ${selectedRequest.status === RequestStatus.APPROVED ? 'bg-emerald-500' :
-                    selectedRequest.status === RequestStatus.REJECTED ? 'bg-rose-500' : 'bg-amber-500'
+                      selectedRequest.status === RequestStatus.REJECTED ? 'bg-rose-500' : 'bg-amber-500'
                     }`}></div>
                 </div>
                 <div>
                   <h3 className="text-3xl md:text-4xl font-black text-slate-800 italic uppercase leading-none tracking-tighter">
-                    {selectedRequest.user?.name || users.find(u => u.id === selectedRequest.userId)?.name || 'Unknown'}
+                    {users.find(u => u.id === selectedRequest.userId)?.name}
                   </h3>
                   <div className="flex items-center gap-4 mt-3">
                     <span className="px-4 py-1.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-500/20">{selectedRequest.type}</span>
@@ -599,56 +441,14 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                         <Calendar size={80} />
                       </div>
                       <p className="text-2xl font-black text-slate-800 relative z-10 italic">
-                        {new Date(selectedRequest.startDate).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
-                        {selectedRequest.startTime && <span className="ml-3 text-blue-600">({selectedRequest.startTime})</span>}
+                        {new Date(selectedRequest.startDate).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
                       </p>
-                      {(selectedRequest.startDate !== selectedRequest.endDate || selectedRequest.endTime) && (
+                      {selectedRequest.startDate !== selectedRequest.endDate && (
                         <div className="flex items-center gap-3 mt-2 relative z-10">
                           <div className="h-px w-10 bg-blue-200"></div>
-                          <p className="text-sm font-bold text-slate-500 uppercase tracking-widest italic text-wrap">
-                            Hingga {new Date(selectedRequest.endDate || selectedRequest.startDate).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
-                            {selectedRequest.endTime && <span className="ml-2 text-blue-600">({selectedRequest.endTime})</span>}
-                          </p>
+                          <p className="text-sm font-bold text-slate-500 uppercase tracking-widest italic">Hingga {new Date(selectedRequest.endDate).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
                         </div>
                       )}
-                    </div>
-                  </div>
-
-                  {/* New: Precise Duration Display */}
-                  <div className="space-y-3">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] flex items-center gap-2">
-                      <Clock size={14} className="text-blue-600" /> DURASI PENGAJUAN
-                    </label>
-                    <div className="px-6 py-4 bg-slate-900 rounded-2xl text-white shadow-xl flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center">
-                        <History size={20} />
-                      </div>
-                      <div>
-                        <p className="text-xs font-black uppercase text-blue-400 leading-none mb-1">Total Estimasi:</p>
-                        <p className="text-lg font-black italic">
-                          {(() => {
-                            const start = new Date(selectedRequest.startDate);
-                            if (selectedRequest.startTime) {
-                              const [h, m] = selectedRequest.startTime.split(':');
-                              start.setHours(parseInt(h), parseInt(m));
-                            }
-                            const end = new Date(selectedRequest.endDate || selectedRequest.startDate);
-                            if (selectedRequest.endTime) {
-                              const [h, m] = selectedRequest.endTime.split(':');
-                              end.setHours(parseInt(h), parseInt(m));
-                            }
-                            const diffMs = end.getTime() - start.getTime();
-                            const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-                            const diffHrs = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-                            
-                            const parts = [];
-                            if (diffDays > 0) parts.push(`${diffDays} Hari`);
-                            if (diffHrs > 0) parts.push(`${diffHrs} Jam`);
-                            
-                            return parts.length > 0 ? parts.join(', ') : (selectedRequest.startTime ? 'Beberapa Menit' : '1 Hari');
-                          })()}
-                        </p>
-                      </div>
                     </div>
                   </div>
 
@@ -669,8 +469,8 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                       <CheckCircle2 size={14} className="text-blue-600" /> STATUS PENGAJUAN
                     </label>
                     <div className={`p-8 rounded-[2rem] border-4 text-xl font-black uppercase tracking-[0.3em] flex items-center justify-center gap-4 transition-all hover:scale-[1.02] shadow-xl ${selectedRequest.status === RequestStatus.APPROVED ? 'bg-emerald-500 border-white text-white rotate-1 shadow-emerald-200' :
-                      selectedRequest.status === RequestStatus.REJECTED ? 'bg-rose-500 border-white text-white -rotate-1 shadow-rose-200' :
-                        'bg-amber-100 border-amber-200 text-amber-700 shadow-amber-100'
+                        selectedRequest.status === RequestStatus.REJECTED ? 'bg-rose-500 border-white text-white -rotate-1 shadow-rose-200' :
+                          'bg-amber-100 border-amber-200 text-amber-700 shadow-amber-100'
                       }`}>
                       {selectedRequest.status === RequestStatus.APPROVED ? <CheckCircle2 size={32} /> :
                         selectedRequest.status === RequestStatus.REJECTED ? <AlertCircle size={32} /> : <Clock size={32} className="animate-spin" />}
@@ -745,41 +545,21 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
                 )}
 
                 {/* Admin Approval Form */}
-                {isManagement && (
+                {isManagement && selectedRequest.status === RequestStatus.PENDING && (
                   <div className="mt-12 space-y-6 animate-in slide-in-from-bottom-8 duration-700 bg-slate-900 p-12 rounded-[3.5rem] shadow-2xl relative overflow-hidden">
                     <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/10 blur-[100px] rounded-full -mr-32 -mt-32"></div>
                     <div className="relative z-10">
-                      <label className="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em] mb-4 block">
-                        {selectedRequest.status === RequestStatus.PENDING ? 'Formulir Keputusan Manajemen' : 'Revisi Keputusan Manajemen'}
-                      </label>
+                      <label className="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em] mb-4 block">Formulir Keputusan Manajemen</label>
                       <textarea
                         className="w-full p-8 bg-white/5 rounded-[2rem] font-bold text-sm text-white outline-none border-2 border-white/10 focus:border-blue-500 focus:bg-white/10 transition-all resize-none h-32 placeholder:text-slate-600"
-                        placeholder={selectedRequest.status === RequestStatus.PENDING ? "Berikan catatan persetujuan atau alasan jika pengajuan ini ditolak..." : "Catatan revisi status (wajib jika membatalkan)..."}
+                        placeholder="Berikan catatan persetujuan atau alasan jika pengajuan ini ditolak..."
                         value={actionNote}
                         onChange={e => setActionNote(e.target.value)}
                       />
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
-                      {selectedRequest.status !== RequestStatus.REJECTED && (
-                        <button
-                          onClick={() => handleAction(selectedRequest, RequestStatus.REJECTED)}
-                          disabled={isSubmitting}
-                          className="py-6 bg-rose-500/10 border-2 border-rose-500/20 text-rose-500 font-black uppercase tracking-[0.2em] rounded-[1.8rem] hover:bg-rose-500 hover:text-white transition-all text-[11px] shadow-xl flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {isSubmitting ? <div className="w-4 h-4 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" /> : null}
-                          {selectedRequest.status === RequestStatus.PENDING ? 'Tolak Permanen' : 'Batalkan (Ubah ke Ditolak)'}
-                        </button>
-                      )}
-                      {selectedRequest.status !== RequestStatus.APPROVED && (
-                        <button
-                          onClick={() => handleAction(selectedRequest, RequestStatus.APPROVED)}
-                          disabled={isSubmitting}
-                          className="py-6 bg-blue-600 text-white font-black uppercase tracking-[0.2em] rounded-[1.8rem] hover:bg-white hover:text-blue-600 transition-all text-[11px] shadow-2xl shadow-blue-500/30 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {isSubmitting ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : null}
-                          {selectedRequest.status === RequestStatus.PENDING ? 'Setujui Sekarang' : 'Revisi Menjadi Disetujui'}
-                        </button>
-                      )}
+                      <button onClick={() => handleAction(selectedRequest, RequestStatus.REJECTED)} className="py-6 bg-rose-500/10 border-2 border-rose-500/20 text-rose-500 font-black uppercase tracking-[0.2em] rounded-[1.8rem] hover:bg-rose-500 hover:text-white transition-all text-[11px] shadow-xl">Tolak Permanen</button>
+                      <button onClick={() => handleAction(selectedRequest, RequestStatus.APPROVED)} className="py-6 bg-blue-600 text-white font-black uppercase tracking-[0.2em] rounded-[1.8rem] hover:bg-white hover:text-blue-600 transition-all text-[11px] shadow-2xl shadow-blue-500/30">Setujui Sekarang</button>
                     </div>
                   </div>
                 )}
@@ -797,15 +577,7 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/90 p-4 backdrop-blur-md overflow-hidden" onClick={handleCloseModal}>
           <div className="bg-white rounded-[3.5rem] w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
             <div className="p-10 md:p-12 border-b border-slate-100 flex justify-between items-center shrink-0">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600">
-                  <FileText size={24} />
-                </div>
-                <div>
-                  <h3 className="text-2xl font-black text-slate-800 uppercase italic tracking-tighter">{editId ? 'Ubah Data' : 'Pengajuan Baru'}</h3>
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mt-1">Lengkapi data sesuai SOP berlaku</p>
-                </div>
-              </div>
+              <h3 className="text-2xl font-black text-slate-800 uppercase italic tracking-tighter">{editId ? 'Ubah Data' : 'Pengajuan Baru'}</h3>
               <button onClick={handleCloseModal} className="p-3 bg-slate-50 text-slate-400 rounded-2xl hover:bg-rose-500 hover:text-white transition">
                 <X size={20} />
               </button>
@@ -825,104 +597,29 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
 
               <div className="grid grid-cols-2 gap-5">
                 <div className="space-y-4">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-3">Mulai Tanggal</label>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-3">Mulai</label>
                   <input type="date" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-2xl font-black text-xs outline-none transition shadow-inner" value={formData.startDate} onChange={e => setFormData({ ...formData, startDate: e.target.value })} />
                 </div>
                 <div className="space-y-4">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-3">Sampai Tanggal</label>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-3">Sampai</label>
                   <input type="date" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-2xl font-black text-xs outline-none transition shadow-inner" value={formData.endDate || formData.startDate} onChange={e => setFormData({ ...formData, endDate: e.target.value })} />
                 </div>
               </div>
-
-              {formData.type === RequestType.IZIN && (
-                <div className="p-6 bg-blue-50/50 rounded-[2rem] border-2 border-dashed border-blue-200/50 space-y-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Opsi Jam Spesifik</p>
-                      <p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5">Aktifkan untuk izin rentang waktu/jam</p>
-                    </div>
-                    <button
-                      onClick={() => setFormData({ ...formData, isHourly: !formData.isHourly })}
-                      className={`w-14 h-8 rounded-full relative transition-all duration-300 ${formData.isHourly ? 'bg-blue-600' : 'bg-slate-200'}`}
-                    >
-                      <div className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow-md transition-all duration-300 ${formData.isHourly ? 'left-7' : 'left-1'}`} />
-                    </button>
-                  </div>
-
-                  {formData.isHourly && (
-                    <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-4 duration-500">
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-3">Jam Mulai</label>
-                        <input
-                          type="time"
-                          className="w-full p-4 bg-white border-2 border-slate-100 focus:border-blue-600 rounded-2xl font-black text-xs outline-none transition"
-                          value={formData.startTime}
-                          onChange={e => setFormData({ ...formData, startTime: e.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-3">Jam Selesai</label>
-                        <input
-                          type="time"
-                          className="w-full p-4 bg-white border-2 border-slate-100 focus:border-blue-600 rounded-2xl font-black text-xs outline-none transition"
-                          value={formData.endTime}
-                          onChange={e => setFormData({ ...formData, endTime: e.target.value })}
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
 
               <div className="space-y-4">
                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-3">Penjelasan Alasan</label>
                 <textarea className="w-full p-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-3xl font-bold text-xs outline-none h-32 resize-none transition shadow-inner" placeholder="Jelaskan secara detail alasan permohonan Anda..." value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} />
               </div>
 
-              {/* Penalty Preview */}
-              {(() => {
-                const start = new Date(formData.startDate);
-                const now = new Date();
-                const jktNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
-                const startStr = start.toISOString().split('T')[0];
-                const todayStr = jktNow.toISOString().split('T')[0];
-                const tomorrowStr = new Date(jktNow.getTime() + 86400000).toISOString().split('T')[0];
-                
-                let isSudden = false;
-                if (startStr === todayStr) isSudden = true;
-                else if (startStr === tomorrowStr && jktNow.getHours() >= (store.settings.leaveSuddenHourCutoff ?? 16)) isSudden = true;
-                
-                if (isSudden && formData.type !== RequestType.SAKIT) {
-                  return (
-                    <div className="p-5 bg-rose-50 border-2 border-rose-100 rounded-[2rem] flex items-center gap-4 animate-in shake duration-500">
-                      <div className="w-12 h-12 rounded-2xl bg-rose-500 text-white flex items-center justify-center shrink-0 shadow-lg">
-                        <AlertTriangle size={24} />
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-black text-rose-600 uppercase tracking-widest">Peringatan Cuti Mendadak</p>
-                        <p className="text-[11px] font-bold text-rose-800 leading-tight">Pengajuan ini akan dikenakan pinalti <b>potong {store.settings.leaveSuddenPenalty ?? 2} hari cuti</b> per hari izin.</p>
-                      </div>
-                    </div>
-                  );
-                }
-                return null;
-              })()}
-
               <div className="space-y-4">
                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-3">Unggah Bukti (Format Gambar)</label>
                 {!attachment ? (
-                  <label className={`flex flex-col items-center justify-center w-full h-40 border-4 border-dashed rounded-[2.5rem] transition-all group overflow-hidden ${isUploading ? 'bg-blue-50 border-blue-200 cursor-not-allowed' : 'border-slate-100 cursor-pointer hover:bg-blue-50/50 hover:border-blue-200'}`}>
-                    <div className={`p-4 rounded-2xl transition ${isUploading ? 'bg-blue-100' : 'bg-slate-50 group-hover:bg-blue-100'}`}>
-                      {isUploading ? (
-                        <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        <UploadCloud className="text-slate-300 group-hover:text-blue-600 transition" size={32} />
-                      )}
+                  <label className="flex flex-col items-center justify-center w-full h-40 border-4 border-dashed border-slate-100 rounded-[2.5rem] cursor-pointer hover:bg-blue-50/50 hover:border-blue-200 transition-all group overflow-hidden">
+                    <div className="p-4 bg-slate-50 rounded-2xl group-hover:bg-blue-100 transition">
+                      <UploadCloud className="text-slate-300 group-hover:text-blue-600 transition" size={32} />
                     </div>
-                    <p className={`text-[10px] font-black uppercase mt-4 tracking-widest ${isUploading ? 'text-blue-600' : 'text-slate-400 group-hover:text-blue-600'}`}>
-                      {isUploading ? 'Sedang Mengunggah...' : 'Klik Untuk Memilih File'}
-                    </p>
-                    <input type="file" onChange={handleFileChange} className="hidden" accept="image/*" disabled={isUploading || isSubmitting} />
+                    <p className="text-[10px] font-black text-slate-400 group-hover:text-blue-600 uppercase mt-4 tracking-widest">Klik Untuk Memilih File</p>
+                    <input type="file" onChange={handleFileChange} className="hidden" accept="image/*" />
                   </label>
                 ) : (
                   <div className="relative h-40 rounded-[2.5rem] overflow-hidden group shadow-2xl border-4 border-white">
@@ -938,154 +635,8 @@ const RequestsModule: React.FC<RequestsProps> = ({ currentUser, users, requests,
             </div>
 
             <div className="p-10 shrink-0 border-t border-slate-100">
-              <button
-                onClick={handleSubmit}
-                disabled={isSubmitting || isUploading}
-                className="w-full py-6 bg-blue-600 text-white rounded-[1.8rem] font-black uppercase text-xs tracking-[0.4em] hover:bg-slate-900 hover:scale-[1.02] active:scale-95 transition-all shadow-2xl shadow-blue-500/40 disabled:opacity-50 border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 flex items-center justify-center gap-3"
-              >
-                {isSubmitting ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    MENGHUBUNGKAN...
-                  </>
-                ) : isUploading ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    MENGUNGGAH...
-                  </>
-                ) : (
-                  editId ? 'SIMPAN PERUBAHAN' : 'KIRIM PERMOHONAN'
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SOP SETTINGS MODAL */}
-      {showSopSettings && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/90 p-4 backdrop-blur-md overflow-hidden" onClick={() => setShowSopSettings(false)}>
-          <div className="bg-white rounded-[3.5rem] w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
-            <div className="p-10 md:p-12 border-b border-slate-100 flex justify-between items-center shrink-0">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600">
-                  <Settings size={24} />
-                </div>
-                <div>
-                  <h3 className="text-2xl font-black text-slate-800 uppercase italic tracking-tighter">Konfigurasi SOP Cuti</h3>
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mt-1">Atur Parameter Validasi & Pinalti</p>
-                </div>
-              </div>
-              <button onClick={() => setShowSopSettings(false)} className="p-3 bg-slate-50 text-slate-400 rounded-2xl hover:bg-rose-500 hover:text-white transition">
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-10 md:p-12 space-y-10">
-              {/* Quota & Limit */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="space-y-4">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-3">Jatah Cuti Tahunan (Default)</label>
-                  <div className="relative group">
-                    <input 
-                      type="number" 
-                      value={leaveAnnualQuota}
-                      onChange={e => setLeaveAnnualQuota(Number(e.target.value))}
-                      className="w-full p-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-3xl font-black text-sm outline-none transition shadow-inner pr-16" 
-                    />
-                    <div className="absolute right-5 top-5 text-[10px] font-black text-slate-300 group-focus-within:text-blue-500">HARI / TAHUN</div>
-                  </div>
-                </div>
-                <div className="space-y-4">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-3">Limit Izin Per Minggu</label>
-                  <div className="relative group">
-                    <input 
-                      type="number" 
-                      value={leaveWeeklyLimit}
-                      onChange={e => setLeaveWeeklyLimit(Number(e.target.value))}
-                      className="w-full p-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-3xl font-black text-sm outline-none transition shadow-inner pr-16" 
-                    />
-                    <div className="absolute right-5 top-5 text-[10px] font-black text-slate-300 group-focus-within:text-blue-500">X / MINGGU</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Sudden Leave Policy */}
-              <div className="p-8 bg-amber-50 rounded-[2.5rem] border-2 border-dashed border-amber-200/50 space-y-8">
-                <div className="flex items-start gap-4">
-                  <div className="p-2 bg-amber-200 text-amber-700 rounded-lg"><AlertTriangle size={20} /></div>
-                  <div>
-                    <h4 className="text-xs font-black text-amber-900 uppercase">KEBIJAKAN IZIN MENDADAK</h4>
-                    <p className="text-[10px] font-bold text-amber-700 opacity-70">Mengatur pinalti dan batas waktu pengiriman izin.</p>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-3">
-                    <label className="text-[10px] font-black text-amber-800 uppercase tracking-widest ml-3">Jam Cut-Off (H-1)</label>
-                    <div className="relative">
-                      <input 
-                        type="number" 
-                        min="0" max="23"
-                        value={leaveSuddenHourCutoff}
-                        onChange={e => setLeaveSuddenHourCutoff(Number(e.target.value))}
-                        className="w-full p-4 bg-white border-2 border-amber-200/50 focus:border-amber-500 rounded-2xl font-black text-sm outline-none transition pr-16" 
-                      />
-                      <div className="absolute right-4 top-4 text-[10px] font-black text-amber-400">:00 WIB</div>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <label className="text-[10px] font-black text-amber-800 uppercase tracking-widest ml-3">Pinalti Potong Cuti (Multiplier)</label>
-                    <div className="relative">
-                      <input 
-                        type="number" 
-                        step="0.1"
-                        value={leaveSuddenPenalty}
-                        onChange={e => setLeaveSuddenPenalty(Number(e.target.value))}
-                        className="w-full p-4 bg-white border-2 border-amber-200/50 focus:border-amber-500 rounded-2xl font-black text-sm outline-none transition pr-16" 
-                      />
-                      <div className="absolute right-4 top-4 text-[10px] font-black text-amber-400">X LIPAT</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Threshold Notification */}
-              <div className="space-y-6">
-                <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-3">ATURAN PEMBERITAHUAN (NOTICE)</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="space-y-4">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-3">Jika Izin Lebih Dari (HARI)</label>
-                    <input 
-                      type="number" 
-                      value={leaveNoticeThreshold}
-                      onChange={e => setLeaveNoticeThreshold(Number(e.target.value))}
-                      className="w-full p-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-3xl font-black text-sm outline-none transition shadow-inner" 
-                    />
-                  </div>
-                  <div className="space-y-4">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-3">Wajib Ajukan Minimal (HARI SEBELUM)</label>
-                    <input 
-                      type="number" 
-                      value={leaveNoticeRequired}
-                      onChange={e => setLeaveNoticeRequired(Number(e.target.value))}
-                      className="w-full p-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 focus:bg-white rounded-3xl font-black text-sm outline-none transition shadow-inner" 
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-10 shrink-0 border-t border-slate-100 bg-slate-50/50 rounded-b-[3.5rem] flex gap-4">
-               <button onClick={() => setShowSopSettings(false)} className="flex-1 py-5 bg-white border-2 border-slate-200 text-slate-500 rounded-[1.8rem] font-black uppercase text-[10px] tracking-widest hover:bg-slate-100 transition shadow-sm">
-                Batal
-              </button>
-              <button
-                onClick={handleSaveSop}
-                disabled={isSubmitting}
-                className="flex-[2] py-5 bg-blue-600 text-white rounded-[1.8rem] font-black uppercase text-[10px] tracking-[0.3em] hover:bg-slate-900 hover:scale-[1.02] active:scale-95 transition-all shadow-xl shadow-blue-500/30 disabled:opacity-50 border-b-4 border-blue-800"
-              >
-                {isSubmitting ? 'MEMPROSES...' : 'PERBARUI KEBIJAKAN SOP'}
+              <button onClick={handleSubmit} disabled={isSubmitting} className="w-full py-6 bg-blue-600 text-white rounded-[1.8rem] font-black uppercase text-xs tracking-[0.4em] hover:bg-slate-900 hover:scale-[1.02] active:scale-95 transition-all shadow-2xl shadow-blue-500/40 disabled:opacity-50 border-b-4 border-blue-800 active:border-b-0 active:translate-y-1">
+                {isSubmitting ? 'MENGHUBUNGKAN...' : editId ? 'SIMPAN PERUBAHAN' : 'KIRIM PERMOHONAN'}
               </button>
             </div>
           </div>

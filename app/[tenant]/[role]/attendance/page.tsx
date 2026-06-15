@@ -12,27 +12,26 @@ export default function AttendancePage() {
   const [isLoading, setIsLoading] = React.useState(true);
 
   useEffect(() => {
-    if (store.currentUser?.id) {
-      store.fetchAttendance(store.currentUser.id).finally(() => setIsLoading(false));
-    }
-  }, [store.currentUser?.id]);
+    store.fetchAttendance().finally(() => setIsLoading(false));
+  }, []);
 
   if (!store.currentUser) return null;
   if (isLoading) {
     return <LoadingState text="Menyiapkan sistem absensi..." />;
   }
   return (
-    <AttendanceModule
-      currentUser={store.currentUser}
+    <AttendanceModule 
+      currentUser={store.currentUser} 
       currentTenant={store.currentTenant}
       shifts={store.shifts}
-      settings={store.settings}
-      attendanceLog={store.attendance}
-      onAddAttendance={store.addAttendance}
-      onUpdateAttendance={store.updateAttendance}
-      onUpdateSettings={store.updateSettings}
-      toast={toast}
+      settings={store.settings} 
+      attendanceLog={store.attendance} 
+      onAddAttendance={store.addAttendance} 
+      onUpdateAttendance={store.updateAttendance} 
+      onUpdateSettings={store.updateSettings} 
+      toast={toast} 
       uploadFile={store.uploadFile}
+      onFetchAttendanceReport={store.fetchAttendanceReport}
     />
   );
 }

@@ -1,48 +1,54 @@
-export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
-import { serialize, recordSystemLog } from '@/lib/serverUtils';
 
 export async function GET(request: Request) {
   try {
     const user = await authorize();
     const { tenantId } = user;
-
+    
     const { searchParams } = new URL(request.url);
     const startDate = searchParams.get('start');
     const endDate = searchParams.get('end');
 
-    const isAdmin = ['OWNER', 'MANAGER', 'FINANCE'].includes(user.role);
+    // Check if user is admin (including Kaizen Master)
+    const actorUser = await prisma.user.findUnique({ where: { id: user.id } });
+    const isAdmin = ['OWNER', 'MANAGER', 'FINANCE'].includes(user.role) || !!actorUser?.isKaizenMaster;
     const where: any = { tenantId };
     if (!isAdmin) where.userId = user.id;
 
+    // Smart Filter: If date range provided, use it. Else, default (limit 200).
     if (startDate && endDate) {
-      where.date = { gte: startDate, lte: endDate };
+        where.date = {
+            gte: startDate,
+            lte: endDate
+        };
     } else if (startDate) {
-      where.date = { gte: startDate };
+         where.date = {
+            gte: startDate
+        };
     }
 
     const reports = await prisma.dailyReport.findMany({
-      where,
-      orderBy: [
-        { createdAt: 'desc' },
-        { date: 'desc' }
-      ],
-      take: startDate ? undefined : 200
+       where,
+       orderBy: { date: 'desc' }, // Sort by Report Date (Logically correct)
+       take: startDate ? undefined : 200 // If filtering by date, fetch all matches. If no filter, limit to 200 safety.
     });
 
     const formatted = reports.map(r => ({
-      ...r,
-      activities: r.activitiesJson ? JSON.parse(r.activitiesJson) : [],
-      // Ensure date is consistent string
-      date: r.date
+        id: r.id,
+        userId: r.userId,
+        tenantId: (r as any).tenantId,
+        date: r.date,
+        activities: typeof r.activitiesJson === 'string' ? JSON.parse(r.activitiesJson) : [],
+        createdAt: r.createdAt ? r.createdAt.toISOString() : null,
+        updatedAt: (r as any).updatedAt ? (r as any).updatedAt.toISOString() : null
     }));
 
-    return NextResponse.json(serialize(formatted));
-  } catch (e: any) {
-    console.error(e);
-    return NextResponse.json({ error: 'Failed', details: e.message }, { status: 500 });
+    return NextResponse.json(formatted);
+  } catch(e: any) {
+      console.error(e);
+      return NextResponse.json({ error: 'Failed', details: e.message }, { status: 500 });
   }
 }
 
@@ -52,41 +58,24 @@ export async function POST(request: Request) {
     const { tenantId } = user;
     const r = await request.json();
 
+    // Security: Prevent User Spoofing within Tenant
     if (user.role === 'STAFF' && r.userId !== user.id) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        return NextResponse.json({ error: 'Forbidden: Cannot submit report for others' }, { status: 403 });
     }
 
-    const created = await prisma.dailyReport.create({
+    await prisma.dailyReport.create({
       data: {
         id: r.id,
         tenantId,
         userId: r.userId,
         date: r.date,
-        activitiesJson: JSON.stringify(r.activities || []),
-        createdAt: new Date(),
-        updatedAt: new Date()
+        activitiesJson: JSON.stringify(r.activities || [])
       }
     });
 
-    await recordSystemLog({
-      actorId: user.id,
-      actorName: user.name,
-      actorRole: user.role,
-      actionType: 'REPORT_SUBMIT',
-      details: `Submit laporan harian: ${r.date}`,
-      targetObj: 'DailyReport',
-      tenantId
-    });
-
-    const formatted = {
-      ...created,
-      activities: created.activitiesJson ? JSON.parse(created.activitiesJson) : []
-    };
-
-    return NextResponse.json(serialize(formatted), { status: 201 });
+    return NextResponse.json(r, { status: 201 });
   } catch (error: any) {
     console.error(error);
     return NextResponse.json({ error: 'Failed', details: error.message }, { status: 500 });
   }
 }
-

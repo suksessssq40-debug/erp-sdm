@@ -1,9 +1,14 @@
-export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
-import { serialize } from '@/lib/serverUtils';
-import { validateAndCalculateRequest } from '@/lib/leaveLogic';
+
+// Helper to serialize BigInt
+const serialize = (data: any): any => {
+    return JSON.parse(JSON.stringify(data, (key, value) =>
+        typeof value === 'bigint' ? Number(value) : value
+    ));
+};
 
 export async function GET(request: Request) {
     try {
@@ -15,8 +20,13 @@ export async function GET(request: Request) {
         const endDate = searchParams.get('end');
 
         const isAdmin = ['OWNER', 'MANAGER', 'FINANCE'].includes(user.role);
+        
+        // Check if user is Kaizen Master (also gets full access)
+        const actorUser = await prisma.user.findUnique({ where: { id: user.id } });
+        const isKaizenMaster = !!(actorUser as any)?.isKaizenMaster;
+        
         const where: any = { tenantId };
-        if (!isAdmin) where.userId = user.id;
+        if (!isAdmin && !isKaizenMaster) where.userId = user.id;
 
         // Smart Filter
         if (startDate && endDate) {
@@ -32,7 +42,6 @@ export async function GET(request: Request) {
 
         const requests = await prisma.leaveRequest.findMany({
             where,
-            include: { user: { select: { id: true, name: true, role: true, avatarUrl: true, jobTitle: true } } },
             orderBy: { createdAt: 'desc' },
             take: startDate ? undefined : 150 // Limit 150 if no filter to prevent overload
         });
@@ -51,36 +60,19 @@ export async function POST(request: Request) {
         const { tenantId } = user;
         const r = await request.json();
 
-        // 1. Validate & Calculate Metadata
-        const metadata = await validateAndCalculateRequest({
-            userId: r.userId || user.id,
-            tenantId,
-            type: r.type,
-            startDate: new Date(r.startDate),
-            endDate: r.endDate ? new Date(r.endDate) : new Date(r.startDate),
-            hasAttachment: !!r.attachmentUrl
-        });
-
         // 1. Create Data
         const newRequest = await prisma.leaveRequest.create({
             data: {
                 id: r.id,
                 tenantId,
-                userId: r.userId || user.id,
+                userId: r.userId,
                 type: r.type,
                 description: r.description,
                 startDate: new Date(r.startDate),
                 endDate: r.endDate ? new Date(r.endDate) : new Date(r.startDate),
-                ...({
-                    startTime: r.startTime || null,
-                    endTime: r.endTime || null,
-                } as any),
                 attachmentUrl: r.attachmentUrl || null,
-                status: r.status || 'PENDING',
-                isSudden: metadata.isSudden,
-                hasDoctorNote: metadata.hasDoctorNote,
-                penaltyWeight: metadata.penaltyWeight,
-                createdAt: new Date()
+                status: r.status,
+                createdAt: r.createdAt ? BigInt(r.createdAt) : BigInt(Date.now())
             }
         });
 
@@ -99,28 +91,8 @@ export async function POST(request: Request) {
 
                 const startDate = new Date(r.startDate);
                 const endDate = new Date(r.endDate || r.startDate);
-                
-                // Enhanced Duration Calculation
-                const startCalc = new Date(startDate);
-                if (r.startTime) {
-                    const [h, m] = r.startTime.split(':');
-                    startCalc.setHours(parseInt(h), parseInt(m));
-                }
-                const endCalc = new Date(endDate);
-                if (r.endTime) {
-                    const [h, m] = r.endTime.split(':');
-                    endCalc.setHours(parseInt(h), parseInt(m));
-                }
-
-                const diffTime = Math.abs(endCalc.getTime() - startCalc.getTime());
-                const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-                const diffHrs = Math.floor((diffTime % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-
-                let durationStr = "";
-                if (diffDays > 0) durationStr += `${diffDays} Hari `;
-                if (diffHrs > 0) durationStr += `${diffHrs} Jam`;
-                if (!durationStr) durationStr = r.startTime ? "Beberapa Menit" : "1 Hari";
-
+                const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
                 const fmtDate = (d: Date) => d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
                 let companyName = tenantId.toUpperCase();
@@ -131,8 +103,6 @@ export async function POST(request: Request) {
                     }
                 } catch (e) { }
 
-                const timeStr = r.startTime && r.endTime ? ` (${r.startTime} - ${r.endTime})` : (r.startTime ? ` (${r.startTime})` : '');
-
                 const message = [
                     `🏢 <b>${companyName.toUpperCase()}</b>`,
                     `✨ <b><u>PENGAJUAN ${r.type.toUpperCase()}</u></b> ✨`,
@@ -141,8 +111,8 @@ export async function POST(request: Request) {
                     `💼 <b>Jabatan:</b> ${user.jobTitle || 'Staff'}`,
                     ``,
                     `📌 <b>Jenis:</b> ${r.type}`,
-                    `📅 <b>Waktu:</b> ${fmtDate(startDate)}${r.startTime ? ` (Jam: ${r.startTime})` : ''}${r.endDate && r.endDate !== r.startDate ? ` s/d ${fmtDate(endDate)}${r.endTime ? ` (Jam: ${r.endTime})` : ''}` : (r.endTime ? ` s/d Jam ${r.endTime}` : '')}`,
-                    `⏳ <b>Durasi:</b> ${durationStr}`,
+                    `📅 <b>Waktu:</b> ${fmtDate(startDate)}${r.endDate && r.endDate !== r.startDate ? ` s/d ${fmtDate(endDate)}` : ''}`,
+                    `⏳ <b>Durasi:</b> ${diffDays} Hari`,
                     `📝 <b>Alasan:</b> <i>"${r.description}"</i>`,
                     ``,
                     `📎 <b>Lampiran:</b> ${r.attachmentUrl ? '✅ Tersedia' : '❌ Tidak Ada'}`,
@@ -166,28 +136,17 @@ export async function POST(request: Request) {
                 };
 
                 const fullDest = telegramSettings.telegramGroupId;
-                const delimiter = fullDest.includes('/') ? '/' : (fullDest.includes('_') ? '_' : null);
-
-                if (delimiter) {
-                    const [chatId, topicId] = fullDest.split(delimiter);
+                if (fullDest.includes('/')) {
+                    const [chatId, topicId] = fullDest.split('/');
                     let targetChat = chatId.trim();
+                    if (!targetChat.startsWith('-')) targetChat = '-100' + targetChat.replace(/^-/, '');
 
-                    // Robust normalization for Supergroup IDs
-                    if (targetChat.startsWith('-') && !targetChat.startsWith('-100')) {
-                        targetChat = '-100' + targetChat.substring(1);
-                    } else if (!targetChat.startsWith('-') && !targetChat.startsWith('@')) {
-                        targetChat = '-100' + targetChat;
-                    }
-
-                    const topicBody: any = {
+                    const topicBody = {
                         chat_id: targetChat,
                         text: message,
-                        parse_mode: 'HTML'
+                        parse_mode: 'HTML',
+                        message_thread_id: parseInt(topicId.trim())
                     };
-
-                    if (topicId && topicId.trim()) {
-                        topicBody.message_thread_id = parseInt(topicId.trim());
-                    }
 
                     try {
                         const res = await fetch(`https://api.telegram.org/bot${telegramSettings.telegramBotToken}/sendMessage`, {
@@ -195,12 +154,7 @@ export async function POST(request: Request) {
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(topicBody)
                         });
-
-                        // Fallback: If topic ID is invalid, send to main chat
-                        if (!res.ok && topicBody.message_thread_id) {
-                            delete topicBody.message_thread_id;
-                            await sendTele(targetChat);
-                        }
+                        if (!res.ok) await sendTele(targetChat); // Fallback
                     } catch (e) { await sendTele(targetChat); }
                 } else {
                     let targetChat = fullDest.trim();
@@ -211,23 +165,6 @@ export async function POST(request: Request) {
         } catch (notifError) {
             console.error("[Telegram] Request integration error:", notifError);
         }
-
-        // --- SYSTEM LOGGING ---
-        try {
-            await prisma.systemLog.create({
-                data: {
-                    id: Math.random().toString(36).substr(2, 9),
-                    timestamp: BigInt(Date.now()),
-                    actorId: user.id,
-                    actorName: user.name,
-                    actorRole: user.role,
-                    actionType: 'REQUEST_SUBMIT',
-                    details: `Mengajukan ${r.type}: ${r.description}`,
-                    targetObj: 'LeaveRequest',
-                    tenantId: tenantId
-                }
-            });
-        } catch (logErr) { console.error("Logging Error:", logErr); }
 
         // Return the ACTUAL created object, serialized properly
         return NextResponse.json(serialize(newRequest), { status: 201 });

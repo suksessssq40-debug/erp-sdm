@@ -1,9 +1,14 @@
-export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
-import { serialize } from '@/lib/serverUtils';
-import { sendPushNotification } from '@/lib/push';
+
+// Helper to serialize BigInt
+const serialize = (data: any): any => {
+    return JSON.parse(JSON.stringify(data, (key, value) =>
+        typeof value === 'bigint' ? Number(value) : value
+    ));
+};
 
 // UPDATE (Edit) Request
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
@@ -24,8 +29,13 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 
         const isOwnerOrManagerOrFinance = ['OWNER', 'MANAGER', 'FINANCE'].includes(role);
         const isApplicant = existing.userId === authUserId;
+        
+        // Check if user is Kaizen Master
+        const actorUser = await prisma.user.findUnique({ where: { id: authUserId } });
+        const isKaizenMaster = !!(actorUser as any)?.isKaizenMaster;
+        const hasManagementAccess = isOwnerOrManagerOrFinance || isKaizenMaster;
 
-        if (!isOwnerOrManagerOrFinance) {
+        if (!hasManagementAccess) {
             if (!isApplicant) {
                 return NextResponse.json({ error: 'Akses ditolak' }, { status: 403 });
             }
@@ -41,12 +51,10 @@ export async function PUT(request: Request, { params }: { params: { id: string }
             description: r.description,
             startDate: new Date(r.startDate),
             endDate: r.endDate ? new Date(r.endDate) : new Date(r.startDate),
-            startTime: r.startTime || null,
-            endTime: r.endTime || null,
             attachmentUrl: r.attachmentUrl || null,
         };
 
-        if (isOwnerOrManagerOrFinance && r.status) {
+        if (hasManagementAccess && r.status) {
             dataToUpdate.status = r.status;
 
             if (isApprovalAction) {
@@ -57,7 +65,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
                 dataToUpdate.approverId = user.id;
                 dataToUpdate.approverName = activeUser?.name || 'Manager';
                 dataToUpdate.actionNote = r.actionNote || null;
-                dataToUpdate.actionAt = new Date();
+                dataToUpdate.actionAt = BigInt(Date.now());
             }
         }
 
@@ -65,165 +73,6 @@ export async function PUT(request: Request, { params }: { params: { id: string }
             where: { id },
             data: dataToUpdate
         });
-
-        // --- QUOTA DEDUCTION LOGIC ---
-        if (isApprovalAction) {
-            const year = new Date(existing.startDate || new Date()).getFullYear();
-            const weight = existing.penaltyWeight || 1;
-            const diffTime = Math.abs(new Date(existing.endDate || existing.startDate || new Date()).getTime() - new Date(existing.startDate || new Date()).getTime());
-            const days = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-            const totalDeduct = weight * days;
-            
-            const tenant = await prisma.tenant.findUnique({
-                where: { id: tenantId },
-                select: { leaveAnnualQuota: true }
-            });
-            const total = tenant?.leaveAnnualQuota || 12;
-
-            if (r.status === 'APPROVED' && totalDeduct > 0) {
-                // Deduct from quota
-                await prisma.leaveQuota.upsert({
-                    where: { userId_year: { userId: existing.userId!, year } },
-                    update: {
-                        usedQuota: { increment: totalDeduct },
-                        remainingQuota: { decrement: totalDeduct }
-                    },
-                    create: {
-                        id: Math.random().toString(36).substr(2, 9),
-                        userId: existing.userId!,
-                        year,
-                        totalQuota: total,
-                        usedQuota: totalDeduct,
-                        remainingQuota: total - totalDeduct,
-                        tenantId: tenantId
-                    }
-                });
-            } else if (r.status === 'REJECTED' && existing.status === 'APPROVED' && totalDeduct > 0) {
-                // Reverse deduction if it was previously approved
-                await prisma.leaveQuota.update({
-                    where: { userId_year: { userId: existing.userId!, year } },
-                    data: {
-                        usedQuota: { decrement: totalDeduct },
-                        remainingQuota: { increment: totalDeduct }
-                    }
-                });
-            }
-        }
-
-        // --- TELEGRAM NOTIFICATION FOR APPROVAL/REJECTION ---
-        if (isApprovalAction) {
-            try {
-                const telegramSettings = await prisma.settings.findUnique({ where: { tenantId } });
-                if (telegramSettings?.telegramBotToken && telegramSettings?.telegramGroupId) {
-                    const statusIcon = r.status === 'APPROVED' ? '✅' : '❌';
-                    const statusText = r.status === 'APPROVED' ? 'DISETUJUI' : 'DITOLAK';
-
-                    const sDate = existing.startDate ? new Date(existing.startDate) : new Date();
-                    const eDate = existing.endDate ? new Date(existing.endDate) : sDate;
-
-                    const fmtD = (d: Date) => d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
-                    const startInfo = `${fmtD(sDate)}${(existing as any).startTime ? ` (${(existing as any).startTime})` : ''}`;
-                    const endInfo = `${fmtD(eDate)}${(existing as any).endTime ? ` (${(existing as any).endTime})` : ''}`;
-
-                    const message = [
-                        `🏢 <b>${tenantId.toUpperCase()} - UPDATE STATUS</b>`,
-                        `${statusIcon} <b><u>PERMOHONAN ${statusText}</u></b>`,
-                        ``,
-                        `👤 <b>Karyawan:</b> ${existing.user?.name || 'User'}`,
-                        `📌 <b>Jenis:</b> ${existing.type}`,
-                        `📅 <b>Waktu:</b> ${startInfo} s/d ${endInfo}`,
-                        ``,
-                        `⚖️ <b>Keputusan:</b> ${statusText}`,
-                        `✍️ <b>Oleh:</b> ${dataToUpdate.approverName}`,
-                        `📝 <b>Catatan:</b> <i>"${r.actionNote || '-'}"</i>`,
-                        ``,
-                        `🚀 <i>Status telah diperbarui di sistem ERP.</i>`
-                    ].join('\n');
-
-                    const sendTele = async (targetId: string) => {
-                        await fetch(`https://api.telegram.org/bot${telegramSettings.telegramBotToken}/sendMessage`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ chat_id: targetId, text: message, parse_mode: 'HTML' })
-                        });
-                    };
-
-                    const fullDest = telegramSettings.telegramGroupId;
-                    const delimiter = fullDest.includes('/') ? '/' : (fullDest.includes('_') ? '_' : null);
-                    if (delimiter) {
-                        const [chatId, topicId] = fullDest.split(delimiter);
-                        let targetChat = chatId.trim();
-
-                        if (targetChat.startsWith('-') && !targetChat.startsWith('-100')) {
-                            targetChat = '-100' + targetChat.substring(1);
-                        } else if (!targetChat.startsWith('-') && !targetChat.startsWith('@')) {
-                            targetChat = '-100' + targetChat;
-                        }
-
-                        const topicBody: any = {
-                            chat_id: targetChat,
-                            text: message,
-                            parse_mode: 'HTML'
-                        };
-
-                        if (topicId && topicId.trim()) {
-                            topicBody.message_thread_id = parseInt(topicId.trim());
-                        }
-
-                        const res = await fetch(`https://api.telegram.org/bot${telegramSettings.telegramBotToken}/sendMessage`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(topicBody)
-                        });
-
-                        // Fallback: If topic fails, send to main chat
-                        if (!res.ok && topicBody.message_thread_id) {
-                            delete topicBody.message_thread_id;
-                            await sendTele(targetChat);
-                        }
-                    } else {
-                        let targetChat = fullDest.trim();
-                        if (targetChat.startsWith('-') && !targetChat.startsWith('-100')) {
-                            targetChat = '-100' + targetChat.substring(1);
-                        } else if (!targetChat.startsWith('-') && !targetChat.startsWith('@')) {
-                            targetChat = '-100' + targetChat;
-                        }
-                        await sendTele(targetChat);
-                    }
-                }
-            } catch (err) { console.error("Telegram Approval Notify Error:", err); }
-        }
-
-        // --- PUSH NOTIFICATION FOR APPLICANT ---
-        if (isApprovalAction) {
-            try {
-                const statusText = r.status === 'APPROVED' ? 'DISETUJUI' : 'DITOLAK';
-                await sendPushNotification(existing.userId!, {
-                    title: `Permohonan ${statusText}`,
-                    body: `Halo ${existing.user?.name}, permohonan ${existing.type} Anda telah ${statusText.toLowerCase()}.`,
-                    url: '/requests'
-                });
-            } catch (err) { console.error("Push Approval Notify Error:", err); }
-        }
-
-        // --- SYSTEM LOGGING ---
-        try {
-            await prisma.systemLog.create({
-                data: {
-                    id: Math.random().toString(36).substr(2, 9),
-                    timestamp: BigInt(Date.now()),
-                    actorId: user.id,
-                    actorName: user.name,
-                    actorRole: user.role,
-                    actionType: isApprovalAction ? 'REQUEST_RESOLVE' : 'REQUEST_UPDATE',
-                    details: isApprovalAction
-                        ? `${r.status}: ${existing.type} - ${existing.user?.name}`
-                        : `Update ${existing.type}`,
-                    targetObj: 'LeaveRequest',
-                    tenantId: tenantId
-                }
-            });
-        } catch (logErr) { console.error("Logging Error:", logErr); }
 
         return NextResponse.json(serialize(updated));
     } catch (error: any) {
@@ -235,126 +84,31 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 // DELETE Request
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
     try {
+        // Allow any authenticated user, then check permissions manually
         const user = await authorize();
-        const { tenantId, role, id: authUserId } = user;
+        const { tenantId } = user;
         const id = params.id;
 
-        const existing = await prisma.leaveRequest.findUnique({
-            where: { id },
-            include: { user: true }
+        const existing = await prisma.leaveRequest.findFirst({
+            where: { id, tenantId }
         });
 
-        if (!existing || existing.tenantId !== tenantId) {
+        if (!existing) {
             return NextResponse.json({ error: 'Data tidak ditemukan' }, { status: 404 });
         }
 
-        const isAdmin = ['OWNER', 'MANAGER', 'FINANCE'].includes(role);
-        const isApplicant = existing.userId === authUserId;
-
-        if (!isAdmin) {
-            if (!isApplicant) {
-                return NextResponse.json({ error: 'Akses ditolak' }, { status: 403 });
-            }
-            if (existing.status !== 'PENDING') {
-                return NextResponse.json({ error: 'Hanya permohonan yang berstatus PENDING yang bisa dibatalkan' }, { status: 403 });
-            }
+        // Check management access (OWNER/MANAGER/FINANCE or Kaizen Master)
+        const isAdmin = ['OWNER', 'MANAGER', 'FINANCE'].includes(user.role);
+        const actorUser = await prisma.user.findUnique({ where: { id: user.id } });
+        const isKaizenMaster = !!(actorUser as any)?.isKaizenMaster;
+        
+        if (!isAdmin && !isKaizenMaster) {
+            return NextResponse.json({ error: 'Akses ditolak' }, { status: 403 });
         }
-
-        // --- TELEGRAM NOTIFICATION FOR DELETE/CANCEL ---
-        try {
-            const telegramSettings = await prisma.settings.findUnique({ where: { tenantId } });
-            if (telegramSettings?.telegramBotToken && telegramSettings?.telegramGroupId) {
-                const isAdminAction = isAdmin && !isApplicant;
-                const statusIcon = isAdminAction ? '🗑️' : '🚫';
-                const actionText = isAdminAction ? 'DIPERINTAHKAN HAPUS OLEH ADMIN' : 'DIBATALKAN OLEH KARYAWAN';
-
-                const sDate = existing.startDate ? new Date(existing.startDate) : new Date();
-                const eDate = existing.endDate ? new Date(existing.endDate) : sDate;
-
-                const fmtD = (d: Date) => d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
-                const startInfo = `${fmtD(sDate)}${(existing as any).startTime ? ` (${(existing as any).startTime})` : ''}`;
-                const endInfo = `${fmtD(eDate)}${(existing as any).endTime ? ` (${(existing as any).endTime})` : ''}`;
-
-                const message = [
-                    `🏢 <b>${tenantId.toUpperCase()} - UPDATE STATUS</b>`,
-                    `${statusIcon} <b><u>IZIN ${actionText}</u></b>`,
-                    ``,
-                    `👤 <b>Karyawan:</b> ${(existing as any).user?.name || 'User'}`,
-                    `📌 <b>Jenis:</b> ${existing.type}`,
-                    `📅 <b>Waktu:</b> ${startInfo} s/d ${endInfo}`,
-                    ``,
-                    `✍️ <b>Oleh:</b> ${user.name} (${user.role})`,
-                    isAdminAction ? `📝 <b>Alasan:</b> <i>Data telah dihapus dari sistem oleh Manajemen.</i>` : `📝 <b>Alasan:</b> <i>Karyawan memutuskan untuk membatalkan pengajuan ini.</i>`,
-                    ``,
-                    `🚀 <i>Data permohonan telah dihapus secara permanen dari Dashboard.</i>`
-                ].join('\n');
-
-                const sendTele = async (targetId: string) => {
-                    await fetch(`https://api.telegram.org/bot${telegramSettings.telegramBotToken}/sendMessage`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ chat_id: targetId, text: message, parse_mode: 'HTML' })
-                    });
-                };
-
-                const fullDest = telegramSettings.telegramGroupId;
-                const delimiter = fullDest.includes('/') ? '/' : (fullDest.includes('_') ? '_' : null);
-                if (delimiter) {
-                    const [chatId, topicId] = fullDest.split(delimiter);
-                    let targetChat = chatId.trim();
-                    if (targetChat.startsWith('-') && !targetChat.startsWith('-100')) {
-                        targetChat = '-100' + targetChat.substring(1);
-                    } else if (!targetChat.startsWith('-') && !targetChat.startsWith('@')) {
-                        targetChat = '-100' + targetChat;
-                    }
-                    const topicBody: any = {
-                        chat_id: targetChat,
-                        text: message,
-                        parse_mode: 'HTML'
-                    };
-                    if (topicId && topicId.trim()) topicBody.message_thread_id = parseInt(topicId.trim());
-
-                    const res = await fetch(`https://api.telegram.org/bot${telegramSettings.telegramBotToken}/sendMessage`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(topicBody)
-                    });
-                    if (!res.ok && topicBody.message_thread_id) {
-                        delete topicBody.message_thread_id;
-                        await sendTele(targetChat);
-                    }
-                } else {
-                    let targetChat = fullDest.trim();
-                    if (targetChat.startsWith('-') && !targetChat.startsWith('-100')) {
-                        targetChat = '-100' + targetChat.substring(1);
-                    } else if (!targetChat.startsWith('-') && !targetChat.startsWith('@')) {
-                        targetChat = '-100' + targetChat;
-                    }
-                    await sendTele(targetChat);
-                }
-            }
-        } catch (err) { console.error("Telegram Delete Notify Error:", err); }
 
         await prisma.leaveRequest.delete({
             where: { id }
         });
-
-        // --- SYSTEM LOGGING ---
-        try {
-            await prisma.systemLog.create({
-                data: {
-                    id: Math.random().toString(36).substr(2, 9),
-                    timestamp: BigInt(Date.now()),
-                    actorId: user.id,
-                    actorName: user.name,
-                    actorRole: user.role,
-                    actionType: 'REQUEST_DELETE',
-                    details: `Hapus permohonan ID: ${id}`,
-                    targetObj: 'LeaveRequest',
-                    tenantId: tenantId
-                }
-            });
-        } catch (logErr) { console.error("Logging Error:", logErr); }
 
         return NextResponse.json({ success: true, message: 'Data berhasil dihapus' });
     } catch (error) {

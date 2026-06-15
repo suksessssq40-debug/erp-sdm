@@ -2,99 +2,60 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
-import { Prisma } from '@prisma/client';
 
-export const dynamic = 'force-dynamic';
-
-/**
- * POST /api/finance/recalculate
- *
- * Recalculates and "heals" the cached `balance` column in `financial_accounts`
- * by re-deriving it from scratch using the transactions table as the single
- * source of truth.
- *
- * Convention (from POST /api/transactions):
- *   IN  → account = bank (debit side).  bank.balance  += amount
- *   OUT → account = bank (credit side). bank.balance  -= amount  (expense OR transfer-source)
- *   Transfer (type=OUT, both sides are banks):
- *         account  = SOURCE bank  → SOURCE.balance -= amount
- *         category = DEST bank    → DEST.balance   += amount
- *
- * Therefore, for any given bank account (fa.name):
- *   Net contribution from each transaction row:
- *     +amount  if  type='IN'  AND LOWER(account) = bankName
- *     -amount  if  type='OUT' AND LOWER(account) = bankName  (expense OR transfer-source)
- *     +amount  if  type='OUT' AND LOWER(category) = bankName (transfer-destination)
- *
- * This is a single CASE expression — no double-counting possible.
- */
 export async function POST() {
-    try {
-        const user = await authorize(['OWNER', 'FINANCE']);
-        const { tenantId } = user;
+  try {
+    const user = await authorize(['OWNER', 'FINANCE']);
+    const { tenantId } = user;
 
-        // ── 1. Compute the correct balance for every financial account in one query ──
-        const balanceRows = await prisma.$queryRaw<{ account_id: string; net_balance: number }[]>`
-            SELECT
-                fa.id                            AS account_id,
-                COALESCE(SUM(
-                    CASE
-                        -- Money ENTERS this bank (IN, bank is debit/account side)
-                        WHEN LOWER(t.account) = LOWER(fa.name) AND t.type = 'IN'
-                            THEN  t.amount
+    // 1. Ambil Semua Akun
+    const accounts = await prisma.financialAccount.findMany({
+      where: { tenantId }
+    });
 
-                        -- Money LEAVES this bank (OUT, bank is credit/account side)
-                        -- Covers both expense payments AND transfer-out
-                        WHEN LOWER(t.account) = LOWER(fa.name) AND t.type = 'OUT'
-                            THEN -t.amount
+    // 2. Lakukan Rekalkulasi (Optimasi: Grouped Aggregation)
+    // Gunakan timeout lebih lama karena proses ini melibatkan scan seluruh tabel transaksi
+    await prisma.$transaction(async (tx) => {
+      // Ambil semua sum per accountId dalam satu query
+      const groupedResults = await tx.transaction.groupBy({
+        by: ['accountId', 'type'],
+        where: { tenantId },
+        _sum: { amount: true }
+      });
 
-                        -- Transfer ARRIVES at this bank (OUT, bank is category/destination side)
-                        WHEN LOWER(t.category) = LOWER(fa.name) AND t.type = 'OUT'
-                            THEN  t.amount
+      // Mapping hasil ke format Map [accountId]: { IN, OUT }
+      const balanceMap = new Map<string, { IN: number; OUT: number }>();
+      groupedResults.forEach(res => {
+        if (!res.accountId) return;
+        const current = balanceMap.get(res.accountId) || { IN: 0, OUT: 0 };
+        if (res.type === 'IN') current.IN = Number(res._sum.amount || 0);
+        else if (res.type === 'OUT') current.OUT = Number(res._sum.amount || 0);
+        balanceMap.set(res.accountId, current);
+      });
 
-                        ELSE 0
-                    END
-                ), 0)                            AS net_balance
-            FROM financial_accounts fa
-            LEFT JOIN transactions t
-                ON  t.tenant_id = ${tenantId}
-                AND fa.tenant_id = ${tenantId}
-                AND (
-                    LOWER(t.account)  = LOWER(fa.name) OR
-                    LOWER(t.category) = LOWER(fa.name)
-                )
-            WHERE fa.tenant_id = ${tenantId}
-            GROUP BY fa.id
-        `;
+      for (const acc of accounts) {
+        const totals = balanceMap.get(acc.id) || { IN: 0, OUT: 0 };
+        const newBalance = totals.IN - totals.OUT;
 
-        if (balanceRows.length === 0) {
-            return NextResponse.json({ success: true, updated: 0, message: 'No financial accounts found.' });
-        }
-
-        // ── 2. Atomically write the corrected balances back to the database ──
-        let updated = 0;
-        await prisma.$transaction(
-            async (tx) => {
-                for (const row of balanceRows) {
-                    const newBalance = Number(row.net_balance);
-                    await (tx as any).financialAccount.update({
-                        where: { id: row.account_id },
-                        data:  { balance: newBalance }
-                    });
-                    updated++;
-                }
-            },
-            { timeout: 30_000 }
-        );
-
-        return NextResponse.json({
-            success: true,
-            updated,
-            message: `Rekalibrasi selesai: ${updated} akun berhasil diselaraskan dengan jurnal transaksi.`
+        // Update Saldo Akun
+        await (tx as any).financialAccount.update({
+          where: { id: acc.id },
+          data: { balance: newBalance }
         });
 
-    } catch (error: any) {
-        console.error('[RECALCULATE] Error:', error);
-        return NextResponse.json({ error: error.message || 'Internal error' }, { status: 500 });
-    }
+        console.log(`[RECALCULATE] Account ${acc.name} synced to: ${newBalance}`);
+      }
+    }, {
+      timeout: 30000 // Tipe transaksi berat, beri waktu 30 detik
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: 'Auto-Healing Selesai: Semua saldo akun telah disinkronkan ulang dengan jurnal transaksi secara akurat.'
+    });
+
+  } catch (error: any) {
+    console.error('Recalculate Error:', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 }

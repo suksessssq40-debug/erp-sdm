@@ -94,7 +94,6 @@ const FinanceModule: React.FC<FinanceProps> = ({
 
   // Data State
   const [localTransactions, setLocalTransactions] = useState<Transaction[]>([]);
-  const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
   const [coaList, setCoaList] = useState<ChartOfAccount[]>([]);
   const [coaSearchTerm, setCoaSearchTerm] = useState('');
   const [coaTypeFilter, setCoaTypeFilter] = useState('ALL');
@@ -107,22 +106,12 @@ const FinanceModule: React.FC<FinanceProps> = ({
   // --- PAGINATION & STATUS FILTER ---
   const [journalStatus, setJournalStatus] = useState<string>('ALL');
   const [journalSearch, setJournalSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [journalPage, setJournalPage] = useState(1);
   const [journalPagination, setJournalPagination] = useState({ total: 0, totalPages: 1 });
 
-
   // --- LEDGER SPECIFIC STATE ---
   const [ledgerAccount, setLedgerAccount] = useState<string>('');
-  const [ledgerData, setLedgerData] = useState<{
-    transactions: Transaction[],
-    openingBalance: number,
-    normalPos: 'DEBIT' | 'CREDIT'
-  }>({
-    transactions: [],
-    openingBalance: 0,
-    normalPos: 'DEBIT'
-  });
+  const [ledgerData, setLedgerData] = useState<{ transactions: Transaction[], openingBalance: number }>({ transactions: [], openingBalance: 0 });
 
   // Initialize Ledger Account
   useEffect(() => {
@@ -155,19 +144,6 @@ const FinanceModule: React.FC<FinanceProps> = ({
     refreshCoa();
   }, []);
 
-  // --- AUTO-HEAL: Recalculate cached balances once on mount (fire-and-forget) ---
-  // This ensures the financial_accounts.balance column stays in sync with the
-  // transactions table. It runs silently in the background and never blocks the UI.
-  useEffect(() => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('sdm_erp_auth_token') : null;
-    if (!token) return;
-    fetch('/api/finance/recalculate', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}` }
-    }).catch(() => { /* silent — non-critical background task */ });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty deps: runs once per mount
-
   // --- MODAL STATES ---
   const [transactionModal, setTransactionModal] = useState<{ isOpen: boolean; isEditing: boolean; data: Transaction | null }>({
     isOpen: false, isEditing: false, data: null
@@ -181,58 +157,34 @@ const FinanceModule: React.FC<FinanceProps> = ({
   const [businessModal, setBusinessModal] = useState<{ isOpen: boolean; data: Partial<BusinessUnit> }>({
     isOpen: false, data: {}
   });
-  // NEW: Manual COA Creation & Edit
-  const [createCoaModal, setCreateCoaModal] = useState<{ isOpen: boolean, isEditing: boolean, data: Partial<ChartOfAccount> | null }>({ isOpen: false, isEditing: false, data: null });
+  // NEW: Manual COA Creation
+  const [createCoaModal, setCreateCoaModal] = useState(false);
   const [importModal, setImportModal] = useState(false); // Import Modal State
   const [importCoaModal, setImportCoaModal] = useState(false); // COA Import Modal State
 
   // --- DATA FETCHING (MAIN) ---
-  // --- DATA FETCHING (MAIN) ---
-  const fetchController = React.useRef<AbortController | null>(null);
-
   const fetchData = async () => {
-    // 1. Cancel previous request if exists (Race Condition Protection)
-    if (fetchController.current) {
-      fetchController.current.abort();
-    }
-    const controller = new AbortController();
-    fetchController.current = controller;
-
     setIsLoading(true);
     const token = typeof window !== 'undefined' ? localStorage.getItem('sdm_erp_auth_token') : null;
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
     try {
-      // 1. Fetch Summary (include date range so card balances respond to the filter)
-      const sumParams = new URLSearchParams();
-      if (filterStartDate) sumParams.set('startDate', filterStartDate);
-      if (filterEndDate)   sumParams.set('endDate',   filterEndDate);
-      if (filterBusinessUnit && filterBusinessUnit !== 'ALL') sumParams.set('businessUnitId', filterBusinessUnit);
-      let sumUrl = `/api/finance/summary?${sumParams.toString()}`;
+      // 1. Fetch Summary
+      let sumUrl = '/api/finance/summary';
+      if (filterBusinessUnit && filterBusinessUnit !== 'ALL') sumUrl += `?businessUnitId=${filterBusinessUnit}`;
+
+      const resSum = await fetch(sumUrl, { headers });
+      if (resSum.ok) setSummary(await resSum.json());
 
       // 2. Fetch Transactions (With Status Filter, Global Search, and Account Filter)
       let transUrl = `/api/transactions?startDate=${filterStartDate}&endDate=${filterEndDate}&status=${journalStatus}&page=${journalPage}&limit=50`;
 
-      if (debouncedSearch) transUrl += `&search=${encodeURIComponent(debouncedSearch)}`;
+      if (journalSearch) transUrl += `&search=${encodeURIComponent(journalSearch)}`;
       if (filterAccount && filterAccount !== 'ALL') transUrl += `&accountName=${encodeURIComponent(filterAccount)}`;
       if (filterBusinessUnit && filterBusinessUnit !== 'ALL') transUrl += `&businessUnitId=${filterBusinessUnit}`;
 
-      // 2b. Fetch ALL transactions for exports and reports (bypass limit)
-      let allTransUrl = `/api/transactions?startDate=${filterStartDate}&endDate=${filterEndDate}&status=${journalStatus}&limit=9999999`;
-      if (debouncedSearch) allTransUrl += `&search=${encodeURIComponent(debouncedSearch)}`;
-      if (filterAccount && filterAccount !== 'ALL') allTransUrl += `&accountName=${encodeURIComponent(filterAccount)}`;
-      if (filterBusinessUnit && filterBusinessUnit !== 'ALL') allTransUrl += `&businessUnitId=${filterBusinessUnit}`;
-
-      // Parallel Fetch with Abort Signal
-      const [resSum, resTrans, resAllTrans] = await Promise.all([
-        fetch(sumUrl, { headers, cache: 'no-store', signal: controller.signal }),
-        fetch(transUrl, { headers, cache: 'no-store', signal: controller.signal }),
-        fetch(allTransUrl, { headers, cache: 'no-store', signal: controller.signal })
-      ]);
-
-      if (resSum.ok) setSummary(await resSum.json());
-
+      const resTrans = await fetch(transUrl, { headers });
       if (resTrans.ok) {
         const json = await resTrans.json();
         setLocalTransactions(json.data);
@@ -242,28 +194,14 @@ const FinanceModule: React.FC<FinanceProps> = ({
         });
       }
 
-      if (resAllTrans.ok) {
-        const jsonExp = await resAllTrans.json();
-        setAllTransactions(jsonExp.data);
-      }
-
       // 3. Refresh COA Balances (Fix for "Saldo COA Tetap")
-      // We don't abort COA refresh rigidly as it's less prone to race condition visual bugs, 
-      // but let's keep it safe.
       await refreshCoa();
 
-    } catch (e: any) {
-      if (e.name === 'AbortError') {
-        console.log('Fetch aborted (stale)');
-        return;
-      }
+    } catch (e) {
       console.error(e);
       toast.error('Gagal memuat data keuangan');
     } finally {
-      // Only turn off loading if THIS was the latest request
-      if (fetchController.current === controller) {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
     }
   };
 
@@ -292,17 +230,10 @@ const FinanceModule: React.FC<FinanceProps> = ({
 
   // --- EFFECTS ---
 
-  // No more auto-debounce effect on journalSearch
-  // We only update debouncedSearch (the active trigger) on explicit action
-  const handleSearchSubmit = () => {
-    setDebouncedSearch(journalSearch);
-    setJournalPage(1);
-  };
-
   // 1. Main Data (Mutasi & Summary) triggers on Filter Change
   useEffect(() => {
     fetchData();
-  }, [filterStartDate, filterEndDate, filterBusinessUnit, filterAccount, journalStatus, journalPage, debouncedSearch]);
+  }, [filterStartDate, filterEndDate, filterBusinessUnit, filterAccount, journalStatus, journalPage, journalSearch]);
 
   // 2. Ledger Data triggers when Tab is Ledger OR Ledger Account/Filters change
   useEffect(() => {
@@ -328,19 +259,6 @@ const FinanceModule: React.FC<FinanceProps> = ({
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [localTransactions, filterAccount, filterBusinessUnit, financialAccounts]);
 
-  const unpaginatedFilteredMutasi = useMemo(() => {
-    return allTransactions
-      .filter(t => {
-        if (filterAccount === 'ALL') return true;
-        if (filterAccount === 'GENERAL_JOURNAL') {
-          return !t.accountId || !financialAccounts.some(acc => acc.name === t.account);
-        }
-        return t.account === filterAccount;
-      })
-      .filter(t => filterBusinessUnit === 'ALL' || t.businessUnitId === filterBusinessUnit)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [allTransactions, filterAccount, filterBusinessUnit, financialAccounts]);
-
   // Helper for Month Name Display (if needed in titles)
   const getPeriodLabel = () => {
     const s = new Date(filterStartDate);
@@ -352,26 +270,18 @@ const FinanceModule: React.FC<FinanceProps> = ({
 
   // --- EXPORT HANDLER ---
   const handleExport = (type: 'pdf' | 'excel') => {
-
     if (activeTab === 'BUKU_BESAR') {
       // Calculate Ledger with Running Balance
       let balance = ledgerData.openingBalance;
       const rows = ledgerData.transactions.map(t => {
-        const dr = t.debit || 0;
-        const cr = t.credit || 0;
-
-        if (ledgerData.normalPos === 'DEBIT') {
-          balance += (dr - cr);
-        } else {
-          balance += (cr - dr);
-        }
-
+        if (t.type === TransactionType.IN) balance += t.amount;
+        else balance -= t.amount;
         return [
           new Date(t.date).toLocaleDateString('id-ID'),
-          t.account?.substring(0, 15) || '-',
+          t.account?.substring(0, 15) || '-', // Show Account brief
           t.description,
-          dr > 0 ? formatCurrency(dr) : '-',
-          cr > 0 ? formatCurrency(cr) : '-',
+          t.type === 'IN' ? formatCurrency(t.amount) : '-',
+          t.type === 'OUT' ? formatCurrency(t.amount) : '-',
           formatCurrency(balance)
         ];
       });
@@ -391,32 +301,18 @@ const FinanceModule: React.FC<FinanceProps> = ({
       toast.success("Sedang mendownload laporan...");
 
     } else if (activeTab === 'MUTASI') {
-      const rows = unpaginatedFilteredMutasi.map(t => {
-        const isExpense = t.coa?.type === 'EXPENSE';
-        const isRevenue = t.coa?.type === 'REVENUE' || t.coa?.type === 'INCOME';
+      const rows = filteredMutasi.map(t => [
+        new Date(t.date).toLocaleDateString('id-ID'),
+        t.account,
+        t.category,
+        t.description,
+        businessUnits.find(u => u.id === t.businessUnitId)?.name || '-',
+        t.type === 'IN' ? formatCurrency(t.amount) : '-',
+        t.type === 'OUT' ? formatCurrency(t.amount) : '-'
+      ]);
 
-        // Determine what to show in the columns for the Journal View export
-        // In a true journal, we show the Debit and Credit amounts.
-        // If it's a cash transaction:
-        // IN: Debit = Bank(Account), Credit = Revenue(Category)
-        // OUT: Debit = Expense(Category), Credit = Bank(Account)
-
-        const dr = t.type === 'IN' ? t.amount : 0;
-        const cr = t.type === 'OUT' ? t.amount : 0;
-
-        return [
-          new Date(t.date).toLocaleDateString('id-ID'),
-          t.account || '-', // Debit Side Name
-          t.category || '-', // Credit Side Name/Category
-          t.description,
-          businessUnits.find(u => u.id === t.businessUnitId)?.name || 'Umum',
-          dr > 0 ? formatCurrency(dr) : '-',
-          cr > 0 ? formatCurrency(cr) : '-'
-        ];
-      });
-
-      const title = `JURNAL TRANSAKSI (UMUM & KAS)`;
-      const columns = ['TANGGAL', 'SISI DEBET', 'SISI KREDIT', 'DESKRIPSI', 'UNIT', 'JUMLAH DEBET', 'JUMLAH KREDIT'];
+      const title = `JURNAL TRANSAKSI`;
+      const columns = ['TANGGAL', 'AKUN', 'KATEGORI', 'DESKRIPSI', 'UNIT', 'PEMASUKAN', 'PENGELUARAN'];
 
       if (type === 'pdf') {
         generateFinancePDF(title, `Periode: ${getPeriodLabel()}`, companyProfile, rows, columns);
@@ -452,32 +348,13 @@ const FinanceModule: React.FC<FinanceProps> = ({
     try {
       if (transactionModal.isEditing) {
         await onUpdateTransaction(data);
-        // Manual Local Update
-        setLocalTransactions(prev => prev.map(t => t.id === data.id ? data : t));
         toast.success('Transaksi diperbarui');
       } else {
         await onAddTransaction(data);
-        // Manual Local Update (Optimistic-like, but after success to ensure ID)
-        // Note: data might not have ID if not returned from onAddTransaction, 
-        // but typically onAddTransaction updates the store. 
-        // Ideally we should receive the created object.
-        // For now, we rely on the fact that store.transactions IS updated, 
-        // but localTransactions is separate. 
-        // Better: trigger fetchData immediately but dont block UI if possible.
-        // Even Better: We simply append 'data' with a temp ID if needed, 
-        // BUT 'onAddTransaction' is async and returns void in props, 
-        // so we can't easily get the REAL ID unless we change the interface.
-        // HOWEVER, 'fetchData' below will fix it. The issue was caching.
-        // With cache: 'no-store' added to fetchData, it should be fast enough.
-        // But to be super safe, let's force a delay-less fetch.
         toast.success('Transaksi disimpan');
       }
-
-      // IMPORTANT: With cache: 'no-store' in fetchData, this will now actually get fresh data.
-      // Previously it was hitting cache.
-      await fetchData();
-
-      if (activeTab === 'BUKU_BESAR') fetchLedger();
+      fetchData(); // Refresh Main
+      if (activeTab === 'BUKU_BESAR') fetchLedger(); // Refresh Ledger if active
     } catch (e) { toast.error("Gagal simpan"); }
   };
 
@@ -498,12 +375,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
     toast.success("Berhasil simpan rekening");
     fetchData();
   }
-  const handleDeleteAccount = async (id: string) => {
-    if (onDeleteAccount) {
-      await onDeleteAccount(id);
-      await fetchData();
-    }
-  }
+  const handleDeleteAccount = async (id: string) => { if (onDeleteAccount) await onDeleteAccount(id); }
 
   const handleOpenCategory = (type: TransactionType, parentId?: string | null) => setCategoryModal({ isOpen: true, data: { name: '', type, parentId } });
   const handleSaveCategory = async (data: TransactionCategory) => { if (onAddCategory) await onAddCategory(data); toast.success("Kategori ditambah"); }
@@ -576,7 +448,20 @@ const FinanceModule: React.FC<FinanceProps> = ({
             {businessUnits.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select>
 
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSyncBalances}
+              disabled={isSyncing}
+              className="p-3 bg-amber-100 text-amber-600 rounded-xl hover:bg-amber-200 transition shadow-sm"
+              title="Sinkronisasi Saldo Akun"
+            >
+              <RefreshCw size={16} className={isSyncing ? 'animate-spin' : ''} />
+            </button>
 
+            <button onClick={() => { fetchData(); if (activeTab === 'BUKU_BESAR') fetchLedger(); }} className="p-3 bg-blue-100 text-blue-600 rounded-xl hover:bg-blue-200 transition shadow-sm">
+              <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
+            </button>
+          </div>
 
           {/* EXPORT BUTTON */}
           <div className="relative">
@@ -604,65 +489,62 @@ const FinanceModule: React.FC<FinanceProps> = ({
         </div>
       </div>
 
-      {/* --- ACCOUNT HIGHLIGHTS & SYNC --- */}
-      <div className="flex gap-4 mb-8">
-        <div className="flex-1 flex overflow-x-auto pb-4 gap-4 snap-x no-scrollbar">
-          {financialAccounts.map(acc => {
-            const bal = summary?.accountBalances[acc.name] || 0;
-            const isSelected = filterAccount === acc.name;
-            return (
-              <div
-                key={acc.id}
-                onClick={() => {
-                  setFilterAccount(isSelected ? 'ALL' : acc.name);
-                  if (activeTab !== 'BUKU_BESAR') setLedgerAccount(acc.name);
-                }}
-                className={`relative flex-shrink-0 w-64 snap-start p-6 rounded-[2.5rem] border-2 cursor-pointer transition-all duration-300 group ${isSelected ? 'bg-slate-900 border-slate-900 text-white shadow-2xl shadow-slate-200' : 'bg-white border-slate-100 hover:border-blue-200 hover:shadow-lg shadow-sm text-slate-800'}`}
-              >
-                <div className="flex justify-between items-start mb-4">
-                  <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${isSelected ? 'bg-white/10' : 'bg-blue-50 text-blue-600'}`}>
-                    <Landmark size={20} />
-                  </div>
-                  {isSelected && <div className="text-[9px] font-black uppercase tracking-widest bg-blue-600 px-2 py-1 rounded-lg text-white">SELECTED</div>}
+      {/* --- ACCOUNT HIGHLIGHTS --- */}
+      <div className="flex overflow-x-auto pb-4 gap-4 snap-x custom-scrollbar">
+        {financialAccounts.map(acc => {
+          const bal = summary?.accountBalances[acc.name] || 0;
+          const isSelected = filterAccount === acc.name;
+          return (
+            <div
+              key={acc.id}
+              onClick={() => {
+                setFilterAccount(isSelected ? 'ALL' : acc.name);
+                if (activeTab !== 'BUKU_BESAR') setLedgerAccount(acc.name);
+              }}
+              className={`relative flex-shrink-0 w-64 snap-start p-6 rounded-[2.5rem] border-2 cursor-pointer transition-all duration-300 group ${isSelected ? 'bg-slate-900 border-slate-900 text-white shadow-2xl shadow-slate-200' : 'bg-white border-slate-100 hover:border-blue-200 hover:shadow-lg shadow-sm text-slate-800'}`}
+            >
+              <div className="flex justify-between items-start mb-4">
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${isSelected ? 'bg-white/10' : 'bg-blue-50 text-blue-600'}`}>
+                  <Landmark size={20} />
                 </div>
-                <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${isSelected ? 'text-slate-500' : 'text-slate-400'}`}>{acc.bankName} - {acc.name}</p>
-                <h4 className="text-xl font-black tracking-tight leading-none">{formatCurrency(bal)}</h4>
-
-                {onUpdateAccount && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleOpenAccount(true, acc); }}
-                    className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition opacity-0 group-hover:opacity-100"
-                  >
-                    <Edit size={12} className={isSelected ? 'text-white' : 'text-slate-500'} />
-                  </button>
-                )}
+                {isSelected && <div className="text-[9px] font-black uppercase tracking-widest bg-blue-600 px-2 py-1 rounded-lg text-white">SELECTED</div>}
               </div>
-            );
-          })}
+              <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${isSelected ? 'text-slate-500' : 'text-slate-400'}`}>{acc.bankName} - {acc.name}</p>
+              <h4 className="text-xl font-black tracking-tight leading-none">{formatCurrency(bal)}</h4>
 
-          {/* --- GENERAL JOURNAL CARD --- */}
-          <div
-            onClick={() => setFilterAccount(filterAccount === 'GENERAL_JOURNAL' ? 'ALL' : 'GENERAL_JOURNAL')}
-            className={`relative flex-shrink-0 w-64 snap-start p-6 rounded-[2.5rem] border-2 cursor-pointer transition-all duration-300 group ${filterAccount === 'GENERAL_JOURNAL' ? 'bg-blue-900 border-blue-900 text-white shadow-2xl shadow-blue-200' : 'bg-white border-slate-100 hover:border-blue-200 hover:shadow-lg shadow-sm text-slate-800'}`}
-          >
-            <div className="flex justify-between items-start mb-4">
-              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${filterAccount === 'GENERAL_JOURNAL' ? 'bg-white/10' : 'bg-slate-100 text-slate-500'}`}>
-                <RefreshCw size={20} />
-              </div>
-              {filterAccount === 'GENERAL_JOURNAL' && <div className="text-[9px] font-black uppercase tracking-widest bg-emerald-500 px-2 py-1 rounded-lg text-white">FILTER ACTIVE</div>}
+              {onUpdateAccount && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleOpenAccount(true, acc); }}
+                  className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition opacity-0 group-hover:opacity-100"
+                >
+                  <Edit size={12} className={isSelected ? 'text-white' : 'text-slate-500'} />
+                </button>
+              )}
             </div>
-            <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${filterAccount === 'GENERAL_JOURNAL' ? 'text-blue-300' : 'text-slate-400'}`}>PENYESUAIAN</p>
-            <h4 className="text-xl font-black tracking-tight leading-none">JURNAL UMUM</h4>
-          </div>
+          );
+        })}
 
-          {onAddAccount && (
-            <button onClick={() => handleOpenAccount(false)} className="flex-shrink-0 w-24 snap-start p-6 rounded-[2.5rem] border-2 border-dashed border-slate-200 flex flex-col items-center justify-center gap-2 hover:bg-slate-50 hover:border-blue-300 transition text-slate-300 hover:text-blue-500">
-              <Plus size={24} /><span className="text-[9px] font-black uppercase text-center">Add Akun</span>
-            </button>
-          )}
+        {/* --- GENERAL JOURNAL CARD (For Non-Cash Mutations) --- */}
+        <div
+          onClick={() => setFilterAccount(filterAccount === 'GENERAL_JOURNAL' ? 'ALL' : 'GENERAL_JOURNAL')}
+          className={`relative flex-shrink-0 w-64 snap-start p-6 rounded-[2.5rem] border-2 cursor-pointer transition-all duration-300 group ${filterAccount === 'GENERAL_JOURNAL' ? 'bg-blue-900 border-blue-900 text-white shadow-2xl shadow-blue-200' : 'bg-white border-slate-100 hover:border-blue-200 hover:shadow-lg shadow-sm text-slate-800'}`}
+        >
+          <div className="flex justify-between items-start mb-4">
+            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${filterAccount === 'GENERAL_JOURNAL' ? 'bg-white/10' : 'bg-slate-100 text-slate-500'}`}>
+              <RefreshCw size={20} />
+            </div>
+            {filterAccount === 'GENERAL_JOURNAL' && <div className="text-[9px] font-black uppercase tracking-widest bg-emerald-500 px-2 py-1 rounded-lg text-white">FILTER ACTIVE</div>}
+          </div>
+          <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${filterAccount === 'GENERAL_JOURNAL' ? 'text-blue-300' : 'text-slate-400'}`}>PENYESUAIAN</p>
+          <h4 className="text-xl font-black tracking-tight leading-none">JURNAL UMUM</h4>
+          <p className="mt-2 text-[9px] font-medium opacity-60">Transaksi tanpa Rekening Kas/Bank</p>
         </div>
 
-
+        {onAddAccount && (
+          <button onClick={() => handleOpenAccount(false)} className="flex-shrink-0 w-24 snap-start p-6 rounded-[2.5rem] border-2 border-dashed border-slate-200 flex flex-col items-center justify-center gap-2 hover:bg-slate-50 hover:border-blue-300 transition text-slate-300 hover:text-blue-500">
+            <Plus size={24} /><span className="text-[9px] font-black uppercase text-center">Add Akun</span>
+          </button>
+        )}
       </div>
 
       {/* --- TABS --- */}
@@ -672,31 +554,15 @@ const FinanceModule: React.FC<FinanceProps> = ({
             <button
               key={tab}
               onClick={() => setActiveTab(tab as any)}
-              className={`px-8 py-5 text-[10px] font-black uppercase tracking-widest transition-all relative ${activeTab === tab ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+              className={`whitespace-nowrap pb-4 px-6 text-[11px] font-black uppercase tracking-widest transition-all ${activeTab === tab ? 'text-slate-900 border-b-4 border-slate-900' : 'text-slate-400 hover:text-slate-600'}`}
             >
-              {tab === 'MUTASI' && 'Jurnal Umum'}
-              {tab === 'BUKU_BESAR' && 'Buku Besar'}
-              {tab === 'LAPORAN' && 'Laporan'}
-              {tab === 'DAFTAR_AKUN' && 'Daftar Akun'}
-              {tab === 'KBPOS' && 'Unit Bisnis'}
-              {activeTab === tab && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-600 rounded-full animate-in slide-in-from-bottom-2"></div>}
+              {tab.replace('_', ' ')}
             </button>
           ))}
         </div>
         <div className="flex items-center space-x-3 mb-4 flex-shrink-0">
-          <div className="bg-slate-900 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center shadow-xl shadow-slate-100 italic group relative overflow-hidden">
-            <Wallet size={14} className="mr-2 text-blue-400" />
-            TOTAL: <span className="ml-2">{formatCurrency(summary?.totalAssets || 0)}</span>
-
-            <button
-              onClick={handleSyncBalances}
-              disabled={isSyncing}
-              title="Sinkronkan Saldo (Hitung Ulang)"
-              className={`ml-4 p-1.5 rounded-lg transition-all ${isSyncing ? 'bg-blue-600 text-white' : 'hover:bg-white/10 text-slate-500 hover:text-blue-400'}`}
-            >
-              <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
-            </button>
-            {isSyncing && <div className="absolute inset-0 bg-blue-500/5 animate-pulse pointer-events-none"></div>}
+          <div className="bg-slate-900 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center shadow-xl shadow-slate-100 italic">
+            <Wallet size={14} className="mr-2 text-blue-400" /> TOTAL: <span className="ml-2">{formatCurrency(summary?.totalAssets || 0)}</span>
           </div>
           <button onClick={() => setImportModal(true)} className="bg-emerald-100 text-emerald-600 px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center hover:bg-emerald-200 transition shadow-sm">
             <FileSpreadsheet size={16} className="mr-2" /> IMPORT EXCEL
@@ -711,28 +577,23 @@ const FinanceModule: React.FC<FinanceProps> = ({
       {activeTab === 'MUTASI' && (
         <JournalView
           transactions={localTransactions}
-          financialAccounts={financialAccounts}
           businessUnits={businessUnits}
           onEdit={(t) => handleOpenTransaction(true, t)}
           onDelete={handleDeleteTransaction}
           statusFilter={journalStatus}
           onStatusChange={(s) => { setJournalStatus(s); setJournalPage(1); }}
           searchTerm={journalSearch}
-          onSearchChange={setJournalSearch}
-          onSearchSubmit={handleSearchSubmit}
+          onSearchChange={(val) => { setJournalSearch(val); setJournalPage(1); }}
           currentPage={journalPage}
           totalPages={journalPagination.totalPages}
-          totalRecords={journalPagination.total}
           onPageChange={setJournalPage}
         />
       )}
-
 
       {activeTab === 'BUKU_BESAR' && (
         <LedgerView
           transactions={ledgerData.transactions}
           openingBalance={ledgerData.openingBalance}
-          normalPos={ledgerData.normalPos}
           financialAccounts={financialAccounts}
           coaList={coaList} // Pass all COAs to Ledger
           selectedAccount={ledgerAccount}
@@ -744,7 +605,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
 
       {activeTab === 'LAPORAN' && (
         <ReportView
-          transactions={unpaginatedFilteredMutasi} // Uses general transaction pool without limit (Respects Unit Filter)
+          transactions={filteredMutasi} // Uses general transaction pool (Respects Unit Filter)
           summary={summary}
           MONTHS={MONTHS_LABEL}
         />
@@ -756,7 +617,7 @@ const FinanceModule: React.FC<FinanceProps> = ({
             <h3 className="text-xl font-black text-slate-800">DAFTAR AKUN (COA) / NERACA SALDO</h3>
             <div className="flex gap-2">
               <button
-                onClick={() => setCreateCoaModal({ isOpen: true, isEditing: false, data: null })}
+                onClick={() => setCreateCoaModal(true)}
                 className="bg-slate-900 text-white px-5 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-slate-800 transition"
               >
                 + TAMBAH AKUN MANUAL
@@ -809,11 +670,11 @@ const FinanceModule: React.FC<FinanceProps> = ({
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead>
-                <tr className="border-b-2 border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
-                  <th className="pb-6 pl-6">KODE</th>
-                  <th className="pb-6">NAMA AKUN</th>
-                  <th className="pb-6">TIPE / POSISI</th>
-                  <th className="pb-6 text-right pr-6">SALDO BERJALAN</th>
+                <tr className="border-b border-slate-100 text-xs font-black text-slate-400 uppercase tracking-widest">
+                  <th className="pb-4 pl-4">KODE</th>
+                  <th className="pb-4">NAMA AKUN</th>
+                  <th className="pb-4">TIPE</th>
+                  <th className="pb-4 text-right">SALDO SAAT INI</th>
                 </tr>
               </thead>
               <tbody className="text-sm">
@@ -826,34 +687,21 @@ const FinanceModule: React.FC<FinanceProps> = ({
                     return searchMatch && typeMatch;
                   })
                   .map((coa) => (
-                    <tr key={coa.id} className="border-b border-slate-50 hover:bg-slate-50/80 transition-all group">
-                      <td className="py-6 pl-6 font-mono font-black text-slate-500 text-xs">{coa.code}</td>
-                      <td className="py-6">
-                        <div className="flex flex-col">
-                          <span className="font-black text-slate-800 tracking-tight">{coa.name}</span>
-                          {(coa as any).isSystem && <span className="text-[7px] text-blue-500 font-black uppercase mt-1 tracking-widest">REKENING TERHUBUNG</span>}
-                        </div>
+                    <tr key={coa.id} className="border-b border-slate-50 hover:bg-slate-50 transition group">
+                      <td className="py-4 pl-4 font-mono font-bold text-slate-600">{coa.code}</td>
+                      <td className="py-4 font-bold text-slate-800 min-w-[200px]">
+                        {coa.name}
+                        {/* If system generated bank */}
+                        {(coa as any).isSystem && <span className="ml-2 text-[8px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded font-black uppercase">SYSTEM</span>}
                       </td>
-                      <td className="py-6">
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${['ASSET', 'EXPENSE'].includes(coa.type) ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'
-                            }`}>
-                            {coa.type}
-                          </span>
-                          <span className="text-[9px] font-bold text-slate-400 uppercase">/ {coa.normalPos}</span>
-                        </div>
+                      <td className="py-4">
+                        <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${['ASSET', 'EXPENSE'].includes(coa.type) ? 'bg-orange-50 text-orange-600' : 'bg-emerald-50 text-emerald-600'
+                          }`}>
+                          {coa.type}
+                        </span>
                       </td>
-                      <td className={`relative py-6 text-right pr-6 font-black tabular-nums transition-all ${(coa as any).balance < 0 ? 'text-rose-500' : 'text-slate-900 text-lg'}`}>
+                      <td className={`py-4 text-right font-black ${(coa as any).balance < 0 ? 'text-rose-500' : 'text-slate-700'}`}>
                         {(coa as any).balance !== undefined ? formatCurrency((coa as any).balance) : '-'}
-                        {!(coa as any).isSystem && (
-                          <button
-                            onClick={() => setCreateCoaModal({ isOpen: true, isEditing: true, data: coa as ChartOfAccount })}
-                            className="absolute top-1/2 -translate-y-1/2 right-[120px] p-2 bg-amber-100 text-amber-600 rounded-xl hover:bg-amber-200 transition opacity-0 group-hover:opacity-100 shadow-sm"
-                            title="Edit COA"
-                          >
-                            <Edit size={14} />
-                          </button>
-                        )}
                       </td>
                     </tr>
                   ))}
@@ -926,39 +774,29 @@ const FinanceModule: React.FC<FinanceProps> = ({
         />
       )}
 
-      {createCoaModal.isOpen && (
+      {createCoaModal && (
         <CreateCoaModal
-          isOpen={createCoaModal.isOpen}
-          isEditing={createCoaModal.isEditing}
-          initialData={createCoaModal.data}
-          onClose={() => setCreateCoaModal({ isOpen: false, isEditing: false, data: null })}
-          onSuccess={async () => {
-            await refreshCoa();
-            await fetchData();
-            setCreateCoaModal({ isOpen: false, isEditing: false, data: null });
-          }}
+          isOpen={createCoaModal}
+          onClose={() => setCreateCoaModal(false)}
           onSave={async (data) => {
             const token = typeof window !== 'undefined' ? localStorage.getItem('sdm_erp_auth_token') : null;
             const headers: Record<string, string> = { 'Content-Type': 'application/json' };
             if (token) headers['Authorization'] = `Bearer ${token}`;
 
-            const url = createCoaModal.isEditing ? `/api/finance/coa/${data.id}` : '/api/finance/coa';
-            const method = createCoaModal.isEditing ? 'PUT' : 'POST';
-
-            const res = await fetch(url, {
-              method,
+            const res = await fetch('/api/finance/coa', {
+              method: 'POST',
               headers,
               body: JSON.stringify(data)
             });
 
             if (res.ok) {
-              toast.success(createCoaModal.isEditing ? "Akun berhasil diubah!" : "Akun berhasil dibuat!");
+              toast.success("Akun berhasil dibuat!");
+              // Refresh COA List
               const resList = await fetch('/api/finance/coa', { headers });
               if (resList.ok) setCoaList(await resList.json());
-              fetchData(); // Important: Cascade updates might change Transaction Strings, so we refresh data.
             } else {
               const err = await res.json();
-              toast.error(err.error || 'Gagal memproses akun');
+              toast.error(err.error || 'Gagal membuat akun');
             }
           }}
           toast={toast}

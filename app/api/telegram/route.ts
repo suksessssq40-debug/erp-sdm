@@ -1,30 +1,35 @@
-export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import pool from '@/lib/db';
 import { authorize } from '@/lib/auth';
-import { recordSystemLog } from '@/lib/serverUtils';
 
 export async function POST(request: Request) {
   try {
-    const { chatId, message } = await request.json();
+    const { chatId, message, document, filename, caption } = await request.json();
+
+    console.log(`[API Transporter] Sending to ${chatId}`);
+
+    // 1. Get Token from Database (Securely for CURRENT Tenant)
     const user = await authorize();
-    const { tenantId } = user;
+    const settingsRes = await pool.query('SELECT telegram_bot_token, telegram_group_id, telegram_owner_chat_id FROM settings WHERE tenant_id = $1', [user.tenantId]);
 
-    const settings = await prisma.settings.findUnique({
-      where: { tenantId }
-    });
+    if (settingsRes.rows.length === 0) {
+      console.warn(`Telegram token not configured for tenant: ${user.tenantId}`);
+      return NextResponse.json({ error: 'Token not configured' }, { status: 404 });
+    }
+    const token = settingsRes.rows[0].telegram_bot_token;
+    const configuredGroupId = settingsRes.rows[0].telegram_group_id || '';
+    const configuredOwnerChatId = settingsRes.rows[0].telegram_owner_chat_id || '';
 
-    if (!settings || !settings.telegramBotToken) {
-      return NextResponse.json({ error: 'Telegram not configured' }, { status: 404 });
+    if (!token) {
+      return NextResponse.json({ error: 'Token empty' }, { status: 404 });
     }
 
-    const token = settings.telegramBotToken;
-    const configuredGroupId = settings.telegramGroupId || '';
-    const configuredOwnerChatId = settings.telegramOwnerChatId || '';
-
+    // 2. Normalize and Format Chat ID
     let actualChatId = String(chatId);
     let messageThreadId: number | undefined = undefined;
 
+    // Support both ID_THREAD and ID/THREAD
     const separator = actualChatId.includes('_') ? '_' : (actualChatId.includes('/') ? '/' : null);
     if (separator) {
       const parts = actualChatId.split(separator);
@@ -34,62 +39,74 @@ export async function POST(request: Request) {
       }
     }
 
-    // Auto-prefix for Supergroups
-    if (!actualChatId.startsWith('-') && !actualChatId.startsWith('@')) {
+    // PRO-ACTIVE FIX: Add -100 prefix immediately for supergroups to avoid first-attempt failure
+    if (!actualChatId.startsWith('-')) {
       actualChatId = '-100' + actualChatId;
     } else if (actualChatId.startsWith('-') && !actualChatId.startsWith('-100') && actualChatId.length >= 10) {
       actualChatId = '-100' + actualChatId.substring(1);
     }
 
-    // Security Check
-    const normalize = (id: string) => {
-      let clean = id.split('_')[0].split('/')[0].trim();
+    // Advanced Normalization for Security Check
+    const normalizeId = (id: string | null | undefined) => {
+      if (!id) return '';
+      let clean = String(id).trim();
+      const sep = clean.includes('_') ? '_' : (clean.includes('/') ? '/' : null);
+      if (sep) clean = clean.split(sep)[0].trim();
       if (clean.startsWith('-100')) return clean.substring(4);
       if (clean.startsWith('-')) return clean.substring(1);
       return clean;
     };
 
-    const targetNorm = normalize(actualChatId);
-    const allowed = [configuredGroupId, configuredOwnerChatId].map(id => normalize(id || ''));
+    const normalizedTarget = normalizeId(actualChatId);
 
-    if (!allowed.includes(targetNorm) && targetNorm !== '') {
-      return NextResponse.json({ error: 'Forbidden Destination' }, { status: 403 });
+    // 2b. SECURITY HARDENING
+    const rawAllowed = [configuredGroupId, configuredOwnerChatId];
+    const allowedIdsNormalized = rawAllowed.filter(id => !!id).map(id => normalizeId(id));
+
+    if (!allowedIdsNormalized.includes(normalizedTarget) && normalizedTarget !== '') {
+      return NextResponse.json({ error: 'Destination not allowed' }, { status: 403 });
     }
 
+    // 3. Send Message (Optimized Attempt)
+    const telegramUrl = `https://api.telegram.org/bot${token}/sendMessage`;
     const body: any = {
       chat_id: actualChatId,
       text: message,
       parse_mode: 'HTML',
     };
+
+    // Logic: If thread is 1, it's usually General Topic which works better without thread_id
     if (messageThreadId && messageThreadId !== 1) {
       body.message_thread_id = messageThreadId;
     }
 
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    let response = await fetch(telegramUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+    let data = await response.json();
 
-    const data = await res.json();
+    // 4. SMART FALLBACK
+    if (!response.ok) {
+      const errDesc = data.description || '';
 
-    if (!res.ok) {
-      if (data.description?.includes('thread not found') && body.message_thread_id) {
+      // If thread failed, try one last time without thread
+      if (errDesc.includes('thread not found') && body.message_thread_id) {
         delete body.message_thread_id;
-        const retry = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        const retryRes = await fetch(telegramUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        if (retry.ok) return NextResponse.json({ success: true, note: 'Fallback success' });
+        if (retryRes.ok) return NextResponse.json({ success: true, note: 'Thread fallback success' });
       }
-      return NextResponse.json({ error: data.description }, { status: 500 });
-    }
 
-    return NextResponse.json({ success: true });
+      return NextResponse.json({ error: errDesc }, { status: 500 });
+    }
+    return NextResponse.json({ success: true, data });
   } catch (error: any) {
     console.error("Telegram Fatal Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
-

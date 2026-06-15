@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../context/StoreContext';
-import { Users, AlertTriangle, FileText, CheckCircle2, Clock, Timer, ArrowRight, XCircle, Zap, Settings } from 'lucide-react';
+import { Users, AlertTriangle, FileText, CheckCircle2, Clock, Timer, ArrowRight, XCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 export const ManagerDashboard = () => {
-  const store = useAppStore();
-  const { currentUser, attendance, projects, requests, users } = store;
+  const { currentUser, attendance, projects, requests, users } = useAppStore();
   const router = useRouter();
 
   // --- 1. PERSONAL TIMER LOGIC (Copied from Staff) ---
@@ -61,8 +60,8 @@ export const ManagerDashboard = () => {
   // ------------------------------------------------
 
   // --- 2. TEAM MANAGEMENT LOGIC ---
-  // Fix "9/8" Error: Target is ALL active users EXCLUDING Owner
-  const teamMembers = users.filter(u => u.role !== 'OWNER' && u.role !== 'SUPERADMIN'); 
+  // Fix "9/8" Error: Target is ALL active users EXCLUDING Owner/Superadmin
+  const teamMembers = users.filter(u => u.role !== 'OWNER' && u.role !== 'SUPERADMIN' && u.isActive !== false); 
   const totalTeam = teamMembers.length;
   
   const todayTeamAttendance = attendance.filter(a => {

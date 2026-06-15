@@ -1,22 +1,42 @@
+
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
-import { serialize, getJakartaNow } from '@/lib/serverUtils';
 
+// FORCE DYNAMIC: Agar data selalu fresh (real-time), tidak di-cache browser
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    // 1. SECURITY: Pastikan hanya Owner/Manager/Finance yang bisa akses
+    // authorize() otomatis ambil headers, cukup pass allowed roles
     const user = await authorize(['OWNER', 'MANAGER', 'FINANCE']);
+
+    // authorize() throw error jika gagal, jadi code di bawah aman
+    if (user.role === 'STAFF') {
+      // Double check (walaupun sudah difilter di atas, guard extra ok)
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const tenantId = user.tenantId;
     if (!tenantId) {
       return NextResponse.json({ error: 'Tenant ID missing' }, { status: 400 });
     }
 
-    const jkt = getJakartaNow();
-    const todayISO = jkt.isoDate;
+    // 2. TIME SYNC: Gunakan Waktu Jakarta (Sama seperti Logic Absensi Baru)
     const now = new Date();
+    const jakartaFormatter = new Intl.DateTimeFormat('id-ID', {
+      timeZone: 'Asia/Jakarta',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour12: false
+    });
+    const parts = jakartaFormatter.formatToParts(now);
+    const getPart = (type: string) => parts.find(p => p.type === type)?.value || '';
+    const todayISO = `${getPart('year')}-${getPart('month')}-${getPart('day')}`;
 
+    // 3. PARALLEL QUERY (TURBO MODE) ⚡
     const [
       totalEmployees,
       attendanceToday,
@@ -25,28 +45,46 @@ export async function GET(request: NextRequest) {
       lateCount,
       overdueProjects
     ] = await Promise.all([
-      // Only count active staff/managers/finance for percentage. Exclude Owner & Superadmin
-      prisma.user.count({
+      // A. Total Karyawan (active only, exclude OWNER and SUPERADMIN)
+      prisma.user.count({ where: { tenantId, role: { notIn: ['OWNER', 'SUPERADMIN'] }, isActive: true } as any }),
+
+      // B. Absensi Hari Ini (only from active employees)
+      prisma.attendance.count({
         where: {
           tenantId,
-          isActive: true,
-          role: { notIn: ['OWNER', 'SUPERADMIN'] }
+          date: { startsWith: todayISO },
+          user: { isActive: true, role: { notIn: ['OWNER', 'SUPERADMIN'] } } as any
         }
       }),
-      prisma.attendance.count({ where: { tenantId, date: todayISO } }),
+
+      // C. Proyek Aktif
       prisma.project.count({ where: { tenantId, status: 'ON_GOING' } }),
+
+      // D. Request Pending
       prisma.leaveRequest.count({ where: { tenantId, status: 'PENDING' } }),
-      prisma.attendance.count({ where: { tenantId, date: todayISO, isLate: 1 } }),
+
+      // E. Late Count (active employees only)
+      prisma.attendance.count({
+        where: {
+          tenantId,
+          date: { startsWith: todayISO },
+          isLate: 1,
+          user: { isActive: true, role: { notIn: ['OWNER', 'SUPERADMIN'] } } as any
+        }
+      }),
+
+      // F. Overdue Projects
       prisma.project.count({
         where: {
           tenantId,
           status: { not: 'DONE' },
-          deadline: { lt: now }
+          deadline: { lt: now } // Simple date comparison
         }
       })
     ]);
 
-    return NextResponse.json(serialize({
+    // 4. RETURN HASIL
+    return NextResponse.json({
       employees: totalEmployees,
       attendance: attendanceToday,
       projects: activeProjects,
@@ -54,11 +92,10 @@ export async function GET(request: NextRequest) {
       lateCount: lateCount,
       overdueProjects: overdueProjects,
       serverTime: todayISO
-    }));
+    });
 
   } catch (error: any) {
     console.error('[DASHBOARD_STATS_ERROR]', error);
     return NextResponse.json({ error: 'Internal Server Error', details: error.message }, { status: 500 });
   }
 }
-

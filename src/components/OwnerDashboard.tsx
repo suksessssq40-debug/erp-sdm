@@ -11,8 +11,7 @@ import {
     CheckCircle2,
     Activity,
     Zap,
-    ArrowRight,
-    Settings
+    ArrowRight
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import {
@@ -29,8 +28,7 @@ import {
 
 export const OwnerDashboard = () => {
     // OPTIMIZED: Remove heavy data dependencies (attendance, projects, requests)
-    const store = useAppStore();
-    const { currentUser, users, dailyReports, authToken } = store;
+    const { currentUser, users, dailyReports, authToken } = useAppStore();
     const router = useRouter();
 
     // --- 1. SERVER-SIDE OPERATIONAL STATS (TURBO MODE) ---
@@ -105,7 +103,7 @@ export const OwnerDashboard = () => {
     const pendingApprovals = stats.requests;
     const lateCount = 0; // Backend stats needs update to return late count, safe fallback
     const overdueProjects: any[] = []; // Backend stats needs update, safe fallback. Use stats.overdueProjects count later.
-    const activeStaff = users ? users.filter(u => u.role !== 'OWNER') : []; // Keep basic user list for staff count
+    const activeStaff = users ? users.filter(u => u.role !== 'OWNER' && u.role !== 'SUPERADMIN' && u.isActive !== false) : []; // Keep basic user list for staff count (active only)
 
     const getHealthScore = () => {
         // Use stats.overdueProjects (count) instead of array length if available
@@ -188,51 +186,19 @@ export const OwnerDashboard = () => {
 
                 {/* 2. Quick Action / Asset Distribution */}
                 <div className="xl:col-span-4 grid grid-cols-1 gap-6">
-                    {/* SOP Insight Card */}
-                    <div className="bg-white rounded-[2.5rem] p-6 lg:p-7 shadow-sm border border-slate-100 relative group overflow-hidden">
-                        <div className="absolute right-0 top-0 w-24 h-24 bg-blue-50 rounded-full blur-2xl group-hover:scale-150 transition-transform"></div>
-                        <div className="relative z-10">
-                            <div className="flex items-center justify-between mb-4">
-                                <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl"><Zap size={20} /></div>
-                                <div className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Active SOP Policy</div>
-                            </div>
-                            <h3 className="text-lg font-black text-slate-800 tracking-tight leading-tight">Konsep Izin & Cuti</h3>
-                            <div className="mt-4 space-y-3">
-                                <div className="flex justify-between items-center text-xs">
-                                    <span className="text-slate-400 font-bold uppercase tracking-tight">Limit Mingguan</span>
-                                    <span className="font-black text-slate-800 bg-slate-100 px-2.5 py-1 rounded-lg">{store.settings?.leaveWeeklyLimit ?? 1}x/Minggu</span>
-                                </div>
-                                <div className="flex justify-between items-center text-xs">
-                                    <span className="text-slate-400 font-bold uppercase tracking-tight">Sisa Jatah Tahunan</span>
-                                    <span className="font-black text-slate-800 bg-slate-100 px-2.5 py-1 rounded-lg">{store.settings?.leaveAnnualQuota ?? 12} Hari</span>
-                                </div>
-                                <div className="flex justify-between items-center text-xs">
-                                    <span className="text-slate-400 font-bold uppercase tracking-tight">Penalti Sudden</span>
-                                    <span className="font-black text-rose-500 bg-rose-50 px-2.5 py-1 rounded-lg">Potong {store.settings?.leaveSuddenPenalty ?? 2}x</span>
-                                </div>
-                            </div>
-                            <button 
-                                onClick={() => router.push(`/${currentUser?.tenantId || 'sdm'}/${currentUser?.role.toLowerCase()}/requests`)}
-                                className="w-full mt-6 py-3 bg-slate-50 hover:bg-blue-50 text-slate-500 hover:text-blue-600 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2"
-                            >
-                                Kelola Kebijakan <Settings size={14} />
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="bg-white rounded-[2.5rem] p-6 lg:p-7 shadow-sm border border-slate-100 flex flex-col justify-between group hover:border-blue-200 transition-all duration-300">
+                    <div className="bg-white rounded-[2.5rem] p-6 xl:p-8 shadow-sm border border-slate-100 flex flex-col justify-between group hover:border-blue-200 transition-all duration-300">
                         <div>
-                            <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 mb-4 group-hover:scale-110 transition-transform">
-                                <Wallet size={20} />
+                            <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600 mb-6 group-hover:scale-110 transition-transform">
+                                <Wallet size={24} />
                             </div>
-                            <h3 className="text-base font-black text-slate-800 tracking-tight">Financial Module</h3>
-                            <p className="text-slate-400 text-[10px] mt-1 leading-relaxed">Kelola arus kas secara menyeluruh.</p>
+                            <h3 className="text-lg font-black text-slate-800 tracking-tight">Financial Intelligence</h3>
+                            <p className="text-slate-400 text-xs xl:text-sm mt-2 leading-relaxed">Kelola arus kas perusahaaan secara menyeluruh di modul finansial.</p>
                         </div>
                         <button
                             onClick={() => router.push(`/${currentUser?.tenantId || 'sdm'}/owner/finance`)}
-                            className="bg-slate-900 text-white w-full py-3 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-blue-600 transition shadow-lg mt-5 text-[10px]"
+                            className="bg-slate-900 text-white w-full py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-blue-600 transition shadow-lg mt-6 text-sm"
                         >
-                            Open Finance <ArrowRight size={16} />
+                            Open Finance <ArrowRight size={18} />
                         </button>
                     </div>
                 </div>
@@ -268,11 +234,11 @@ export const OwnerDashboard = () => {
                             <AreaChart data={finStats.dailyTrend}>
                                 <defs>
                                     <linearGradient id="colorIncome" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.2} />
+                                        <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.1} />
                                         <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
                                     </linearGradient>
                                     <linearGradient id="colorExpense" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#FB7185" stopOpacity={0.2} />
+                                        <stop offset="5%" stopColor="#FB7185" stopOpacity={0.1} />
                                         <stop offset="95%" stopColor="#FB7185" stopOpacity={0} />
                                     </linearGradient>
                                 </defs>
@@ -291,12 +257,7 @@ export const OwnerDashboard = () => {
                                     axisLine={false}
                                     tickLine={false}
                                     tick={{ fontSize: 10, fill: '#94A3B8', fontWeight: 700 }}
-                                    tickFormatter={(val) => {
-                                        if (val >= 1000000000) return `Rp${(val / 1000000000).toFixed(1)}M`;
-                                        if (val >= 1000000) return `Rp${(val / 1000000).toFixed(1)}Jt`;
-                                        if (val >= 1000) return `Rp${(val / 1000).toFixed(0)}Rb`;
-                                        return `Rp${val}`;
-                                    }}
+                                    tickFormatter={(val) => `Rp${val / 1000000}M`}
                                 />
                                 <Tooltip
                                     contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', fontWeight: 'bold' }}

@@ -8,18 +8,9 @@ export const createAttendanceActions = (
   authHeaders: Record<string, string>,
   addLog: (actionType: SystemActionType, details: string, target?: string, metadata?: any) => Promise<void>
 ) => {
-  const fetchAttendance = async (userId?: string, start?: string, end?: string) => {
+  const fetchAttendance = async () => {
     try {
-      let url = `${API_BASE}/api/attendance`;
-      const params = new URLSearchParams();
-      if (userId) params.append('userId', userId);
-      if (start) params.append('start', start);
-      if (end) params.append('end', end);
-      
-      const queryString = params.toString();
-      if (queryString) url += `?${queryString}`;
-
-      const res = await fetch(url, { headers: authHeaders });
+      const res = await fetch(`${API_BASE}/api/attendance`, { headers: authHeaders });
       if (res.ok) {
         const data = await res.json();
         setState(prev => ({ ...prev, attendance: data }));
@@ -42,7 +33,6 @@ export const createAttendanceActions = (
       addLog(SystemActionType.ATTENDANCE_CLOCK_IN, `Clock In at ${created.timeIn} ${created.isLate ? '(LATE)' : ''}`, created.id);
     } catch (e) {
       console.error(e);
-      throw e;
     }
   };
 
@@ -64,7 +54,6 @@ export const createAttendanceActions = (
       }
     } catch (e) {
       console.error(e);
-      throw e;
     }
   };
 
@@ -97,12 +86,28 @@ export const createAttendanceActions = (
     return await res.json();
   };
 
+  const fetchAttendanceReport = async (startDate: string, endDate: string) => {
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/attendance/report?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`,
+        { headers: authHeaders }
+      );
+      if (res.ok) return await res.json();
+      const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(err.error || 'Failed to fetch attendance report');
+    } catch (e) {
+      console.error('Fetch Attendance Report Failed', e);
+      throw e;
+    }
+  };
+
   return {
     fetchAttendance,
     addAttendance,
     updateAttendance,
     fetchShifts,
     createShift,
-    deleteShift
+    deleteShift,
+    fetchAttendanceReport
   };
 };

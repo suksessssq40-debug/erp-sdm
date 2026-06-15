@@ -19,14 +19,6 @@ export interface Tenant {
   radiusTolerance?: number;
   lateGracePeriod?: number;
 
-  // New: Leave Policy Configuration
-  leaveWeeklyLimit?: number;
-  leaveAnnualQuota?: number;
-  leaveSuddenPenalty?: number;
-  leaveNoticeThreshold?: number;
-  leaveNoticeRequired?: number;
-  leaveSuddenHourCutoff?: number;
-
   _count?: {
     users: number;
     projects: number;
@@ -56,12 +48,15 @@ export interface User {
   password?: string;
   deviceId?: string;
   deviceIds?: string[];
-  avatarUrl?: string | null;
+  avatarUrl?: string;
   jobTitle?: string;
   bio?: string;
   isFreelance?: boolean;
-  features?: string; // JSON String of enabled modules (e.g. "['finance','attendance']")
+  isKaizenMaster?: boolean;
   isActive?: boolean;
+  kaizenPoints?: number;
+  kaizenPointsResetAt?: string;
+  features?: string; // JSON String of enabled modules (e.g. "['finance','attendance']")
 }
 
 export enum KanbanStatus {
@@ -144,8 +139,6 @@ export interface LeaveRequest {
   description: string;
   startDate: string;
   endDate: string;
-  startTime?: string; // Format: HH:mm
-  endTime?: string;   // Format: HH:mm
   attachmentUrl?: string;
   status: RequestStatus;
   createdAt: number;
@@ -154,22 +147,6 @@ export interface LeaveRequest {
   approverName?: string;
   actionNote?: string;
   actionAt?: number;
-  
-  // Rule Enforcement Fields
-  isSudden?: boolean;
-  hasDoctorNote?: boolean;
-  penaltyWeight?: number;
-  user?: User;
-}
-
-export interface LeaveQuota {
-  id: string;
-  userId: string;
-  year: number;
-  totalQuota: number;
-  usedQuota: number;
-  remainingQuota: number;
-  tenantId?: string;
 }
 
 export interface Attendance {
@@ -228,14 +205,11 @@ export interface Transaction {
   imageUrl?: string; // New field for payment proof
 
   // New Accrual Fields
-
   coaId?: string;
   coa?: ChartOfAccount;
   contactName?: string;
   status?: string; // PAID, PENDING
   dueDate?: string;
-  debit?: number;
-  credit?: number;
 }
 
 export interface UserSalaryConfig {
@@ -285,13 +259,6 @@ export interface AppSettings {
   dailyRecapTime: string;
   dailyRecapModules: string[];
   companyProfile: CompanyProfile;
-  // Leave Policy
-  leaveWeeklyLimit?: number;
-  leaveAnnualQuota?: number;
-  leaveSuddenPenalty?: number;
-  leaveNoticeThreshold?: number;
-  leaveNoticeRequired?: number;
-  leaveSuddenHourCutoff?: number;
 }
 
 export interface DailyReport {
@@ -305,6 +272,8 @@ export interface DailyReport {
     link?: string;
     imageUrl?: string;
   }[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export enum SystemActionType {
@@ -337,9 +306,10 @@ export enum SystemActionType {
   USER_DELETE = 'USER_DELETE',
 
   SETTINGS_UPDATE = 'SETTINGS_UPDATE',
-  RENTAL_PS_CREATE = 'RENTAL_PS_CREATE',
-  RENTAL_PS_UPDATE = 'RENTAL_PS_UPDATE',
-  RENTAL_PS_DELETE = 'RENTAL_PS_DELETE'
+
+  KAIZEN_ASSIGN = 'KAIZEN_ASSIGN',
+  KAIZEN_DEDUCT = 'KAIZEN_DEDUCT',
+  KAIZEN_RESET = 'KAIZEN_RESET'
 }
 
 export interface SystemLog {
@@ -354,7 +324,41 @@ export interface SystemLog {
   metadata?: any;
 }
 
+export interface ChatRoom {
+  id: string;
+  name: string;
+  type: 'GROUP' | 'DM';
+  createdBy: string;
+  createdAt: number;
+  lastMessage?: {
+    content: string;
+    senderName: string;
+    timestamp: number;
+  };
+  memberIds: string[]; // For UI convenience
+  unreadCount?: number;
+  readStatus?: Record<string, number>;
+  isPinned?: boolean; // Pinned by current user (for rooms)
+}
 
+export interface ChatMessage {
+  id: string;
+  roomId: string;
+  senderId: string;
+  content: string;
+  attachmentUrl?: string; // Image or file
+  replyToId?: string;
+  replyToMessage?: {
+    id: string;
+    senderName: string;
+    content: string;
+  };
+  createdAt: number;
+  senderName?: string; // Populated on fetch
+  senderRole?: UserRole;
+  edited?: boolean;
+  isPinned?: boolean; // Global pin for the room
+}
 
 export interface TransactionCategory {
   id: string;
@@ -369,4 +373,16 @@ export interface BusinessUnit {
   name: string;
   description?: string;
   isActive: boolean;
+}
+
+export interface KaizenDeduction {
+  id: string;
+  userId: string;
+  userName?: string; // populated on fetch
+  deductedBy: string;
+  deductedByName?: string; // populated on fetch
+  amount: number;
+  category: 'RINGAN' | 'SEDANG' | 'BERAT';
+  reason?: string;
+  createdAt: string;
 }

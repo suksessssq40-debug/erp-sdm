@@ -19,7 +19,6 @@ const ProfileModule: React.FC<ProfileModuleProps> = ({ currentUser, onUpdateUser
         password: '', // Only sent if changed
     });
     const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
-    const [isUploading, setIsUploading] = useState(false);
 
     useEffect(() => {
         if (currentUser) {
@@ -33,15 +32,6 @@ const ProfileModule: React.FC<ProfileModuleProps> = ({ currentUser, onUpdateUser
         }
     }, [currentUser]);
 
-    // Cleanup blob URLs to prevent memory leaks
-    useEffect(() => {
-        return () => {
-            if (avatarPreview?.startsWith('blob:')) {
-                URL.revokeObjectURL(avatarPreview);
-            }
-        };
-    }, [avatarPreview]);
-
     const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -52,23 +42,13 @@ const ProfileModule: React.FC<ProfileModuleProps> = ({ currentUser, onUpdateUser
         }
 
         if (uploadFile) {
-            // Instant Local Preview
-            const localUrl = URL.createObjectURL(file);
-            setAvatarPreview(localUrl);
-
-            setIsUploading(true);
             try {
-                toast.info("Mengunggah foto ke server...");
+                toast.info("Mengunggah foto...");
                 const url = await uploadFile(file);
-                // Replace local URL with permanent server URL
                 setAvatarPreview(url);
                 toast.success("Foto berhasil diunggah! Jangan lupa simpan profil.");
             } catch (err) {
-                toast.error("Gagal mengunggah foto. Periksa koneksi atau ukuran file.");
-                // Revert to current user avatar if upload fails
-                setAvatarPreview(currentUser.avatarUrl || null);
-            } finally {
-                setIsUploading(false);
+                toast.error("Gagal mengunggah foto.");
             }
         }
     };
@@ -82,7 +62,7 @@ const ProfileModule: React.FC<ProfileModuleProps> = ({ currentUser, onUpdateUser
                 ...currentUser,
                 name: formData.name,
                 telegramUsername: formData.telegramUsername,
-                avatarUrl: avatarPreview === null ? null : (avatarPreview || undefined)
+                avatarUrl: avatarPreview || undefined
             };
 
             // If password provided
@@ -107,15 +87,8 @@ const ProfileModule: React.FC<ProfileModuleProps> = ({ currentUser, onUpdateUser
                     <h1 className="text-3xl font-black text-slate-800 uppercase tracking-tight">Profil Saya</h1>
                     <p className="text-slate-500 font-bold text-sm uppercase tracking-widest mt-1">Kelola Identitas & Informasi Akun</p>
                 </div>
-                <div className="flex gap-2">
-                    <div className="px-4 py-2 bg-slate-100 rounded-xl font-black text-xs uppercase tracking-widest text-slate-500">
-                        {currentUser.role}
-                    </div>
-                    {['OWNER', 'MANAGER', 'FINANCE'].includes(currentUser.role) && (
-                        <div className="px-4 py-2 bg-slate-900 text-white rounded-xl font-black text-[10px] uppercase tracking-tighter flex items-center gap-2 border border-slate-700 italic">
-                            <CheckCircle2 size={12} className="text-blue-400" /> Authorized Approver
-                        </div>
-                    )}
+                <div className="px-4 py-2 bg-slate-100 rounded-xl font-black text-xs uppercase tracking-widest text-slate-500">
+                    {currentUser.role}
                 </div>
             </div>
 
@@ -220,11 +193,11 @@ const ProfileModule: React.FC<ProfileModuleProps> = ({ currentUser, onUpdateUser
                         <div className="pt-6">
                             <button
                                 type="submit"
-                                disabled={loading || isUploading}
+                                disabled={loading}
                                 className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-[0.2em] shadow-xl hover:bg-blue-600 transition disabled:opacity-50 flex items-center justify-center gap-3"
                             >
-                                {loading || isUploading ? <span className="animate-spin text-xl">⏳</span> : <Save size={20} />}
-                                {loading ? 'Menyimpan...' : isUploading ? 'MENGUNGGAH FOTO...' : 'SIMPAN PERUBAHAN'}
+                                {loading ? <span className="animate-spin">⏳</span> : <Save size={20} />}
+                                {loading ? 'Menyimpan...' : 'SIMPAN PERUBAHAN'}
                             </button>
                         </div>
                     </div>

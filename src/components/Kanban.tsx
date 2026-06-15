@@ -5,7 +5,7 @@ import { KANBAN_COLUMNS } from '../constants';
 import {
   Plus, CheckCircle, Clock, EyeOff, UserPlus, UserCheck,
   History as HistoryIcon, Edit2, CheckCircle2, LayoutGrid, X, Circle,
-  ChevronRight, BarChart2, FileText
+  ChevronRight, BarChart2
 } from 'lucide-react';
 import { sendTelegramNotification, escapeHTML } from '../utils';
 import { useToast } from './Toast';
@@ -42,7 +42,6 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
   const [historyProject, setHistoryProject] = useState<Project | null>(null); // State for history modal
-  const [isExporting, setIsExporting] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'priority' | 'deadline' | 'search'>('priority');
   const [searchQuery, setSearchQuery] = useState('');
@@ -51,7 +50,7 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
   // Filter visible projects first (Role based)
   const baseProjects = projects.filter(p => {
     if (p.isManagementOnly) {
-      return [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(currentUser.role) || p.createdBy === currentUser.id;
+      return [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(currentUser.role);
     }
     return true;
   });
@@ -111,7 +110,7 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
       `\n👤 OLEH: <b>${escapeHTML(currentUser.name)}</b>\n` +
       `👥 TEAM: ${escapeHTML(tagString)}`;
 
-    let targetChatId = settings.telegramGroupId || settings.telegramOwnerChatId;
+    let targetChatId = project.isManagementOnly ? settings.telegramOwnerChatId : settings.telegramGroupId;
 
     if (targetChatId) {
       if (targetChatId.includes('_')) {
@@ -153,19 +152,19 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
     setEditingProject(null);
   };
 
-  const handleMoveStatus = async (project: Project, newStatus: KanbanStatus) => {
+  const handleMoveStatus = (project: Project, newStatus: KanbanStatus) => {
     // Definisi Otoritas
-    const isOwner = currentUser.role === UserRole.OWNER;
+    const isStaff = currentUser.role === UserRole.STAFF;
 
-    if (!isOwner && newStatus === KanbanStatus.DONE) {
-      toast.warning("Hanya OWNER yang memiliki otoritas untuk memindahkan proyek ke status SELESAI (DONE). Mohon lapor ke Owner untuk finalisasi.");
+    if (isStaff && newStatus === KanbanStatus.DONE) {
+      toast.warning("Staff hanya dapat update sampai status PREVIEW. Mohon lapor manajemen untuk finalisasi ke DONE / SELESAI.");
       return;
     }
 
     if (project.status === newStatus) return;
 
     try {
-      await patchProject(project.id, 'MOVE_STATUS', { status: newStatus });
+      patchProject(project.id, 'MOVE_STATUS', { status: newStatus });
 
       if (newStatus === KanbanStatus.DONE && onCelebrate) {
         onCelebrate(`Proyek "${project.title}" selesai!`);
@@ -181,154 +180,6 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
       toast.success(`Status proyek "${project.title}" berhasil diubah menjadi ${newStatus}`);
     } catch (err: any) {
       toast.error(err?.message || 'Gagal mengupdate status proyek. Periksa koneksi dan coba lagi.');
-    }
-  };
-
-  const handleExportPDF = async () => {
-    if (finalProjects.length === 0) {
-      toast.warning("Tidak ada proyek untuk di-export.");
-      return;
-    }
-
-    setIsExporting(true);
-    try {
-      const { jsPDF } = await import('jspdf');
-      // @ts-ignore
-      const autoTable = (await import('jspdf-autotable')).default;
-      const doc = new jsPDF('p', 'mm', 'a4');
-      const pageWidth = doc.internal.pageSize.getWidth();
-
-      // --- HEADER ---
-      doc.setFillColor(30, 41, 59); // Slate-800
-      doc.rect(0, 0, pageWidth, 40, 'F');
-
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(22);
-      doc.setFont('helvetica', 'bold');
-      doc.text('LAPORAN PROGRESS KANBAN', 14, 18);
-
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`Dicetak Oleh: ${currentUser.name}`, 14, 26);
-      doc.text(`Tanggal Cetak: ${new Date().toLocaleString('id-ID')}`, 14, 32);
-      doc.text(`Total Proyek: ${finalProjects.length}`, pageWidth - 50, 32);
-
-      let currentY = 50;
-
-      // --- PROJECTS LOOP ---
-      finalProjects.forEach((project, index) => {
-        // Add new page if space is tight (roughly 60mm needed for project header + some tasks)
-        if (currentY > 230) {
-          doc.addPage();
-          currentY = 20;
-        }
-
-        // Project Title Header
-        doc.setFillColor(248, 250, 252); // Slate-50
-        doc.rect(14, currentY, pageWidth - 28, 12, 'F');
-        doc.setDrawColor(226, 232, 240); // Slate-200
-        doc.line(14, currentY, 14, currentY + 12);
-
-        doc.setTextColor(30, 41, 59);
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'bold');
-        doc.text(`${index + 1}. ${project.title.toUpperCase()}`, 18, currentY + 8);
-
-        doc.setFontSize(8);
-        doc.setTextColor(100, 116, 139);
-        doc.text(`PRIORITY: ${project.priority} | STATUS: ${project.status}`, pageWidth - 70, currentY + 8);
-        currentY += 18;
-
-        // Description
-        doc.setTextColor(100, 116, 139);
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'italic');
-        const splitDesc = doc.splitTextToSize(project.description || 'Tidak ada deskripsi.', pageWidth - 32);
-        doc.text(splitDesc, 18, currentY);
-        currentY += (splitDesc.length * 5) + 6;
-
-        // Collaborators
-        const teamNames = project.collaborators.map(id => users.find(u => u.id === id)?.name || 'Unknown').join(', ');
-        doc.setTextColor(30, 41, 59);
-        doc.setFontSize(9);
-        doc.setFont('helvetica', 'bold');
-        doc.text(`TIM KANBAN: `, 18, currentY);
-        doc.setFont('helvetica', 'normal');
-        doc.text(teamNames, 42, currentY);
-        currentY += 8;
-
-        // Tasks Table
-        const taskData = project.tasks.map((task, tIdx) => [
-          tIdx + 1,
-          task.title,
-          task.assignedTo.map(id => users.find(u => u.id === id)?.name || '-').join(', '),
-          task.isCompleted ? 'SELESAI' : 'PROSES',
-          task.isCompleted && task.completionProof ? (task.completionProof.description + (task.completionProof.link ? `\n[LINK: ${task.completionProof.link}]` : '')) : '-'
-        ]);
-
-        autoTable(doc, {
-          startY: currentY,
-          head: [['No', 'Tugas / Pekerjaan', 'PIC Tugas', 'Status', 'Hasil Kerja & Link Bukti']],
-          body: taskData,
-          theme: 'grid',
-          headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold' },
-          bodyStyles: { fontSize: 7.5, textColor: [30, 41, 59], cellPadding: 3 },
-          columnStyles: {
-            0: { cellWidth: 8 },
-            1: { cellWidth: 50 },
-            2: { cellWidth: 35 },
-            3: { cellWidth: 15 },
-            4: { cellWidth: 'auto' }
-          },
-          margin: { left: 18 },
-          didDrawPage: (data: any) => {
-            currentY = data.cursor.y + 8;
-          }
-        });
-
-        // --- DISCUSSION SECTION ---
-        if (project.comments && project.comments.length > 0) {
-          if (currentY > 240) { doc.addPage(); currentY = 20; }
-
-          doc.setFillColor(241, 245, 249);
-          doc.rect(18, currentY, pageWidth - 36, 6, 'F');
-          doc.setTextColor(71, 85, 105);
-          doc.setFontSize(8);
-          doc.setFont('helvetica', 'bold');
-          doc.text('CATATAN DISKUSI & INSTRUKSI PROYEK', 22, currentY + 4);
-          currentY += 10;
-
-          project.comments.slice(-5).forEach(comment => {
-            const userName = users.find(u => u.id === comment.userId)?.name || 'System';
-            const date = new Date(comment.createdAt).toLocaleDateString('id-ID');
-
-            doc.setTextColor(30, 41, 59);
-            doc.setFont('helvetica', 'bold');
-            doc.text(`${userName} (${date}):`, 22, currentY);
-
-            doc.setFont('helvetica', 'normal');
-            doc.setTextColor(100, 116, 139);
-            const splitComment = doc.splitTextToSize(comment.text, pageWidth - 50);
-            doc.text(splitComment, 22, currentY + 4);
-            currentY += (splitComment.length * 4) + 4;
-          });
-          currentY += 4;
-        }
-
-        // Add separator between projects
-        if (index < finalProjects.length - 1) {
-          doc.setDrawColor(241, 245, 249);
-          doc.line(14, currentY - 5, pageWidth - 14, currentY - 5);
-        }
-      });
-
-      doc.save(`Laporan_Kanban_${currentUser.name}_${new Date().toISOString().split('T')[0]}.pdf`);
-      toast.success("Laporan PDF berhasil di-generate!");
-    } catch (e) {
-      console.error(e);
-      toast.error("Gagal membuat PDF.");
-    } finally {
-      setIsExporting(false);
     }
   };
 
@@ -356,18 +207,6 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
             <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">DRAG & DROP UNTUK UPDATE STATUS</p>
           </div>
           <div className="flex gap-3 w-full md:w-auto">
-            <button
-              onClick={handleExportPDF}
-              disabled={isExporting}
-              className="bg-rose-50 text-rose-600 px-5 py-3 rounded-2xl flex items-center justify-center space-x-2 hover:bg-rose-600 hover:text-white transition flex-1 md:flex-none shadow-sm font-black text-xs uppercase tracking-widest disabled:opacity-50"
-            >
-              {isExporting ? (
-                <div className="w-4 h-4 border-2 border-rose-600 border-t-transparent rounded-full animate-spin"></div>
-              ) : (
-                <FileText size={18} />
-              )}
-              <span>{isExporting ? 'EXPORTING...' : 'EXPORT PDF'}</span>
-            </button>
             <button onClick={() => router.push(`/${currentUser.tenantId || 'sdm'}/${currentUser.role.toLowerCase()}/projects`)} className="bg-slate-100 text-slate-600 px-5 py-3 rounded-2xl flex items-center justify-center space-x-2 hover:bg-slate-200 transition flex-1 md:flex-none">
               <LayoutGrid size={20} /> <span className="font-black text-xs uppercase tracking-widest">DETAIL VIEW</span>
             </button>
@@ -510,7 +349,7 @@ const Kanban: React.FC<KanbanProps> = ({ projects, users, currentUser, settings,
                           <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-lg ${project.priority === 'High' ? 'bg-rose-500 text-white shadow-lg shadow-rose-100' :
                             project.priority === 'Medium' ? 'bg-amber-500 text-white shadow-lg shadow-amber-100' : 'bg-blue-500 text-white shadow-lg shadow-blue-100'
                             }`}>{project.priority}</span>
-                          {!!project.isManagementOnly && <EyeOff size={12} className="text-slate-300" />}
+                          {project.isManagementOnly && <EyeOff size={12} className="text-slate-300" />}
                         </div>
                       </div>
                     </div>
@@ -679,53 +518,41 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, curre
   const [showHistory, setShowHistory] = useState<string | null>(null);
   const [showEditTask, setShowEditTask] = useState<string | null>(null);
 
-  // Loading States Map: taskId -> actionType ('comment', 'finish', 'reopen', 'title', 'pic', 'status')
-  const [loadingAction, setLoadingAction] = useState<{ [key: string]: string }>({});
-  const [projectCommentLoading, setProjectCommentLoading] = useState(false);
-
-  const setLoading = (id: string, action: string | null) => {
-    setLoadingAction(prev => {
-      const next = { ...prev };
-      if (action) next[id] = action;
-      else delete next[id];
-      return next;
-    });
-  };
-
-  const isLoading = (id: string, action?: string) => {
-    if (!action) return !!loadingAction[id];
-    return loadingAction[id] === action;
-  };
-
   const officeLabel = settings.companyProfile?.name ? settings.companyProfile.name.toUpperCase() : currentUser.tenantId.toUpperCase() + " ERP";
 
   const handleAddComment = async (idx: number) => {
     const taskId = project.tasks[idx].id;
-    if (isLoading(taskId)) return;
-
     const text = taskComments[taskId];
     if (!text) return;
 
-    setLoading(taskId, 'comment');
+    // Construct local update for Optimistic UI (Optionally skipped if relying on Realtime/Response)
+    // But since backend 'UPDATE_TASK' replaces the task, we need to send the NEW state of the task or just the diff?
+    // Backend 'UPDATE_TASK' logic: targets ID, merges properties.
+    // 'comments' is an array. Merging { comments: [...] } replaces the array.
+    // So we must include previous comments.
+
+    const currentTask = project.tasks[idx];
+    const newComment = { id: Date.now().toString(), userId: currentUser.id, text, createdAt: Date.now() };
+    const newHistory = { id: Math.random().toString(36).substr(2, 9), userId: currentUser.id, userName: currentUser.name, action: `Komentar: ${text}`, timestamp: Date.now() };
+
+    const updatedTask = {
+      ...currentTask,
+      comments: [...currentTask.comments, newComment],
+      history: [...currentTask.history, newHistory]
+    };
+
     try {
-      const currentTask = project.tasks[idx];
-      const newComment = { id: Date.now().toString(), userId: currentUser.id, text, createdAt: Date.now() };
-      const newHistory = { id: Math.random().toString(36).substr(2, 9), userId: currentUser.id, userName: currentUser.name, action: `Komentar: ${text}`, timestamp: Date.now() };
-
-      const updatedTask = {
-        ...currentTask,
-        comments: [...currentTask.comments, newComment],
-        history: [...currentTask.history, newHistory]
-      };
-
-      // Optimistic update via store action
       const updatedProject = await patchProject(project.id, 'UPDATE_TASK', { taskId, task: updatedTask });
       setTaskComments(prev => ({ ...prev, [taskId]: '' }));
-      if (onUpdate) onUpdate(updatedProject);
+
+      // 1. Force UI Update via callback (Parent re-renders)
+      if (onUpdate) onUpdate(updatedProject); // This ensures the modal sees the new project data immediately
+
+      // 2. Add Toast Feedback (UX requirement)
       toast.success("Komentar terkirim");
 
-      // Telegram (Fire and forget, don't await blocking UI)
-      const targetChatId = settings.telegramGroupId || settings.telegramOwnerChatId;
+      // Telegram
+      const targetChatId = project.isManagementOnly ? settings.telegramOwnerChatId : settings.telegramGroupId;
       let finalChatId = targetChatId;
       if (finalChatId) {
         if (finalChatId.includes('_')) {
@@ -744,36 +571,30 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, curre
       sendTelegramNotification(settings.telegramBotToken, finalChatId, msg);
     } catch (e) {
       toast.error("Gagal mengirim komentar");
-    } finally {
-      setLoading(taskId, null);
     }
   };
 
   const finishTask = async (idx: number) => {
-    const currentTask = project.tasks[idx];
-    if (isLoading(currentTask.id)) return;
-
     if (!proofForm.description) {
       toast.warning("Harap isi deskripsi penyelesaian tugas.");
       return;
     }
 
-    setLoading(currentTask.id, 'finish');
+    const currentTask = project.tasks[idx];
+    const newHistory = { id: Math.random().toString(36).substr(2, 9), userId: currentUser.id, userName: currentUser.name, action: 'Tugas Selesai', timestamp: Date.now() };
+
+    const updatedTask = {
+      ...currentTask,
+      isCompleted: true,
+      completionProof: { ...proofForm },
+      history: [...currentTask.history, newHistory]
+    };
+
     try {
-      const newHistory = { id: Math.random().toString(36).substr(2, 9), userId: currentUser.id, userName: currentUser.name, action: 'Tugas Selesai', timestamp: Date.now() };
-
-      const updatedTask = {
-        ...currentTask,
-        isCompleted: true,
-        completionProof: { ...proofForm },
-        history: [...currentTask.history, newHistory]
-      };
-
-      const updatedProject = await patchProject(project.id, 'UPDATE_TASK', { taskId: currentTask.id, task: updatedTask });
-      if (onUpdate) onUpdate(updatedProject);
+      await patchProject(project.id, 'UPDATE_TASK', { taskId: currentTask.id, task: updatedTask });
       toast.success(`Tugas "${updatedTask.title}" berhasil diselesaikan!`);
 
-      // Telegram
+      // Telegram Notification
       const collaborators = users.filter(u => updatedTask.assignedTo.includes(u.id));
       const tagString = collaborators.map(u => u.telegramUsername || u.name).join(', ');
 
@@ -786,7 +607,7 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, curre
         `\n👤 OLEH: <b>${escapeHTML(currentUser.name)}</b>\n` +
         `👥 TEAM PIC: ${escapeHTML(tagString)}`;
 
-      const targetChatId = settings.telegramGroupId || settings.telegramOwnerChatId;
+      const targetChatId = project.isManagementOnly ? settings.telegramOwnerChatId : settings.telegramGroupId;
       sendTelegramNotification(settings.telegramBotToken, targetChatId, msg);
 
       setActiveTaskIndex(null);
@@ -794,169 +615,6 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, curre
     } catch (err: any) {
       console.error('Error finishing task:', err);
       toast.error(err?.message || 'Gagal menyelesaikan tugas.');
-    } finally {
-      setLoading(currentTask.id, null);
-    }
-  };
-
-  const reopenTask = async (idx: number) => {
-    const currentTask = project.tasks[idx];
-    if (isLoading(currentTask.id)) return;
-
-    if (!window.confirm("Apakah Anda yakin ingin membatalkan status selesai tugas ini (Revisi)?")) return;
-
-    setLoading(currentTask.id, 'reopen');
-    try {
-      const newHistory = { id: Math.random().toString(36).substr(2, 9), userId: currentUser.id, userName: currentUser.name, action: 'Status dibatalkan (Revisi)', timestamp: Date.now() };
-
-      const updatedTask = {
-        ...currentTask,
-        isCompleted: false,
-        history: [...currentTask.history, newHistory]
-      };
-
-      const updatedProject = await patchProject(project.id, 'UPDATE_TASK', { taskId: currentTask.id, task: updatedTask });
-      if (onUpdate) onUpdate(updatedProject);
-      toast.success('Status tugas dikembalikan ke proses.');
-
-      // Telegram
-      const targetChatId = settings.telegramGroupId || settings.telegramOwnerChatId;
-      let finalChatId = targetChatId;
-      if (finalChatId) {
-        if (finalChatId.includes('_')) {
-          const parts = finalChatId.split('_');
-          if (!parts[0].startsWith('-')) finalChatId = `-100${parts[0]}_${parts[1]}`;
-        } else if (!finalChatId.startsWith('-') && /^\d+$/.test(finalChatId)) {
-          finalChatId = `-100${finalChatId}`;
-        }
-      }
-      const msg = `⚠️ <b>Tugas Dibuka Kembali (Revisi)</b>\n\n` +
-        `Proyek: <b>${escapeHTML(project.title)}</b>\n` +
-        `Tugas: <b>${escapeHTML(updatedTask.title)}</b>\n` +
-        `Oleh: <b>${escapeHTML(currentUser.name)}</b>`;
-      sendTelegramNotification(settings.telegramBotToken, finalChatId, msg);
-
-    } catch (e) {
-      toast.error("Gagal membuka kembali tugas");
-    } finally {
-      setLoading(currentTask.id, null);
-    }
-  };
-
-  const handleTitleEdit = async (e: React.KeyboardEvent<HTMLInputElement>, idx: number) => {
-    const currentTask = project.tasks[idx];
-    if (isLoading(currentTask.id)) {
-      if (e.key === 'Enter') e.preventDefault(); // Block enter if loading
-      return;
-    }
-
-    if (e.key === 'Enter') {
-      const val = (e.target as HTMLInputElement).value;
-      if (val && val !== currentTask.title) {
-        setLoading(currentTask.id, 'title');
-        try {
-          const newHistory = { id: Math.random().toString(36).substr(2, 9), userId: currentUser.id, userName: currentUser.name, action: `Edit Judul: "${currentTask.title}" -> "${val}"`, timestamp: Date.now() };
-          const updatedTask = { ...currentTask, title: val, history: [...currentTask.history, newHistory] };
-
-          const updatedProject = await patchProject(project.id, 'UPDATE_TASK', { taskId: currentTask.id, task: updatedTask });
-          if (onUpdate) onUpdate(updatedProject);
-          toast.success('Judul tugas diperbarui');
-          setShowEditTask(null);
-
-          // Telegram
-          const targetChatId = settings.telegramGroupId || settings.telegramOwnerChatId;
-          let finalChatId = targetChatId;
-          if (finalChatId) {
-            if (finalChatId.includes('_')) {
-              const parts = finalChatId.split('_');
-              if (!parts[0].startsWith('-')) finalChatId = `-100${parts[0]}_${parts[1]}`;
-            } else if (!finalChatId.startsWith('-') && /^\d+$/.test(finalChatId)) {
-              finalChatId = `-100${finalChatId}`;
-            }
-          }
-          const msg = `🛠️ <b>JUDUL TUGAS DIUBAH</b>\n\n` +
-            `📌 PROYEK: <b>${escapeHTML(project.title)}</b>\n` +
-            `❌ LAMA: <s>${escapeHTML(currentTask.title)}</s>\n` +
-            `✅ BARU: <b>${escapeHTML(val)}</b>\n` +
-            `👤 OLEH: <b>${escapeHTML(currentUser.name)}</b>`;
-          sendTelegramNotification(settings.telegramBotToken, finalChatId, msg);
-
-        } catch (e) { toast.error("Gagal update judul"); }
-        finally { setLoading(currentTask.id, null); }
-      } else {
-        setShowEditTask(null);
-      }
-    } else if (e.key === 'Escape') {
-      setShowEditTask(null);
-    }
-  };
-
-  const togglePIC = async (u: User, idx: number) => {
-    const currentTask = project.tasks[idx];
-    if (isLoading(currentTask.id)) return;
-
-    setLoading(currentTask.id, 'pic');
-    try {
-      const currentPICS = currentTask.assignedTo;
-      let actionType = '';
-      let newPICS = [];
-
-      if (currentPICS.includes(u.id)) {
-        newPICS = currentPICS.filter(id => id !== u.id);
-        actionType = 'removed';
-      } else {
-        newPICS = [...currentPICS, u.id];
-        actionType = 'added';
-      }
-
-      const logAction = actionType === 'removed' ? `Hapus PIC: ${u.name}` : `Tambah PIC: ${u.name}`;
-      const newHistory = { id: Math.random().toString(36).substr(2, 9), userId: currentUser.id, userName: currentUser.name, action: logAction, timestamp: Date.now() };
-
-      const updatedTask = { ...currentTask, assignedTo: newPICS, history: [...currentTask.history, newHistory] };
-
-      const updatedProject = await patchProject(project.id, 'UPDATE_TASK', { taskId: currentTask.id, task: updatedTask });
-      if (onUpdate) onUpdate(updatedProject);
-
-      // Notify Telegram
-      const targetChatId = settings.telegramGroupId || settings.telegramOwnerChatId;
-      let finalChatId = targetChatId;
-      if (finalChatId) {
-        if (finalChatId.includes('_')) {
-          const parts = finalChatId.split('_');
-          if (!parts[0].startsWith('-')) finalChatId = `-100${parts[0]}_${parts[1]}`;
-        } else if (!finalChatId.startsWith('-') && /^\d+$/.test(finalChatId)) {
-          finalChatId = `-100${finalChatId}`;
-        }
-      }
-      const msg = `👥 <b>UPDATE TIM TUGAS</b>\n\n` +
-        `📌 PROYEK: <b>${escapeHTML(project.title)}</b>\n` +
-        `📝 TUGAS: <b>${escapeHTML(currentTask.title)}</b>\n` +
-        `⚡ ACTION: ${actionType === 'added' ? '✅ Menambahkan' : '❌ Menghapus'} <b>${escapeHTML(u.name)}</b>\n` +
-        `\n👤 OLEH: <b>${escapeHTML(currentUser.name)}</b>`;
-      sendTelegramNotification(settings.telegramBotToken, finalChatId, msg);
-
-    } catch (e) { toast.error("Gagal update PIC"); }
-    finally { setLoading(currentTask.id, null); }
-  };
-
-  const handleProjectComment = async (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== 'Enter') return;
-    if (projectCommentLoading) return;
-
-    const el = e.target as HTMLInputElement;
-    const text = el.value;
-    if (!text) return;
-
-    setProjectCommentLoading(true);
-    try {
-      const newComment = { id: Date.now().toString(), userId: currentUser.id, text, createdAt: Date.now() };
-      const updatedComments = [...(project.comments || []), newComment];
-
-      if (onUpdate) onUpdate({ ...project, comments: updatedComments });
-
-      el.value = '';
-    } finally {
-      setProjectCommentLoading(false);
     }
   };
 
@@ -997,74 +655,189 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, curre
                             className="w-full p-3 border-2 border-blue-500 rounded-xl text-sm font-bold outline-none"
                             autoFocus
                             defaultValue={task.title}
-                            disabled={isLoading(task.id)}
-                            onKeyDown={(e) => handleTitleEdit(e, idx)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                const val = (e.target as HTMLInputElement).value;
+                                if (val && val !== task.title) {
+                                  // Save Title Edit
+                                  const updated = [...project.tasks];
+                                  const oldTitle = updated[idx].title;
+                                  updated[idx].title = val;
+                                  updated[idx].history.push({
+                                    id: Math.random().toString(36).substr(2, 9),
+                                    userId: currentUser.id,
+                                    userName: currentUser.name,
+                                    action: `Edit Judul: "${oldTitle}" -> "${val}"`,
+                                    timestamp: Date.now()
+                                  });
+                                  onUpdate({ ...project, tasks: updated });
+                                  toast.success('Judul tugas diperbarui');
+
+                                  // Notify Telegram
+                                  const targetChatId = project.isManagementOnly ? settings.telegramOwnerChatId : settings.telegramGroupId;
+                                  let finalChatId = targetChatId;
+                                  if (finalChatId) {
+                                    if (finalChatId.includes('_')) {
+                                      const parts = finalChatId.split('_');
+                                      if (!parts[0].startsWith('-')) finalChatId = `-100${parts[0]}_${parts[1]}`;
+                                    } else if (!finalChatId.startsWith('-') && /^\d+$/.test(finalChatId)) {
+                                      finalChatId = `-100${finalChatId}`;
+                                    }
+                                  }
+                                  const msg = `🏢 <b>${escapeHTML(officeLabel)}</b>\n` +
+                                    `🛠️ <b>JUDUL TUGAS DIUBAH</b>\n\n` +
+                                    `📌 PROYEK: <b>${escapeHTML(project.title)}</b>\n` +
+                                    `❌ LAMA: <s>${escapeHTML(oldTitle)}</s>\n` +
+                                    `✅ BARU: <b>${escapeHTML(val)}</b>\n\n` +
+                                    `👤 OLEH: <b>${escapeHTML(currentUser.name)}</b>`;
+                                  sendTelegramNotification(settings.telegramBotToken, finalChatId, msg);
+                                }
+                                setShowEditTask(null);
+                              } else if (e.key === 'Escape') {
+                                setShowEditTask(null);
+                              }
+                            }}
                           />
                           <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold text-slate-400 uppercase">EDIT PIC:</span>
-                            {isLoading(task.id, 'title') && <span className="text-[9px] text-blue-500 font-bold animate-pulse">Menyimpan...</span>}
                             <div className="flex flex-wrap gap-2">
                               {users.map(u => (
                                 <button
                                   key={u.id}
-                                  onClick={() => togglePIC(u, idx)}
-                                  disabled={isLoading(task.id)}
+                                  onClick={() => {
+                                    const updated = [...project.tasks];
+                                    const currentPICS = updated[idx].assignedTo;
+                                    let actionType = '';
+
+                                    if (currentPICS.includes(u.id)) {
+                                      updated[idx].assignedTo = currentPICS.filter(id => id !== u.id);
+                                      actionType = 'removed';
+                                    } else {
+                                      updated[idx].assignedTo = [...currentPICS, u.id];
+                                      actionType = 'added';
+                                    }
+
+                                    // Log changes
+                                    const logAction = actionType === 'removed' ? `Hapus PIC: ${u.name}` : `Tambah PIC: ${u.name}`;
+                                    updated[idx].history.push({
+                                      id: Math.random().toString(36).substr(2, 9),
+                                      userId: currentUser.id,
+                                      userName: currentUser.name,
+                                      action: logAction,
+                                      timestamp: Date.now()
+                                    });
+
+                                    onUpdate({ ...project, tasks: updated });
+
+                                    // Notify Telegram
+                                    const targetChatId = project.isManagementOnly ? settings.telegramOwnerChatId : settings.telegramGroupId;
+                                    let finalChatId = targetChatId;
+                                    if (finalChatId) {
+                                      if (finalChatId.includes('_')) {
+                                        const parts = finalChatId.split('_');
+                                        if (!parts[0].startsWith('-')) finalChatId = `-100${parts[0]}_${parts[1]}`;
+                                      } else if (!finalChatId.startsWith('-') && /^\d+$/.test(finalChatId)) {
+                                        finalChatId = `-100${finalChatId}`;
+                                      }
+                                    }
+                                    const msg = `🏢 <b>${escapeHTML(officeLabel)}</b>\n` +
+                                      `👥 <b>UPDATE TIM TUGAS</b>\n\n` +
+                                      `📌 PROYEK: <b>${escapeHTML(project.title)}</b>\n` +
+                                      `📝 TUGAS: <b>${escapeHTML(task.title)}</b>\n` +
+                                      `⚡ ACTION: ${actionType === 'added' ? '✅ Menambahkan' : '❌ Menghapus'} <b>${escapeHTML(u.name)}</b>\n` +
+                                      `\n👤 OLEH: <b>${escapeHTML(currentUser.name)}</b>`;
+                                    sendTelegramNotification(settings.telegramBotToken, finalChatId, msg);
+                                  }}
                                   className={`px-3 py-1 rounded-full text-[9px] font-black uppercase transition border ${task.assignedTo.includes(u.id)
                                     ? 'bg-blue-600 text-white border-blue-600'
                                     : 'bg-white text-slate-400 border-slate-200 hover:border-blue-400'
-                                    } ${isLoading(task.id) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                    }`}
                                 >
                                   {u.name}
                                 </button>
                               ))}
                             </div>
-                            <button onClick={() => !isLoading(task.id) && setShowEditTask(null)} disabled={isLoading(task.id)} className="ml-auto text-[9px] font-black text-blue-600 underline disabled:opacity-50">SELESAI</button>
+                            <button onClick={() => setShowEditTask(null)} className="ml-auto text-[9px] font-black text-blue-600 underline">SELESAI</button>
                           </div>
                         </div>
                       ) : (
                         <div className="flex items-center space-x-4 flex-1">
                           <button onClick={() => {
-                            if (isLoading(task.id)) return;
                             if (!task.isCompleted) {
                               setActiveTaskIndex(idx);
                               setProofForm({ description: '', link: '' });
                             } else {
-                              reopenTask(idx);
+                              // Re-open / Uncheck Logic
+                              if (window.confirm("Apakah Anda yakin ingin membatalkan status selesai tugas ini (Revisi)?")) {
+                                const updated = [...project.tasks];
+                                updated[idx].isCompleted = false;
+                                // Optional: Keep the proof or clear it? Usually keep history but maybe clear active proof state if needed.
+                                // Let's keep the proof data in history but maybe arguably checkmark means 'current state'. 
+                                // For now just toggle status.
+
+                                updated[idx].history.push({
+                                  id: Math.random().toString(36).substr(2, 9),
+                                  userId: currentUser.id,
+                                  userName: currentUser.name,
+                                  action: 'Status dibatalkan (Revisi)',
+                                  timestamp: Date.now()
+                                });
+                                onUpdate({ ...project, tasks: updated });
+                                toast.success('Status tugas dikembalikan ke proses.');
+
+                                // Notify Telegram Re-open
+                                const targetChatId = project.isManagementOnly ? settings.telegramOwnerChatId : settings.telegramGroupId;
+                                let finalChatId = targetChatId;
+                                if (finalChatId) {
+                                  if (finalChatId.includes('_')) {
+                                    const parts = finalChatId.split('_');
+                                    if (!parts[0].startsWith('-')) finalChatId = `-100${parts[0]}_${parts[1]}`;
+                                  } else if (!finalChatId.startsWith('-') && /^\d+$/.test(finalChatId)) {
+                                    finalChatId = `-100${finalChatId}`;
+                                  }
+                                }
+                                const msg = `⚠️ <b>Tugas Dibuka Kembali (Revisi)</b>\n\n` +
+                                  `Proyek: <b>${escapeHTML(project.title)}</b>\n` +
+                                  `Tugas: <b>${escapeHTML(task.title)}</b>\n` +
+                                  `Oleh: <b>${escapeHTML(currentUser.name)}</b>`;
+                                sendTelegramNotification(settings.telegramBotToken, finalChatId, msg);
+                              }
                             }
-                          }} className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-colors ${task.isCompleted ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 text-transparent hover:border-blue-400'} ${isLoading(task.id, 'reopen') ? 'animate-pulse opacity-50' : ''}`}>
-                            {isLoading(task.id, 'reopen') ? <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /> : <CheckCircle size={16} fill="currentColor" />}
+                          }} className={`w-8 h-8 rounded-xl border-2 flex items-center justify-center transition-all ${task.isCompleted ? 'bg-emerald-500 border-emerald-500 text-white hover:bg-rose-500 hover:border-rose-500' : 'border-slate-200 hover:border-blue-600'}`}>
+                            {task.isCompleted ? <CheckCircle size={20} /> : null}
                           </button>
-                          <div className="flex-1 cursor-pointer" onClick={() => !task.isCompleted && !isLoading(task.id) && setShowEditTask(task.id)}>
-                            <h5 className={`font-bold text-sm ${task.isCompleted ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{task.title}</h5>
-                            {/* PIC Avatars */}
-                            <div className="flex -space-x-1 mt-2">
-                              {task.assignedTo.map(uid => {
-                                const u = users.find(x => x.id === uid);
-                                if (!u) return null;
+                          <div className="space-y-1">
+                            <span className={`text-base font-black ${task.isCompleted ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{task.title}</span>
+                            <div className="flex -space-x-1.5 items-center">
+                              {task.assignedTo.map((uid: string) => {
+                                const u = users.find(user => user.id === uid);
                                 return (
-                                  <div key={uid} className="w-5 h-5 rounded-full border border-white bg-slate-200 flex items-center justify-center overflow-hidden" title={u.name}>
-                                    {u.avatarUrl ? <img src={u.avatarUrl} className="w-full h-full object-cover" /> : <span className="text-[8px] font-black">{u.name[0]}</span>}
+                                  <div key={uid} title={u?.name} className="w-5 h-5 rounded-full bg-blue-100 border border-white flex items-center justify-center overflow-hidden cursor-help">
+                                    {u?.avatarUrl ? (
+                                      <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover" />
+                                    ) : (
+                                      <span className="text-[8px] font-black text-blue-600 uppercase">{u?.name.charAt(0)}</span>
+                                    )}
                                   </div>
-                                )
+                                );
                               })}
                             </div>
                           </div>
                         </div>
                       )}
-                    </div>
 
-                    <div className="flex space-x-1">
-                      {!task.isCompleted && (
-                        <button
-                          onClick={() => { if (!isLoading(task.id)) { setActiveTaskIndex(idx); setShowEditTask(showEditTask === task.id ? null : task.id); } }}
-                          disabled={isLoading(task.id)}
-                          className={`p-2 rounded-xl transition ${showEditTask === task.id ? 'bg-blue-50 text-blue-600' : 'text-slate-300 hover:bg-slate-50 hover:text-blue-500'} ${isLoading(task.id) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          title="Edit Judul & PIC Tugas"
-                        >
-                          <Edit2 size={16} />
-                        </button>
-                      )}
-                      <button onClick={() => setShowHistory(showHistory === task.id ? null : task.id)} className="p-2 text-slate-300 hover:text-blue-600 transition" title="Riwayat Tugas"><HistoryIcon size={18} /></button>
+                      <div className="flex space-x-1">
+                        {!task.isCompleted && (
+                          <button
+                            onClick={() => { setActiveTaskIndex(idx); setShowEditTask(showEditTask === task.id ? null : task.id); }}
+                            className={`p-2 rounded-xl transition ${showEditTask === task.id ? 'bg-blue-50 text-blue-600' : 'text-slate-300 hover:bg-slate-50 hover:text-blue-500'}`}
+                            title="Edit Judul & PIC Tugas"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                        )}
+                        <button onClick={() => setShowHistory(showHistory === task.id ? null : task.id)} className="p-2 text-slate-300 hover:text-blue-600 transition" title="Riwayat Tugas"><HistoryIcon size={18} /></button>
+                      </div>
                     </div>
 
                     {showHistory === task.id && (
@@ -1103,61 +876,28 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, curre
                           className="flex-1 bg-white p-3 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-500"
                           placeholder="Instruksi perbaikan..."
                           value={taskComments[task.id] || ''}
-                          disabled={isLoading(task.id, 'comment')}
                           onChange={e => setTaskComments(prev => ({ ...prev, [task.id]: e.target.value }))}
                         />
-                        <button
-                          onClick={() => handleAddComment(idx)}
-                          disabled={isLoading(task.id, 'comment')}
-                          className={`bg-slate-900 text-white px-5 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-blue-600 transition ${isLoading(task.id, 'comment') ? 'opacity-50 cursor-not-allowed' : ''}`}
-                        >
-                          {isLoading(task.id, 'comment') ? 'SENDING...' : 'SEND'}
-                        </button>
+                        <button onClick={() => handleAddComment(idx)} className="bg-slate-900 text-white px-5 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-blue-600 transition">SEND</button>
                       </div>
                     </div>
 
                     {activeTaskIndex === idx && !task.isCompleted && !showEditTask && (
                       <div className="mt-8 bg-blue-600 p-8 rounded-[2.5rem] text-white shadow-2xl animate-in slide-in-from-top duration-300">
                         <h5 className="text-[10px] font-black uppercase tracking-[0.3em] mb-6">SUBMIT PENYELESAIAN</h5>
-                        <textarea
-                          className="w-full p-5 bg-white/10 border-2 border-white/20 rounded-[1.5rem] outline-none focus:bg-white focus:text-slate-900 transition mb-4 text-xs font-bold disabled:opacity-50"
-                          placeholder="Apa yang Anda kerjakan?"
-                          value={proofForm.description}
-                          onChange={e => setProofForm({ ...proofForm, description: e.target.value })}
-                          disabled={isLoading(task.id, 'finish')}
-                        />
-                        <input
-                          className="w-full p-4 bg-white/10 border-2 border-white/20 rounded-xl outline-none focus:bg-white focus:text-slate-900 transition mb-6 text-xs font-bold disabled:opacity-50"
-                          placeholder="Link Lampiran (Gdrive/File)"
-                          value={proofForm.link}
-                          onChange={e => setProofForm({ ...proofForm, link: e.target.value })}
-                          disabled={isLoading(task.id, 'finish')}
-                        />
+                        <textarea className="w-full p-5 bg-white/10 border-2 border-white/20 rounded-[1.5rem] outline-none focus:bg-white focus:text-slate-900 transition mb-4 text-xs font-bold" placeholder="Apa yang Anda kerjakan?" value={proofForm.description} onChange={e => setProofForm({ ...proofForm, description: e.target.value })} />
+                        <input className="w-full p-4 bg-white/10 border-2 border-white/20 rounded-xl outline-none focus:bg-white focus:text-slate-900 transition mb-6 text-xs font-bold" placeholder="Link Lampiran (Gdrive/File)" value={proofForm.link} onChange={e => setProofForm({ ...proofForm, link: e.target.value })} />
                         <div className="flex justify-end gap-3">
-                          <button
-                            onClick={() => { setActiveTaskIndex(null); setProofForm({ description: '', link: '' }); }}
-                            className="px-6 py-3 font-black text-[10px] uppercase tracking-widest opacity-60 hover:opacity-100"
-                            disabled={isLoading(task.id, 'finish')}
-                          >
-                            BATAL
-                          </button>
-                          <button
-                            onClick={() => finishTask(idx)}
-                            className={`bg-white text-blue-600 px-10 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl flex items-center justify-center gap-2 ${isLoading(task.id, 'finish') ? 'opacity-75 cursor-not-allowed' : ''}`}
-                            disabled={isLoading(task.id, 'finish')}
-                          >
-                            {isLoading(task.id, 'finish') ? (
-                              <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                            ) : 'SIMPAN BUKTI'}
-                          </button>
+                          <button onClick={() => { setActiveTaskIndex(null); setProofForm({ description: '', link: '' }); }} className="px-6 py-3 font-black text-[10px] uppercase tracking-widest opacity-60 hover:opacity-100">BATAL</button>
+                          <button onClick={() => finishTask(idx)} className="bg-white text-blue-600 px-10 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl">SIMPAN BUKTI</button>
                         </div>
                       </div>
                     )}
                   </div>
                 ))}
               </div>
-            </section >
-          </div >
+            </section>
+          </div>
 
           <div className="w-full md:w-96 bg-slate-50 p-8 border-t md:border-t-0 md:border-l flex flex-col space-y-10">
             <div className="space-y-6">
@@ -1189,15 +929,24 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ project, users, curre
               </div>
               <div className="flex gap-2">
                 <input className="flex-1 bg-white border border-slate-200 p-3 rounded-xl text-[10px] outline-none focus:border-blue-500" placeholder="Ketik pesan..."
-                  onKeyDown={handleProjectComment}
-                  disabled={projectCommentLoading}
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter') {
+                      // Quick hack to reuse onUpdate for comment since it's just updating project fields
+                      const text = (e.target as HTMLInputElement).value;
+                      if (!text) return;
+                      const newComment = { id: Date.now().toString(), userId: currentUser.id, text, createdAt: Date.now() };
+                      const updatedComments = [...(project.comments || []), newComment];
+                      onUpdate({ ...project, comments: updatedComments });
+                      (e.target as HTMLInputElement).value = '';
+                    }
+                  }}
                 />
               </div>
             </div>
           </div>
-        </div >
-      </div >
-    </div >
+        </div>
+      </div>
+    </div>
   );
 };
 
