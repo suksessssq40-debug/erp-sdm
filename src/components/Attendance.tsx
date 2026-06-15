@@ -354,7 +354,14 @@ const AttendanceModule: React.FC<AttendanceProps> = ({
   const dateString = currentDate.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const isAdmin = [UserRole.OWNER, UserRole.MANAGER, UserRole.FINANCE].includes(currentUser.role) || !!currentUser.isKaizenMaster;
 
-  if (viewMode === 'report') {
+  // Safety: reset viewMode if user lost admin access
+  useEffect(() => {
+    if (!isAdmin && viewMode === 'report') {
+      setViewMode('portal');
+    }
+  }, [isAdmin, viewMode]);
+
+  if (viewMode === 'report' && isAdmin) {
     return (
       <div className="pb-12">
         {/* Toggle */}

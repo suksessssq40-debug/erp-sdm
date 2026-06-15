@@ -23,6 +23,8 @@ interface KaizenPanelProps {
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
 export default function KaizenPanel({ currentUser, toast }: KaizenPanelProps) {
+  const isKaizenOrOwner = !!currentUser?.isKaizenMaster || currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.SUPERADMIN;
+
   const [users, setUsers] = useState<KaizenUser[]>([]);
   const [deductions, setDeductions] = useState<KaizenDeduction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,6 +37,21 @@ export default function KaizenPanel({ currentUser, toast }: KaizenPanelProps) {
   const [amount, setAmount] = useState(10);
   const [reason, setReason] = useState('');
   const [violationDate, setViolationDate] = useState(new Date().toISOString().split('T')[0]);
+
+  // If user has no access, show friendly message
+  if (!isKaizenOrOwner) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-6">
+        <div className="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center">
+          <ShieldCheck size={48} className="text-slate-300" />
+        </div>
+        <div>
+          <h3 className="text-xl font-black text-slate-700 uppercase tracking-tight">Akses Terbatas</h3>
+          <p className="text-sm text-slate-400 mt-2 max-w-sm">Panel Kaizen hanya tersedia untuk Kaizen Master atau Owner. Hubungi atasan Anda jika memerlukan akses.</p>
+        </div>
+      </div>
+    );
+  }
 
   const getHeaders = (): Record<string, string> => {
     const h: Record<string, string> = { 'Content-Type': 'application/json' };
