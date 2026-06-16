@@ -76,11 +76,12 @@ export const createMiscActions = (
         body: JSON.stringify(report)
       });
       if (!res.ok) throw new Error('Failed to update daily report');
+      const updated: DailyReport = await res.json();
       setState(prev => ({
         ...prev,
-        dailyReports: prev.dailyReports.map(r => r.id === report.id ? report : r)
+        dailyReports: prev.dailyReports.map(r => r.id === updated.id ? updated : r)
       }));
-      addLog(SystemActionType.PROJECT_TASK_COMPLETE, `Updated Daily Report for ${report.date}`, report.id);
+      addLog(SystemActionType.PROJECT_TASK_COMPLETE, `Updated Daily Report for ${updated.date}`, updated.id);
     } catch (e) {
       console.error(e);
       throw e;

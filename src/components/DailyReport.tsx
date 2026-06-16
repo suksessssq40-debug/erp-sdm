@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, DailyReport, UserRole } from '../types';
-import { Plus, CheckCircle2, History, Link as LinkIcon, Image as ImageIcon, Send, Eye, X, Pencil, Trash2, Calendar, ArrowDownNarrowWide, ArrowUpNarrowWide, Filter } from 'lucide-react';
+import { Plus, CheckCircle2, Link as LinkIcon, Send, Eye, X, Pencil, Trash2, Calendar, ArrowDownNarrowWide, ArrowUpNarrowWide, Filter } from 'lucide-react';
 import { useToast } from './Toast';
 import { useAppStore } from '../context/StoreContext';
+import { formatReportDate } from '../utils/dateFormat';
+import { ReportTimestamps } from './daily-report/ReportTimestamps';
 
 interface DailyReportProps {
   currentUser: User;
@@ -216,7 +218,7 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {displayReports.map(report => {
             const user = users.find(u => u.id === report.userId);
-            const displayDate = new Date(report.date).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+            const displayDate = formatReportDate(report.date);
             const totalItems = report.activities.reduce((sum, a) => sum + (a.quantity || 0), 0);
 
             return (
@@ -283,8 +285,8 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
                 </div>
 
                 {/* Card Footer */}
-                <div className="px-6 py-4 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
+                <div className="px-6 py-4 bg-slate-50/50 border-t border-slate-100 flex items-end justify-between gap-3">
+                  <div className="flex items-center gap-3 flex-wrap">
                     <span className="bg-blue-100 text-blue-700 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest">
                       {report.activities.length} Aktivitas
                     </span>
@@ -294,14 +296,11 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
                       </span>
                     )}
                   </div>
-                  {report.createdAt && (
-                    <div className="flex items-center gap-1.5 text-slate-400">
-                      <History size={10} />
-                      <span className="text-[9px] font-bold">
-                        {new Date(report.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-                  )}
+                  <ReportTimestamps
+                    createdAt={report.createdAt}
+                    updatedAt={report.updatedAt}
+                    variant="card"
+                  />
                 </div>
               </div>
             );
@@ -321,25 +320,12 @@ const DailyReportModule: React.FC<DailyReportProps> = ({ currentUser, users, rep
               <div className="flex justify-between items-start mb-6">
                  <div>
                     <h3 className="text-2xl font-black text-slate-800 leading-none">Detail Laporan</h3>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">{selectedReport.date}</p>
-                    <div className="flex flex-col gap-1 mt-3">
-                       {selectedReport.createdAt && (
-                         <div className="flex items-center gap-2">
-                           <Calendar size={10} className="text-emerald-500" />
-                           <span className="text-[9px] font-bold text-slate-500">
-                             Dibuat: {new Date(selectedReport.createdAt).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                           </span>
-                         </div>
-                       )}
-                       {selectedReport.updatedAt && selectedReport.updatedAt !== selectedReport.createdAt && (
-                         <div className="flex items-center gap-2">
-                           <History size={10} className="text-amber-500" />
-                           <span className="text-[9px] font-bold text-slate-500">
-                             Diperbarui: {new Date(selectedReport.updatedAt).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                           </span>
-                         </div>
-                       )}
-                    </div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">{formatReportDate(selectedReport.date)}</p>
+                    <ReportTimestamps
+                      createdAt={selectedReport.createdAt}
+                      updatedAt={selectedReport.updatedAt}
+                      variant="detail"
+                    />
                  </div>
                  <button onClick={() => setSelectedReport(null)} className="p-2 bg-slate-100 rounded-full hover:bg-rose-500 hover:text-white transition"><X size={20} /></button>
               </div>

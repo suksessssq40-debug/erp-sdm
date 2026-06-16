@@ -1,58 +1,61 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
+import { serializeDailyReport } from '@/lib/dailyReport';
+
+async function assertCanModifyReport(userId: string, userRole: string, existingUserId: string | null) {
+  const isOwner = userId === existingUserId;
+  const actorUser = await prisma.user.findUnique({ where: { id: userId } });
+  const isAdmin = ['OWNER', 'MANAGER', 'FINANCE'].includes(userRole) || !!actorUser?.isKaizenMaster;
+  return { isOwner, isAdmin, allowed: isOwner || isAdmin };
+}
 
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   try {
     const user = await authorize();
     const { tenantId } = user;
     const id = params.id;
-    const r = await request.json();
+    const body = await request.json();
 
-    // Security: Ensure repo exists & belongs to tenant
     const existing = await prisma.dailyReport.findFirst({ where: { id, tenantId } });
-    if (!existing) return NextResponse.json({ error: 'Not Found or Unauthorized' }, { status: 404 });
-
-    const isOwner = user.id === existing.userId;
-    const actorUser = await prisma.user.findUnique({ where: { id: user.id } });
-    const isAdmin = ['OWNER', 'MANAGER', 'FINANCE'].includes(user.role) || !!actorUser?.isKaizenMaster;
-
-    if (!isOwner && !isAdmin) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    if (!existing) {
+      return NextResponse.json({ error: 'Not Found or Unauthorized' }, { status: 404 });
     }
 
-    await prisma.dailyReport.update({
+    const { allowed } = await assertCanModifyReport(user.id, user.role, existing.userId);
+    if (!allowed) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const updated = await prisma.dailyReport.update({
       where: { id },
       data: {
-        activitiesJson: JSON.stringify(r.activities || []),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        updatedAt: new Date()
-      } as any
+        activitiesJson: JSON.stringify(body.activities || []),
+        ...(body.date ? { date: body.date } : {}),
+      },
     });
 
-    return NextResponse.json(r);
+    return NextResponse.json(serializeDailyReport(updated));
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: 'Failed' }, { status: 500 });
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_request: Request, { params }: { params: { id: string } }) {
   try {
     const user = await authorize();
     const { tenantId } = user;
     const id = params.id;
 
-    // Security: Strict tenant isolation
     const existing = await prisma.dailyReport.findFirst({ where: { id, tenantId } });
-    if (!existing) return NextResponse.json({ error: 'Not Found or Unauthorized' }, { status: 404 });
+    if (!existing) {
+      return NextResponse.json({ error: 'Not Found or Unauthorized' }, { status: 404 });
+    }
 
-    const isOwner = user.id === existing.userId;
-    const actorUser = await prisma.user.findUnique({ where: { id: user.id } });
-    const isAdmin = ['OWNER', 'MANAGER', 'FINANCE'].includes(user.role) || !!actorUser?.isKaizenMaster;
-
-    if (!isOwner && !isAdmin) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const { allowed } = await assertCanModifyReport(user.id, user.role, existing.userId);
+    if (!allowed) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     await prisma.dailyReport.delete({ where: { id } });

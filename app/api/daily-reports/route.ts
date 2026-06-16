@@ -1,54 +1,39 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { authorize } from '@/lib/auth';
+import { serializeDailyReport } from '@/lib/dailyReport';
 
 export async function GET(request: Request) {
   try {
     const user = await authorize();
     const { tenantId } = user;
-    
+
     const { searchParams } = new URL(request.url);
     const startDate = searchParams.get('start');
     const endDate = searchParams.get('end');
 
-    // Check if user is admin (including Kaizen Master)
     const actorUser = await prisma.user.findUnique({ where: { id: user.id } });
     const isAdmin = ['OWNER', 'MANAGER', 'FINANCE'].includes(user.role) || !!actorUser?.isKaizenMaster;
-    const where: any = { tenantId };
+    const where: Record<string, unknown> = { tenantId };
     if (!isAdmin) where.userId = user.id;
 
-    // Smart Filter: If date range provided, use it. Else, default (limit 200).
     if (startDate && endDate) {
-        where.date = {
-            gte: startDate,
-            lte: endDate
-        };
+      where.date = { gte: startDate, lte: endDate };
     } else if (startDate) {
-         where.date = {
-            gte: startDate
-        };
+      where.date = { gte: startDate };
     }
 
     const reports = await prisma.dailyReport.findMany({
-       where,
-       orderBy: { date: 'desc' }, // Sort by Report Date (Logically correct)
-       take: startDate ? undefined : 200 // If filtering by date, fetch all matches. If no filter, limit to 200 safety.
+      where,
+      orderBy: { date: 'desc' },
+      take: startDate ? undefined : 200,
     });
 
-    const formatted = reports.map(r => ({
-        id: r.id,
-        userId: r.userId,
-        tenantId: (r as any).tenantId,
-        date: r.date,
-        activities: typeof r.activitiesJson === 'string' ? JSON.parse(r.activitiesJson) : [],
-        createdAt: r.createdAt ? r.createdAt.toISOString() : null,
-        updatedAt: (r as any).updatedAt ? (r as any).updatedAt.toISOString() : null
-    }));
-
-    return NextResponse.json(formatted);
-  } catch(e: any) {
-      console.error(e);
-      return NextResponse.json({ error: 'Failed', details: e.message }, { status: 500 });
+    return NextResponse.json(reports.map(serializeDailyReport));
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'Unknown error';
+    console.error(e);
+    return NextResponse.json({ error: 'Failed', details: message }, { status: 500 });
   }
 }
 
@@ -56,26 +41,29 @@ export async function POST(request: Request) {
   try {
     const user = await authorize();
     const { tenantId } = user;
-    const r = await request.json();
+    const body = await request.json();
 
-    // Security: Prevent User Spoofing within Tenant
-    if (user.role === 'STAFF' && r.userId !== user.id) {
-        return NextResponse.json({ error: 'Forbidden: Cannot submit report for others' }, { status: 403 });
+    if (user.role === 'STAFF' && body.userId !== user.id) {
+      return NextResponse.json({ error: 'Forbidden: Cannot submit report for others' }, { status: 403 });
     }
 
-    await prisma.dailyReport.create({
+    const now = new Date();
+    const created = await prisma.dailyReport.create({
       data: {
-        id: r.id,
+        id: body.id,
         tenantId,
-        userId: r.userId,
-        date: r.date,
-        activitiesJson: JSON.stringify(r.activities || [])
-      }
+        userId: body.userId,
+        date: body.date,
+        activitiesJson: JSON.stringify(body.activities || []),
+        createdAt: now,
+        updatedAt: now,
+      },
     });
 
-    return NextResponse.json(r, { status: 201 });
-  } catch (error: any) {
+    return NextResponse.json(serializeDailyReport(created), { status: 201 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error(error);
-    return NextResponse.json({ error: 'Failed', details: error.message }, { status: 500 });
+    return NextResponse.json({ error: 'Failed', details: message }, { status: 500 });
   }
 }
