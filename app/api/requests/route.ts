@@ -60,6 +60,18 @@ export async function POST(request: Request) {
         const { tenantId } = user;
         const r = await request.json();
 
+        // Validasi format dan logika jam
+        const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+        if (r.startTime && !timeRegex.test(r.startTime)) {
+            return NextResponse.json({ error: 'Format jam mulai tidak valid' }, { status: 400 });
+        }
+        if (r.endTime && !timeRegex.test(r.endTime)) {
+            return NextResponse.json({ error: 'Format jam selesai tidak valid' }, { status: 400 });
+        }
+        if (r.startTime && r.endTime && r.startTime >= r.endTime) {
+            return NextResponse.json({ error: 'Jam selesai harus setelah jam mulai' }, { status: 400 });
+        }
+
         // 1. Create Data
         const newRequest = await prisma.leaveRequest.create({
             data: {
@@ -72,7 +84,9 @@ export async function POST(request: Request) {
                 endDate: r.endDate ? new Date(r.endDate) : new Date(r.startDate),
                 attachmentUrl: r.attachmentUrl || null,
                 status: r.status,
-                createdAt: r.createdAt ? BigInt(r.createdAt) : BigInt(Date.now())
+                createdAt: r.createdAt ? BigInt(r.createdAt) : BigInt(Date.now()),
+                startTime: r.startTime || null,
+                endTime: r.endTime || null
             }
         });
 
@@ -93,6 +107,13 @@ export async function POST(request: Request) {
                 const endDate = new Date(r.endDate || r.startDate);
                 const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
                 const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+                let hourInfo = '';
+                if (r.startTime && r.endTime) {
+                    const [sh, sm] = r.startTime.split(':').map(Number);
+                    const [eh, em] = r.endTime.split(':').map(Number);
+                    const hours = ((eh * 60 + em) - (sh * 60 + sm)) / 60;
+                    hourInfo = ` + ${hours.toFixed(1)} Jam (${r.startTime} → ${r.endTime})`;
+                }
                 const fmtDate = (d: Date) => d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
                 let companyName = tenantId.toUpperCase();
@@ -112,7 +133,7 @@ export async function POST(request: Request) {
                     ``,
                     `📌 <b>Jenis:</b> ${r.type}`,
                     `📅 <b>Waktu:</b> ${fmtDate(startDate)}${r.endDate && r.endDate !== r.startDate ? ` s/d ${fmtDate(endDate)}` : ''}`,
-                    `⏳ <b>Durasi:</b> ${diffDays} Hari`,
+                    `⏳ <b>Durasi:</b> ${diffDays} Hari${hourInfo}`,
                     `📝 <b>Alasan:</b> <i>"${r.description}"</i>`,
                     ``,
                     `📎 <b>Lampiran:</b> ${r.attachmentUrl ? '✅ Tersedia' : '❌ Tidak Ada'}`,

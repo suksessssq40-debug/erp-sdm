@@ -18,6 +18,18 @@ export async function PUT(request: Request, { params }: { params: { id: string }
         const id = params.id;
         const r = await request.json();
 
+        // Validasi format dan logika jam
+        const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+        if (r.startTime && !timeRegex.test(r.startTime)) {
+            return NextResponse.json({ error: 'Format jam mulai tidak valid' }, { status: 400 });
+        }
+        if (r.endTime && !timeRegex.test(r.endTime)) {
+            return NextResponse.json({ error: 'Format jam selesai tidak valid' }, { status: 400 });
+        }
+        if (r.startTime && r.endTime && r.startTime >= r.endTime) {
+            return NextResponse.json({ error: 'Jam selesai harus setelah jam mulai' }, { status: 400 });
+        }
+
         const existing = await prisma.leaveRequest.findUnique({
             where: { id },
             include: { user: true }
@@ -52,6 +64,8 @@ export async function PUT(request: Request, { params }: { params: { id: string }
             startDate: new Date(r.startDate),
             endDate: r.endDate ? new Date(r.endDate) : new Date(r.startDate),
             attachmentUrl: r.attachmentUrl || null,
+            startTime: r.startTime || null,
+            endTime: r.endTime || null,
         };
 
         if (hasManagementAccess && r.status) {
