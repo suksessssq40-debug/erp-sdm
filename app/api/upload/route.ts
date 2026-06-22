@@ -36,7 +36,7 @@ export async function POST(request: Request) {
       });
 
     // 2. Self-Healing: If Bucket missing, try to create it
-    if (error && (error as any).statusCode === '404' && (error as any).error === 'Bucket not found') {
+    if (error && (error as any).statusCode === '404' && (error as any).message === 'Bucket not found') {
        console.log("Bucket 'uploads' missing. Attempting to create...");
        const { error: createError } = await supabase.storage.createBucket('uploads', {
           public: true
