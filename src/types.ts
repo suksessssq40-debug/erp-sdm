@@ -139,6 +139,8 @@ export interface LeaveRequest {
   description: string;
   startDate: string;
   endDate: string;
+  startTime?: string; // Format: HH:mm
+  endTime?: string;   // Format: HH:mm
   attachmentUrl?: string;
   status: RequestStatus;
   createdAt: number;
