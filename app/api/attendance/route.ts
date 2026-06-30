@@ -1,45 +1,91 @@
-import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { authorize } from '@/lib/auth';
-import { calculateDistance } from '@/utils';
-import { OFFICE_RADIUS_METERS } from '@/constants';
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { authorize, AuthPayload } from "@/lib/auth";
+import { calculateDistance } from "@/utils";
+import { OFFICE_RADIUS_METERS } from "@/constants";
+
+/**
+ * GET /api/attendance
+ *
+ * Mengembalikan data absensi untuk tenant yang sedang aktif.
+ *
+ * 🔹 Tanpa parameter pagination → return array lengkap (backward compatible)
+ * 🔹 Dengan parameter `limit` dan `page` → return paginated response:
+ *    { data: [...], total, page, limit, totalPages }
+ *
+ * Query params opsional:
+ *   - limit  : number (batas per halaman, > 0 untuk aktifkan pagination)
+ *   - page   : number (halaman, default 1, hanya dipakai jika limit > 0)
+ */
+export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
-    const user = await authorize();
+    const user: AuthPayload = await authorize();
     const { tenantId } = user;
 
-    // Admin sees all in tenant, Staff sees own in tenant
-    const isAdmin = ['OWNER', 'MANAGER', 'FINANCE', 'SUPERADMIN'].includes(user.role);
-    
-    // Check if user is Kaizen Master
-    const actorUser = await prisma.user.findUnique({ where: { id: user.id }, select: { isKaizenMaster: true } });
+    // Role-based access: Admin/KaizenMaster lihat semua, Staff lihat sendiri
+    const isAdmin = ["OWNER", "MANAGER", "FINANCE", "SUPERADMIN"].includes(
+      user.role,
+    );
+    const actorUser = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { isKaizenMaster: true },
+    });
     const isKaizenMaster = !!(actorUser as any)?.isKaizenMaster;
     const hasFullAccess = isAdmin || isKaizenMaster;
 
+    // Parse optional pagination params
+    const url = new URL(request.url);
+    const limitParam = url.searchParams.get("limit");
+    const pageParam = url.searchParams.get("page");
+    const usePagination =
+      limitParam !== null &&
+      !isNaN(Number(limitParam)) &&
+      Number(limitParam) > 0;
+
+    const page = usePagination ? Math.max(1, parseInt(pageParam || "1")) : 1;
+    const limit = usePagination ? Math.min(10000, parseInt(limitParam!)) : 0;
+    const skip = usePagination ? (page - 1) * limit : undefined;
+
+    // Filter: tenant + user scope
+    const where: any = { tenantId };
+    if (!hasFullAccess) where.userId = user.id;
+
+    // Hitung total (untuk metadata pagination)
+    const total = await prisma.attendance.count({ where });
+
+    // Query data dengan NULLS LAST untuk createdAt
     let records: any[] = [];
     try {
-      const where: any = { tenantId };
-      if (!hasFullAccess) where.userId = user.id;
-
-      records = await prisma.attendance.findMany({
+      const queryOptions: any = {
         where,
         orderBy: [
-          { createdAt: 'desc' }, // Primary sort by timestamp
-          { date: 'desc' },      // Fallback
-          { timeIn: 'desc' }
+          { createdAt: { sort: "desc", nulls: "last" } },
+          { date: { sort: "desc", nulls: "last" } },
+          { timeIn: { sort: "desc", nulls: "last" } },
         ],
-        take: 200 // Increased limit to ensure we catch recent items
-      });
+      };
+
+      if (usePagination) {
+        queryOptions.take = limit;
+        queryOptions.skip = skip;
+      }
+
+      records = await prisma.attendance.findMany(queryOptions);
     } catch (e) {
       console.error("Attendance Fetch Error:", e);
-      return NextResponse.json({ error: 'Failed to fetch attendance' }, { status: 500 });
+      return NextResponse.json(
+        { error: "Gagal mengambil data absensi" },
+        { status: 500 },
+      );
     }
 
-    const formatted = records.map(a => ({
+    // Format response: mapping field ke camelCase
+    const formatted = records.map((a: any) => ({
       id: a.id,
       userId: a.userId,
-      tenantId: (a as any).tenantId,
+      tenantId: a.tenantId,
       date: a.date,
       timeIn: a.timeIn,
       timeOut: a.timeOut || undefined,
@@ -47,14 +93,37 @@ export async function GET(request: Request) {
       lateReason: a.lateReason || undefined,
       selfieUrl: a.selfieUrl,
       checkOutSelfieUrl: a.checkoutSelfieUrl || undefined,
-      location: { lat: Number(a.locationLat), lng: Number(a.locationLng) },
-      createdAt: a.createdAt ? new Date(a.createdAt).getTime() : undefined
+      location: {
+        lat: Number(a.locationLat),
+        lng: Number(a.locationLng),
+      },
+      createdAt: a.createdAt ? new Date(a.createdAt).getTime() : undefined,
     }));
 
+    // Response: dengan pagination → format metadata
+    if (usePagination) {
+      const totalPages = Math.ceil(total / limit);
+      return NextResponse.json({
+        data: formatted,
+        total,
+        page,
+        limit,
+        totalPages,
+        hasMore: page < totalPages,
+      });
+    }
+
+    // Backward compatible: tanpa pagination → return array langsung
     return NextResponse.json(formatted);
-  } catch (e) {
-    console.error(e);
-    return NextResponse.json({ error: 'Failed to fetch attendance' }, { status: 500 });
+  } catch (e: any) {
+    console.error("Attendance GET Error:", e);
+    if (e.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    return NextResponse.json(
+      { error: "Gagal mengambil data absensi" },
+      { status: 500 },
+    );
   }
 }
 
@@ -65,32 +134,40 @@ export async function POST(request: Request) {
     const a = await request.json();
 
     // 🛡️ SECURITY: Sanity Check Input
-    if (!a.location || typeof a.location.lat !== 'number' || typeof a.location.lng !== 'number') {
-      return NextResponse.json({ error: 'Data lokasi tidak valid (Wajib GPS)' }, { status: 400 });
+    if (
+      !a.location ||
+      typeof a.location.lat !== "number" ||
+      typeof a.location.lng !== "number"
+    ) {
+      return NextResponse.json(
+        { error: "Data lokasi tidak valid (Wajib GPS)" },
+        { status: 400 },
+      );
     }
 
     const now = new Date();
     // Gunakan Intl.DateTimeFormat untuk mendapatkan waktu Jakarta yang akurat
-    const jakartaFormatter = new Intl.DateTimeFormat('id-ID', {
-      timeZone: 'Asia/Jakarta',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false
+    const jakartaFormatter = new Intl.DateTimeFormat("id-ID", {
+      timeZone: "Asia/Jakarta",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
     });
 
     // Parse parts manually to avoid locale format issues (DD/MM/YYYY vs MM/DD/YYYY)
     const parts = jakartaFormatter.formatToParts(now);
-    const getPart = (type: string) => parts.find(p => p.type === type)?.value || '';
+    const getPart = (type: string) =>
+      parts.find((p) => p.type === type)?.value || "";
 
-    const yyyy = getPart('year');
-    const mm = getPart('month');
-    const dd = getPart('day');
-    const hh = getPart('hour');
-    const min = getPart('minute'); // Changed from 'min' to 'minute' based on Intl standard type
+    const yyyy = getPart("year");
+    const mm = getPart("month");
+    const dd = getPart("day");
+    const hh = getPart("hour");
+    const min = getPart("minute"); // Changed from 'min' to 'minute' based on Intl standard type
 
     // 1. STANDARD ISO DATE (YYYY-MM-DD) - Kunci Laporan Akurat
     let finalDateStr = `${yyyy}-${mm}-${dd}`;
@@ -107,60 +184,80 @@ export async function POST(request: Request) {
 
       // Re-format yesterday
       const yParts = jakartaFormatter.formatToParts(yesterday);
-      const yGet = (type: string) => yParts.find(p => p.type === type)?.value || '';
-      finalDateStr = `${yGet('year')}-${yGet('month')}-${yGet('day')}`;
-      console.log(`[SHIFT DETECTED] Rolling back date to ${finalDateStr} (Action at ${serverTimeStr})`);
+      const yGet = (type: string) =>
+        yParts.find((p) => p.type === type)?.value || "";
+      finalDateStr = `${yGet("year")}-${yGet("month")}-${yGet("day")}`;
+      console.log(
+        `[SHIFT DETECTED] Rolling back date to ${finalDateStr} (Action at ${serverTimeStr})`,
+      );
     }
 
     // 1. Fetch Tenant Configuration
     const tenant = await prisma.tenant.findUnique({
       where: { id: tenantId },
-      include: { settings: true }
+      include: { settings: true },
     });
 
-    if (!tenant) return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
+    if (!tenant)
+      return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
-    const strategy = tenant.workStrategy || 'FIXED';
+    const strategy = tenant.workStrategy || "FIXED";
     const radiusLimit = tenant.radiusTolerance || 50;
     const graceMinutes = tenant.lateGracePeriod || 15;
     const settings = tenant.settings;
 
     // 2. Location Validation (Only for STAFF and non-Flexible if needed, but let's apply to non-Freelance)
     const user = await prisma.user.findUnique({ where: { id: payload.id } });
-    if (user && !user.isFreelance && settings?.officeLat && settings?.officeLng) {
+    if (
+      user &&
+      !user.isFreelance &&
+      settings?.officeLat &&
+      settings?.officeLng
+    ) {
       const dist = calculateDistance(
         Number(a.location.lat),
         Number(a.location.lng),
         Number(settings.officeLat),
-        Number(settings.officeLng)
+        Number(settings.officeLng),
       );
 
       if (dist > radiusLimit) {
-        return NextResponse.json({
-          error: `GAGAL: Lokasi Anda terdeteksi ${Math.round(dist)}m dari kantor. Batas radius adalah ${radiusLimit}m.`
-        }, { status: 400 });
+        return NextResponse.json(
+          {
+            error: `GAGAL: Lokasi Anda terdeteksi ${Math.round(dist)}m dari kantor. Batas radius adalah ${radiusLimit}m.`,
+          },
+          { status: 400 },
+        );
       }
     }
 
     // 3. Late Calculation based on Strategy
     let isLateCalculated = false;
-    let effectiveStartTime = '08:00';
+    let effectiveStartTime = "08:00";
     let shiftId = a.shiftId || null;
 
-    if (strategy === 'FIXED') {
-      effectiveStartTime = settings?.officeStartTime || '08:00';
-    } else if (strategy === 'SHIFT') {
-      if (!shiftId) return NextResponse.json({ error: 'Shift ID is required for this unit' }, { status: 400 });
+    if (strategy === "FIXED") {
+      effectiveStartTime = settings?.officeStartTime || "08:00";
+    } else if (strategy === "SHIFT") {
+      if (!shiftId)
+        return NextResponse.json(
+          { error: "Shift ID is required for this unit" },
+          { status: 400 },
+        );
       const shift = await prisma.shift.findUnique({ where: { id: shiftId } });
-      if (!shift) return NextResponse.json({ error: 'Invalid Shift ID' }, { status: 400 });
+      if (!shift)
+        return NextResponse.json(
+          { error: "Invalid Shift ID" },
+          { status: 400 },
+        );
       effectiveStartTime = shift.startTime;
-    } else if (strategy === 'FLEXIBLE') {
+    } else if (strategy === "FLEXIBLE") {
       isLateCalculated = false; // No lateness in flexible mode
     }
 
-    if (strategy !== 'FLEXIBLE') {
-      const [currH, currM] = serverTimeStr.split(':').map(Number);
-      const [limitH, limitM] = effectiveStartTime.split(':').map(Number);
+    if (strategy !== "FLEXIBLE") {
+      const [currH, currM] = serverTimeStr.split(":").map(Number);
+      const [limitH, limitM] = effectiveStartTime.split(":").map(Number);
 
       let currTotal = currH * 60 + currM;
       const limitTotal = limitH * 60 + limitM;
@@ -171,7 +268,7 @@ export async function POST(request: Request) {
         currTotal += 1440; // Add 24 hours to normalize comparison
       }
 
-      isLateCalculated = currTotal > (limitTotal + graceMinutes);
+      isLateCalculated = currTotal > limitTotal + graceMinutes;
     }
 
     const attendanceData: any = {
@@ -182,21 +279,24 @@ export async function POST(request: Request) {
       timeIn: serverTimeStr,
       timeOut: null,
       isLate: isLateCalculated ? 1 : 0,
-      lateReason: isLateCalculated ? (a.lateReason || 'Terlambat') : null,
+      lateReason: isLateCalculated ? a.lateReason || "Terlambat" : null,
       selfieUrl: a.selfieUrl,
       locationLat: a.location.lat,
       locationLng: a.location.lng,
       shiftId: shiftId,
-      createdAt: new Date()
+      createdAt: new Date(),
     };
 
     const created = await prisma.attendance.create({
-      data: attendanceData
+      data: attendanceData,
     });
 
     return NextResponse.json(created, { status: 201 });
   } catch (error) {
     console.error("Attendance POST Error:", error);
-    return NextResponse.json({ error: 'Failed to record attendance' }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to record attendance" },
+      { status: 500 },
+    );
   }
 }
